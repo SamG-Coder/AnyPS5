@@ -11,6 +11,7 @@
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
+extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, std::uint32_t offset, const std::uint32_t* values, std::uint32_t numValues);
 
 namespace {
@@ -105,6 +106,26 @@ void testRegisterRange() {
     check(storage.words == expected && storage.buffer.cursor_up == storage.words.data() + 12, "misaligned register values modified command buffer");
 }
 
+void testPacketPayloadAddress() {
+    Storage storage;
+    auto* packet = sceAgcCbSetShRegisterRangeDirect(&storage.buffer, 0x8c, nullptr, 4);
+    std::uint32_t* payload = nullptr;
+    check(sceAgcGetDataPacketPayloadAddressUnk(&payload, packet, 1) == 0 && payload == packet + 2, "incorrect register packet payload address");
+    const std::array<std::uint32_t, 4> values{11, 22, 33, 44};
+    std::copy(values.begin(), values.end(), payload);
+    const std::array<std::uint32_t, 6> expected{0xc0047600u, 0x8c, 11, 22, 33, 44};
+    check(std::equal(expected.begin(), expected.end(), packet), "payload write corrupted register packet");
+    check(sceAgcGetDataPacketPayloadAddressUnk(&payload, packet, 0) == 0 && payload == packet + 1, "incorrect generic packet payload address");
+    packet[0] = 0xffff1000u;
+    check(sceAgcGetDataPacketPayloadAddressUnk(&payload, packet, 0) == 0 && payload == nullptr, "empty payload marker was not recognized");
+    check(sceAgcGetDataPacketPayloadAddressUnk(&payload, packet, -1) == 0 && payload == packet + 2, "nonzero payload type did not skip two words");
+    expectFailure([&] { sceAgcGetDataPacketPayloadAddressUnk(nullptr, packet, 1); });
+    expectFailure([&] { sceAgcGetDataPacketPayloadAddressUnk(&payload, nullptr, 1); });
+    auto* misaligned = reinterpret_cast<std::uint32_t*>(reinterpret_cast<unsigned char*>(packet) + 1);
+    expectFailure([&] { sceAgcGetDataPacketPayloadAddressUnk(&payload, misaligned, 0); });
+    check(payload == packet + 2, "invalid packet changed output address");
+}
+
 void testMemory() {
     Storage storage;
     Agc::Command::WriteDma(&storage.buffer, false, 1, 0, 0, 0x2000, 2, 0, 0x12345678, 16, 0, 1, 1, __func__);
@@ -140,6 +161,7 @@ int main() {
         testPackets();
         testRegisters();
         testRegisterRange();
+        testPacketPayloadAddress();
         testMemory();
         testDefaults();
         std::puts("AGC command tests passed");

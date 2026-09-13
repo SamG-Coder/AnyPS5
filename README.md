@@ -12,7 +12,7 @@ Execution reaches `_start`, stack unwinding and exception handling tables are bu
 Shader initialization via `sceAgcCreate*` passes.
 Audio output and video output initialization pass
 
-Now: `sceAgcGetDataPacketPayloadAddressUnk not implemented`.
+Now: `sceAgcDcbSetFlip not implemented`.
 
 ## Disclaimer
 
