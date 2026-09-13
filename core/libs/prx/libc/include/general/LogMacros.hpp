@@ -42,4 +42,18 @@ std::fflush(stream))
 #define APS5_LOG_CHARS_OUT(fmt) _APS5_LOG_IMPL_NF(stdout, fmt)
 #define APS5_LOG_CHARS_ERR(fmt) _APS5_LOG_IMPL_NF(stderr, fmt)
 
+#define APS5_LOG_OUT_IF(enabled, fmt, ...) \
+do { \
+if (enabled) { \
+_APS5_LOG_IMPL(stdout, fmt, __VA_ARGS__); \
+} \
+} while (0)
+
+#define APS5_LOG_CHARS_OUT_IF(enabled, fmt) \
+do { \
+if (enabled) { \
+_APS5_LOG_IMPL_NF(stdout, fmt); \
+} \
+} while (0)
+
 #endif
