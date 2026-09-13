@@ -1,118 +1,16 @@
 #include <elfpatcher/windows/WindowsDependencyStubBuilder.hpp>
+#include <codegen/x86/X64Assembler.hpp>
 #include <io/BufferUtils.hpp>
 
 namespace Elfpatcher::Windows {
 
 namespace {
 
-enum Register : std::uint8_t { Ax, Cx, Dx, Bx, Sp, Bp, Si, Di, R8, R9, R10, R11, R12, R13, R14, R15 };
+using enum Codegen::X64Register;
+using Assembler = Codegen::X64Assembler<WindowsStubEmitter>;
 constexpr std::uint32_t PathCapacity = 32768;
 constexpr std::uint32_t NodeSize = PathCapacity + 64;
 constexpr std::uint32_t NodeLimit = 128;
-
-class Assembler {
-public:
-    Assembler(WindowsStubEmitter& code, const WindowsImports& imports, const std::map<std::string, std::uint32_t>& storage) : code(code), imports(imports), storage(storage) {}
-
-    void Mark(const std::string& label) {
-        if (!labels.emplace(label, code.GetRva()).second)
-            throw Domain::RelinkerException("Duplicate dependency stub label: " + label);
-    }
-
-    void Jump(const std::string& label, const std::uint8_t condition = 0) {
-        const auto branch = condition == 0 ? code.Branch({0xe9}) : code.Branch({0x0f, condition});
-        branches.emplace_back(branch, label);
-    }
-
-    void Call(const std::string& label) { branches.emplace_back(code.Branch({0xe8}), label); }
-    void Api(const std::string& name) { code.Rip({0xff, 0x15}, imports.Functions.at(name)); }
-
-    void Begin(const std::string& name) {
-        Mark(name);
-        starts.push_back(code.GetRva());
-        code.Emit({0x53, 0x55, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xec, 0x48});
-    }
-
-    void End() {
-        code.Emit({0x48, 0x83, 0xc4, 0x48, 0x41, 0x5f, 0x41, 0x5e, 0x41, 0x5d, 0x41, 0x5c, 0x5f, 0x5e, 0x5d, 0x5b, 0xc3});
-        ends.push_back(code.GetRva());
-    }
-
-    void Mov(const Register destination, const Register source) { binary(0x89, destination, source); }
-    void Add(const Register destination, const Register source) { binary(0x01, destination, source); }
-    void Sub(const Register destination, const Register source) { binary(0x29, destination, source); }
-    void Compare(const Register left, const Register right) { binary(0x39, left, right); }
-    void Test(const Register value) { binary(0x85, value, value); }
-
-    void Value(const Register destination, const std::uint64_t value) {
-        code.Emit({static_cast<std::uint8_t>(0x48 | (destination >> 3)), static_cast<std::uint8_t>(0xb8 | (destination & 7))});
-        code.U64(value);
-    }
-
-    void AddValue(const Register destination, const std::uint32_t value) { immediate(destination, 0, value); }
-    void SubValue(const Register destination, const std::uint32_t value) { immediate(destination, 5, value); }
-    void CompareValue(const Register destination, const std::uint32_t value) { immediate(destination, 7, value); }
-    void Mask(const Register destination, const std::uint32_t value) { immediate(destination, 4, value); }
-
-    void Load(const Register destination, const Register base, const std::uint32_t offset = 0, const std::uint8_t size = 8) { memory(destination, base, offset, size == 1 ? 0xb6 : size == 2 ? 0xb7 : 0x8b, size); }
-    void Store(const Register base, const std::uint32_t offset, const Register source) { memory(source, base, offset, 0x89, 8); }
-    void StoreByte(const Register base, const Register source) { memory(source, base, 0, 0x88, 1, false); }
-    void Address(const Register destination, const Register base, const std::uint32_t offset) { memory(destination, base, offset, 0x8d, 8); }
-
-    void Data(const Register destination, const std::string& name) {
-        code.Rip({static_cast<std::uint8_t>(0x48 | ((destination >> 3) << 2)), 0x8d, static_cast<std::uint8_t>(0x05 | ((destination & 7) << 3))}, storage.at(name));
-    }
-
-    void Global(const Register destination, const std::string& name) {
-        code.Rip({static_cast<std::uint8_t>(0x48 | ((destination >> 3) << 2)), 0x8b, static_cast<std::uint8_t>(0x05 | ((destination & 7) << 3))}, storage.at(name));
-    }
-
-    void Save(const std::string& name, const Register source) {
-        code.Rip({static_cast<std::uint8_t>(0x48 | ((source >> 3) << 2)), 0x89, static_cast<std::uint8_t>(0x05 | ((source & 7) << 3))}, storage.at(name));
-    }
-
-    void Text(const std::string& name) { Data(Cx, name); Call("write"); }
-
-    void Finish() {
-        for (const auto& [offset, label] : branches)
-            code.PatchBranch(offset, labels.at(label));
-    }
-
-    WindowsDependencyStub Result(const std::uint32_t unwind) const {
-        WindowsDependencyStub result{labels.at("diagnose"), {}};
-        for (std::size_t index = 0; index < starts.size(); ++index)
-            result.Functions.push_back({starts[index], ends.at(index), unwind});
-        return result;
-    }
-
-private:
-    void binary(const std::uint8_t opcode, const Register destination, const Register source) {
-        code.Emit({static_cast<std::uint8_t>(0x48 | ((source >> 3) << 2) | (destination >> 3)), opcode, static_cast<std::uint8_t>(0xc0 | ((source & 7) << 3) | (destination & 7))});
-    }
-
-    void immediate(const Register destination, const std::uint8_t operation, const std::uint32_t value) {
-        code.Emit({static_cast<std::uint8_t>(0x48 | (destination >> 3)), 0x81, static_cast<std::uint8_t>(0xc0 | (operation << 3) | (destination & 7))});
-        code.U32(value);
-    }
-
-    void memory(const Register value, const Register base, const std::uint32_t offset, const std::uint8_t opcode, const std::uint8_t size, const bool extend = true) {
-        code.Emit({static_cast<std::uint8_t>((size == 8 ? 0x48 : 0x40) | ((value >> 3) << 2) | (base >> 3))});
-        if (size < 4 && extend)
-            code.Emit({0x0f});
-        code.Emit({opcode, static_cast<std::uint8_t>(0x80 | ((value & 7) << 3) | (base & 7))});
-        if ((base & 7) == Sp)
-            code.Emit({0x24});
-        code.U32(offset);
-    }
-
-    WindowsStubEmitter& code;
-    const WindowsImports& imports;
-    const std::map<std::string, std::uint32_t>& storage;
-    std::map<std::string, std::uint32_t> labels;
-    std::vector<std::pair<std::size_t, std::string>> branches;
-    std::vector<std::uint32_t> starts;
-    std::vector<std::uint32_t> ends;
-};
 
 }
 
@@ -151,7 +49,7 @@ WindowsDependencyStubBuilder::WindowsDependencyStubBuilder(PeSection& data) {
 }
 
 WindowsDependencyStub WindowsDependencyStubBuilder::Build(WindowsStubEmitter& code, const WindowsImports& imports) const {
-    Assembler a(code, imports, storage);
+    Assembler a(code, imports.Functions, storage);
 
     a.Begin("write");
     a.Mov(Si, Cx);
@@ -757,7 +655,10 @@ WindowsDependencyStub WindowsDependencyStubBuilder::Build(WindowsStubEmitter& co
     a.End();
 
     a.Finish();
-    return a.Result(unwindRva);
+    WindowsDependencyStub result{a.Label("diagnose"), {}};
+    for (const auto& [start, end] : a.Functions())
+        result.Functions.push_back({start, end, unwindRva});
+    return result;
 }
 
 }
