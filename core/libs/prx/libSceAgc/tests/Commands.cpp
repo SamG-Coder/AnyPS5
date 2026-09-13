@@ -11,6 +11,7 @@
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
+extern "C" std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, std::uint32_t offset, const std::uint32_t* values, std::uint32_t numValues);
 
 namespace {
 
@@ -81,6 +82,29 @@ void testRegisters() {
     check(storage.words == before, "invalid indirect patch modified memory");
 }
 
+void testRegisterRange() {
+    Storage storage;
+    storage.words.fill(0xdeadbeefu);
+    auto* packet = sceAgcCbSetShRegisterRangeDirect(&storage.buffer, 0x8c, nullptr, 4);
+    auto expected = storage.words;
+    expected.fill(0xdeadbeefu);
+    expected[0] = 0xc0047600u;
+    expected[1] = 0x8c;
+    check(packet == storage.words.data(), "incorrect register range packet address");
+    check(storage.buffer.cursor_up == storage.words.data() + 6, "incorrect register range allocation");
+    check(storage.words == expected, "null register values modified payload or adjacent memory");
+    const std::array<std::uint32_t, 4> values{1, 2, 3, 4};
+    packet = sceAgcCbSetShRegisterRangeDirect(&storage.buffer, 0x90, values.data(), values.size());
+    expected[6] = 0xc0047600u;
+    expected[7] = 0x90;
+    std::copy(values.begin(), values.end(), expected.begin() + 8);
+    check(packet == storage.words.data() + 6 && storage.buffer.cursor_up == storage.words.data() + 12, "incorrect populated register range allocation");
+    check(storage.words == expected, "register values were not copied correctly");
+    const auto* misaligned = reinterpret_cast<const std::uint32_t*>(reinterpret_cast<const unsigned char*>(values.data()) + 1);
+    expectFailure([&] { sceAgcCbSetShRegisterRangeDirect(&storage.buffer, 0x8c, misaligned, 4); });
+    check(storage.words == expected && storage.buffer.cursor_up == storage.words.data() + 12, "misaligned register values modified command buffer");
+}
+
 void testMemory() {
     Storage storage;
     Agc::Command::WriteDma(&storage.buffer, false, 1, 0, 0, 0x2000, 2, 0, 0x12345678, 16, 0, 1, 1, __func__);
@@ -115,6 +139,7 @@ int main() {
     try {
         testPackets();
         testRegisters();
+        testRegisterRange();
         testMemory();
         testDefaults();
         std::puts("AGC command tests passed");

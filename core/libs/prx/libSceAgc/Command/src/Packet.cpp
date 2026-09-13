@@ -83,8 +83,11 @@ std::uint32_t* WriteNop(CommandBuffer* buffer, std::uint32_t count, const char* 
 
 std::uint32_t* WriteRegisterRange(CommandBuffer* buffer, std::uint32_t opcode, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count, const char* function) {
     Require(count != 0 && count <= 0x3fffu && offset <= 0xffffu && count <= 0x10000u - offset, function, "invalid register range");
-    CheckAddress(reinterpret_cast<std::uintptr_t>(values), 4, function);
-    const std::vector<std::uint32_t> snapshot(values, values + count);
+    std::vector<std::uint32_t> snapshot;
+    if (values != nullptr) {
+        CheckAddress(reinterpret_cast<std::uintptr_t>(values), 4, function);
+        snapshot.assign(values, values + count);
+    }
     auto* packet = Allocate(buffer, count + 2u, function);
     packet[0] = Header(opcode, count + 2u);
     packet[1] = offset;

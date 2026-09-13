@@ -12,7 +12,7 @@ Execution reaches `_start`, stack unwinding and exception handling tables are bu
 Shader initialization via `sceAgcCreate*` passes.
 Audio output and video output initialization pass
 
-Now: `sceAgcCbSetShRegisterRangeDirect: null or misaligned address`.
+Now: `sceAgcGetDataPacketPayloadAddressUnk not implemented`.
 
 ## Disclaimer
 
