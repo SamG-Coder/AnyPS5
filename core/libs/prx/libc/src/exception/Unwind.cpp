@@ -182,7 +182,7 @@ bool DecodeFrame(_Unwind_Context& context, Frame& frame) {
         while (end - p >= 8) {
             const Byte* record = p;
             const auto length = Read<std::uint32_t>(p);
-            if (!length) break;
+            if (!length) continue;
             if (length == 0xffffffff || length < 4 || Word(end - p) < length) return false;
             const Byte* next = p + length;
             if (Read<std::uint32_t>(p)) {
@@ -357,6 +357,11 @@ bool Step(_Unwind_Context& context) {
         if (rule.kind == 1) std::memcpy(destination, reinterpret_cast<void*>(context.cfa + rule.value), 16);
         else if (rule.kind == 2 && rule.value >= 17 && rule.value < RuleCount)
             std::memcpy(destination, context.vectorRegisters[rule.value - 17], 16);
+        else if (rule.kind == 3) {
+            Word address;
+            if (!Expression(rule.expression, context, context.cfa, address)) return false;
+            std::memcpy(destination, reinterpret_cast<const void*>(address), 16);
+        }
         else if (rule.kind == 5) std::memset(destination, 0, 16);
         else if (rule.kind != 0) return false;
     }

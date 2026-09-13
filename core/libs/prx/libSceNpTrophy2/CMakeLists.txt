@@ -10,3 +10,4 @@ target_include_directories(libSceNpTrophy2 PRIVATE
         ${LIBS_INCLUDE_DIR}
 )
 target_link_libraries(libSceNpTrophy2 PRIVATE libc)
+configure_windows_unwind(libSceNpTrophy2)

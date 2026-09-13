@@ -13,3 +13,4 @@ target_include_directories(libSceAudioOut PRIVATE
         ${CMAKE_SOURCE_DIR}/3rdparty/SDL2/include
 )
 target_link_libraries(libSceAudioOut PRIVATE libc libkernel SDL2-static)
+configure_windows_unwind(libSceAudioOut)

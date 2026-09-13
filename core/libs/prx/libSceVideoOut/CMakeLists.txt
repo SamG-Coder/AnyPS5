@@ -10,3 +10,4 @@ target_include_directories(libSceVideoOut PRIVATE
         ${CMAKE_SOURCE_DIR}/3rdparty/SDL2/include
 )
 target_link_libraries(libSceVideoOut PRIVATE libc libkernel SDL2-static)
+configure_windows_unwind(libSceVideoOut)

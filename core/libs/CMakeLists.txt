@@ -14,11 +14,24 @@ if(MINGW)
     add_compile_options(-fno-asynchronous-unwind-tables)
 endif()
 
+function(configure_windows_unwind target)
+    if(MINGW)
+        if(NOT EXISTS "${CMAKE_OBJCOPY}")
+            message(FATAL_ERROR "Windows DWARF unwinding requires objcopy")
+        endif()
+        add_custom_command(TARGET ${target} POST_BUILD
+                COMMAND "${CMAKE_OBJCOPY}" --rename-section .eh_frame=.ehfram "$<TARGET_FILE:${target}>"
+                VERBATIM
+        )
+    endif()
+endfunction()
+
 set(LIBC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/prx/libc)
 add_library(libc SHARED EXCLUDE_FROM_ALL)
 set(LIBS_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 add_subdirectory(${LIBC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/prx/libc)
 target_include_directories(libc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+configure_windows_unwind(libc)
 
 set(UNPATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs/unpatched)
 set(PATCHED_DIR ${CMAKE_CURRENT_BINARY_DIR}/libs)
@@ -56,6 +69,7 @@ foreach(LIB_DIR ${LIBS_DIRS})
         else()
             add_library(${LIB_NAME} SHARED EXCLUDE_FROM_ALL ${LIB_DIR}/Export.cpp)
             target_include_directories(${LIB_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+            configure_windows_unwind(${LIB_NAME})
         endif()
 
         if(LIB_NAME STREQUAL "libkernel")
@@ -87,3 +101,13 @@ foreach(LIB_DIR ${LIBS_DIRS})
 endforeach()
 
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
+
+if(MINGW)
+    foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
+        string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    endforeach()
+    add_executable(windows_exception_tests EXCLUDE_FROM_ALL tests/WindowsExceptions.cpp)
+    set_target_properties(windows_exception_tests PROPERTIES CXX_EXTENSIONS OFF)
+    target_link_libraries(windows_exception_tests PRIVATE libc)
+    configure_windows_unwind(windows_exception_tests)
+endif()

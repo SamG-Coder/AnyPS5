@@ -12,3 +12,4 @@ target_include_directories(libSceNpUniversalDataSystem PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 target_link_libraries(libSceNpUniversalDataSystem PRIVATE libc)
+configure_windows_unwind(libSceNpUniversalDataSystem)

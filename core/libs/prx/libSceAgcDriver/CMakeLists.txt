@@ -12,3 +12,4 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
 
 target_include_directories(libSceAgcDriver PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(libSceAgcDriver PRIVATE libc)
+configure_windows_unwind(libSceAgcDriver)
