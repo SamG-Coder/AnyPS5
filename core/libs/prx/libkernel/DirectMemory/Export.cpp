@@ -102,4 +102,103 @@ int APS5_VABI sceKernelVirtualQuery(const void* addr, int flags, VirtualQueryInf
  return 0;
 }
 
+// ---------------------------------------------------------------------------
+// Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI sceKernelCheckedReleaseDirectMemory(int64_t start, size_t len) {
+ (void)start;
+ (void)len;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelMtypeprotect(const void* addr, size_t len, int type, int prot) {
+ (void)addr;
+ (void)len;
+ (void)type;
+ (void)prot;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelQueryMemoryProtection(void* addr, void** start, void** end, int* prot) {
+ (void)addr;
+ (void)start;
+ (void)end;
+ (void)prot;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelIsStack(void* addr, void** start, void** end) {
+ (void)addr;
+ (void)start;
+ (void)end;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelAvailableFlexibleMemorySize(size_t* size) {
+ (void)size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelConfiguredFlexibleMemorySize(size_t* size) {
+ (void)size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelSetVirtualRangeName(const void* addr, uint64_t len, const char* name) {
+ (void)addr;
+ (void)len;
+ (void)name;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelGetPageTableStats(int* cpu_total, int* cpu_available, int* gpu_total, int* gpu_available) {
+ (void)cpu_total;
+ (void)cpu_available;
+ (void)gpu_total;
+ (void)gpu_available;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelGetPrtAperture(int index, void** addr, size_t* len) {
+ (void)index;
+ (void)addr;
+ (void)len;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelSetPrtAperture(int index, void* addr, size_t len) {
+ (void)index;
+ (void)addr;
+ (void)len;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelBatchMap(KernelBatchMapEntry* entries, int num_entries, int* num_entries_out) {
+ (void)entries;
+ (void)num_entries;
+ (void)num_entries_out;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelBatchMap2(KernelBatchMapEntry* entries, int num_entries, int* num_entries_out, int flags) {
+ (void)entries;
+ (void)num_entries;
+ (void)num_entries_out;
+ (void)flags;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

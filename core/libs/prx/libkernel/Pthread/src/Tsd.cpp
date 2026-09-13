@@ -1,12 +1,6 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
 
-// ---------------------------------------------------------------------------
-// Thread-specific data (pthread keys). Moved as-is (not yet implemented)
-// from the duplicated stubs in libkernel_sys/Export.cpp and
-// libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 extern "C" {
 
 int APS5_VABI scePthreadKeyCreate(PthreadKey* key, pthread_key_destructor_func_t destructor) {

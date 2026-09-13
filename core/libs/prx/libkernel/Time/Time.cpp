@@ -236,4 +236,69 @@ int APS5_VABI clock_getres_nid_postfix(int clockId, KernelTimespec* res) {
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI sceKernelClockGetres(KernelClockid clock_id, KernelTimespec* tp) {
+ (void)clock_id;
+ (void)tp;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelClockGettime(KernelClockid clock_id, KernelTimespec* tp) {
+ (void)clock_id;
+ (void)tp;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelConvertLocaltimeToUtc(int64_t local_time, int64_t reserved, int64_t* utc_time, KernelTimezone* timezone, int32_t* dst_seconds) {
+ (void)local_time;
+ (void)reserved;
+ (void)utc_time;
+ (void)timezone;
+ (void)dst_seconds;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelConvertUtcToLocaltime(int64_t utc_time, int64_t* local_time, KernelTimesec* st, uint64_t* dst_sec) {
+ (void)utc_time;
+ (void)local_time;
+ (void)st;
+ (void)dst_sec;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelGettimeofday(KernelTimeval* tp) {
+ (void)tp;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelGettimezone(KernelTimezone* tz) {
+ (void)tz;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+uint64_t APS5_VABI sceKernelReadTsc(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+uint64_t APS5_VABI sceKernelGetTscFrequency(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+unsigned int APS5_VABI sceKernelSleep(unsigned int seconds) {
+ (void)seconds;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

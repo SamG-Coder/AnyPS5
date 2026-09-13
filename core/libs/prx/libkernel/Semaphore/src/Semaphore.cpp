@@ -68,4 +68,22 @@ int APS5_VABI sceKernelWaitSema(KernelSema sem, int need, KernelUseconds* time) 
  return KERNEL_SEMA_OK;
 }
 
+// ---------------------------------------------------------------------------
+// Moved as-is (not yet implemented) from the monolithic libkernel/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI sceKernelCancelSema(KernelSema sem, int count, int* threads) {
+ (void)sem;
+ (void)count;
+ (void)threads;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI sceKernelDeleteSema(KernelSema sem) {
+ (void)sem;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

@@ -1,13 +1,6 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
 
-// ---------------------------------------------------------------------------
-// POSIX-style pthread semaphores (scePthreadSem*). Not to be confused with
-// the native sceKernel* semaphore in libkernel/Semaphore. Moved as-is
-// (not yet implemented) from the duplicated stubs in libkernel_sys/Export.cpp
-// and libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 extern "C" {
 
 int APS5_VABI scePthreadSemDestroy(void* sem) {

@@ -1,12 +1,6 @@
 #include "../include/Pthread.hpp"
 #include "prx/libc/include/General.hpp"
 
-// ---------------------------------------------------------------------------
-// Reader/writer locks (scePthreadRwlock*). Moved as-is (not yet implemented)
-// from the duplicated stubs in libkernel_sys/Export.cpp and
-// libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 extern "C" {
 
 int APS5_VABI scePthreadRwlockDestroy(PthreadRwlock* rwlock) {
