@@ -10,16 +10,16 @@
 
 extern "C" {
 
-uint32_t* APS5_VABI sceAgcDcbAcquireMem(CommandBuffer* buf, uint8_t engine, uint32_t cb_db_op, uint32_t gcr_cntl, const volatile void* base, uint64_t size_bytes, uint32_t poll_cycles) {
- (void)buf;
- (void)engine;
- (void)cb_db_op;
- (void)gcr_cntl;
- (void)base;
- (void)size_bytes;
- (void)poll_cycles;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcDcbAcquireMem(CommandBuffer* buf, std::uint8_t engine, std::uint32_t cbDbOp, std::uint32_t gcrControl, const volatile void* base, std::uint64_t sizeBytes, std::uint32_t pollCycles) {
+    Agc::Command::CheckBits(engine, 1, __func__);
+    Agc::Command::CheckBits(cbDbOp, 0x7fffffffu, __func__);
+    Agc::Command::CheckBits(gcrControl, 0x7ffffu, __func__);
+    const auto address = reinterpret_cast<std::uintptr_t>(base);
+    Agc::Command::Require((address & 0xffu) == 0 && (address >> 40u) == 0, __func__, "invalid acquire memory base address");
+    const auto wholeAddressSpace = sizeBytes == 0xffffffffffffffffull;
+    Agc::Command::Require(wholeAddressSpace || ((sizeBytes & 0xffu) == 0 && (sizeBytes >> 40u) == 0), __func__, "invalid acquire memory range size");
+    Agc::Command::Require(pollCycles / 40u <= 0xffffu, __func__, "acquire poll interval overflow");
+    return Agc::Command::Emit(buf, 0x58u, {(static_cast<std::uint32_t>(engine) << 31u) | cbDbOp, wholeAddressSpace ? 0u : static_cast<std::uint32_t>(sizeBytes >> 8u), 0, static_cast<std::uint32_t>(address >> 8u), 0, pollCycles / 40u, gcrControl}, __func__);
 }
 
 uint32_t APS5_VABI sceAgcDcbAcquireMemGetSize(void) {

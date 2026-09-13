@@ -1,3 +1,4 @@
+#include "prx/libSceAgc/Command/include/Draw.hpp"
 #include "prx/libSceAgc/DcbDraw/include/DrawIndexed.hpp"
 
 #include "prx/libSceAgc/Command/include/Packet.hpp"
@@ -17,31 +18,20 @@ uint32_t* APS5_VABI sceAgcDcbDrawIndex(CommandBuffer* buf, uint32_t index_count,
  return nullptr;
 }
 
-uint32_t APS5_VABI sceAgcDcbDrawIndexGetSize(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbDrawIndexGetSize() {
+    return 24;
 }
 
-uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, uint32_t index_count, uint64_t modifier) {
- (void)buf;
- (void)index_count;
- (void)modifier;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier) {
+    return Agc::Command::Emit(buf, 0x2du, {indexCount, Agc::Command::DrawInitiator(modifier, false, __func__)}, __func__);
 }
 
-uint32_t APS5_VABI sceAgcDcbDrawIndexAutoGetSize(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbDrawIndexAutoGetSize() {
+    return 12;
 }
 
-uint32_t* APS5_VABI sceAgcDcbDrawIndexOffset(CommandBuffer* buf, uint32_t index_offset, uint32_t index_count, uint64_t modifier) {
- (void)buf;
- (void)index_offset;
- (void)index_count;
- (void)modifier;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcDcbDrawIndexOffset(CommandBuffer* buf, std::uint32_t indexOffset, std::uint32_t indexCount, std::uint64_t modifier) {
+    return Agc::Command::Emit(buf, 0x35u, {indexCount == 0 ? 1u : indexCount, indexOffset, indexCount, Agc::Command::DrawInitiator(modifier, true, __func__)}, __func__);
 }
 
 uint32_t APS5_VABI sceAgcDcbDrawIndexOffsetGetSize(void) {
@@ -57,9 +47,8 @@ uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirect(CommandBuffer* buf, uint32_t data
  return nullptr;
 }
 
-uint32_t APS5_VABI sceAgcDcbDrawIndexIndirectGetSize() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbDrawIndexIndirectGetSize() {
+    return 20;
 }
 
 uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirectMulti(CommandBuffer* buf, uint32_t data_offset_in_bytes, uint32_t count_indirect, uint32_t max_count_or_count, const volatile void* count_addr, uint32_t stride_in_bytes, uint64_t modifier) {
@@ -74,9 +63,8 @@ uint32_t* APS5_VABI sceAgcDcbDrawIndexIndirectMulti(CommandBuffer* buf, uint32_t
  return nullptr;
 }
 
-uint32_t APS5_VABI sceAgcDcbDrawIndexIndirectMultiGetSize() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbDrawIndexIndirectMultiGetSize() {
+    return 40;
 }
 
 uint32_t* APS5_VABI sceAgcDcbDrawIndexMultiInstanced(CommandBuffer* buf, uint32_t index_count, const volatile void* index_addr, const volatile void* object_ids, uint32_t instance_count, uint64_t modifier) {

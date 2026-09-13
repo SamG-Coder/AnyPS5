@@ -1,4 +1,5 @@
 #include "prx/libSceAgc/Acb/include/Memory.hpp"
+#include "prx/libSceAgc/DcbFlow/include/Memory.hpp"
 
 #include "prx/libSceAgc/Command/include/Memory.hpp"
 #include "prx/libSceAgc/Command/include/Packet.hpp"
@@ -9,14 +10,8 @@
 
 extern "C" {
 
-uint32_t* APS5_VABI sceAgcAcbAcquireMem(CommandBuffer* buf, uint32_t gcr_cntl, const volatile void* base, uint64_t size_bytes, uint32_t poll_cycles) {
- (void)buf;
- (void)gcr_cntl;
- (void)base;
- (void)size_bytes;
- (void)poll_cycles;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcAcbAcquireMem(CommandBuffer* buf, std::uint32_t gcrControl, const volatile void* base, std::uint64_t sizeBytes, std::uint32_t pollCycles) {
+    return sceAgcDcbAcquireMem(buf, 1, 0, gcrControl, base, sizeBytes, pollCycles);
 }
 
 uint32_t APS5_VABI sceAgcAcbAcquireMemGetSize(void) {

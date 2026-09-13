@@ -1,3 +1,5 @@
+#include "prx/libSceAgc/Command/include/RegisterDefaults.hpp"
+#include "prx/libSceAgc/Command/include/Packet.hpp"
 #include "prx/libSceAgc/Misc/include/RegisterDefaults.hpp"
 
 #include <cstdint>
@@ -7,16 +9,12 @@
 
 extern "C" {
 
-void* APS5_VABI sceAgcGetRegisterDefaults2(uint32_t ver) {
- (void)ver;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+void* APS5_VABI sceAgcGetRegisterDefaults2(std::uint32_t version) {
+    return Agc::Command::GetRegisterDefaults(version, false, __func__);
 }
 
-void* APS5_VABI sceAgcGetRegisterDefaults2Internal(uint32_t ver) {
- (void)ver;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+void* APS5_VABI sceAgcGetRegisterDefaults2Internal(std::uint32_t version) {
+    return Agc::Command::GetRegisterDefaults(version, true, __func__);
 }
 
 }

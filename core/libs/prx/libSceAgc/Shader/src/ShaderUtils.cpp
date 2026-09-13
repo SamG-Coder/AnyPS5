@@ -11,7 +11,12 @@ bool GetProgramAddressRegisterOffset(std::uint8_t type, std::uint32_t& loOffset)
         case ShaderBinaryType::Hs: loOffset = SPI_SHADER_PGM_LO_LS; return true;
         case ShaderBinaryType::GsBack: loOffset = SPI_SHADER_PGM_LO_GS; return true;
         case ShaderBinaryType::HsBack: loOffset = SPI_SHADER_PGM_LO_HS; return true;
-        default: return false;
+        case ShaderBinaryType::GsFront:
+        case ShaderBinaryType::HsFront:
+        case ShaderBinaryType::Fs:
+            return false;
+        default:
+            throw std::runtime_error(std::string(__func__) + ": invalid shader binary type");
     }
 }
 
@@ -34,6 +39,9 @@ int PatchProgramAddressRegister(ShaderRegister* regs, std::uint32_t numRegs, std
         const std::uint64_t shaderOffset =
             (static_cast<std::uint64_t>(regs[i].value) << 8u) |
             ((static_cast<std::uint64_t>(regs[hiIndex].value) & 0xFFu) << 40u);
+        if (base > 0xffffffffffffull || shaderOffset > 0xffffffffffffull - base) {
+            throw std::runtime_error(std::string(__func__) + ": shader program address overflow");
+        }
         const std::uint64_t addr = base + shaderOffset;
         regs[i].value = static_cast<std::uint32_t>((addr >> 8u) & 0xFFFFFFFFu);
         regs[hiIndex].value &= 0xFFFFFF00u;
@@ -57,8 +65,19 @@ std::uint32_t GraphicsPrimTypeToGsOut(std::uint32_t primType) {
             return static_cast<std::uint32_t>(GsOutputPrimitiveType::Rectangle2D);
         case PrimitiveType::RectListLegacy:
             return static_cast<std::uint32_t>(GsOutputPrimitiveType::RectList);
-        default:
+        case PrimitiveType::None:
+        case PrimitiveType::TriList:
+        case PrimitiveType::TriFan:
+        case PrimitiveType::TriStrip:
+        case PrimitiveType::Patch:
+        case PrimitiveType::TriListAdjacency:
+        case PrimitiveType::TriStripAdjacency:
+        case PrimitiveType::QuadListLegacy:
+        case PrimitiveType::QuadStripLegacy:
+        case PrimitiveType::Polygon:
             return static_cast<std::uint32_t>(GsOutputPrimitiveType::Triangles);
+        default:
+            throw std::runtime_error(std::string(__func__) + ": invalid primitive type");
     }
 }
 

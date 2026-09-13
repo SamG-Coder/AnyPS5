@@ -8,6 +8,8 @@ add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Registers.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Cb/src/Sync.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Memory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/RegisterDefaults.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Command/src/Packet.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/DrawIndexed.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/DcbDraw/src/DrawNonIndexed.cpp
@@ -53,3 +55,11 @@ option(APS5_AGC_CREATE_LOG "Logging sceAgcCreateShader Ok status" ON)
 target_compile_definitions(libSceAgc PRIVATE
         APS5_AGC_CREATE_LOG=$<BOOL:${APS5_AGC_CREATE_LOG}>
 )
+
+foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
+    string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+endforeach()
+
+add_executable(agc_command_tests EXCLUDE_FROM_ALL tests/Commands.cpp)
+target_include_directories(agc_command_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_command_tests PRIVATE libSceAgc libc)

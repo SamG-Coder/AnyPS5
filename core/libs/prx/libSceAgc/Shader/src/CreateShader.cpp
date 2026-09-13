@@ -28,6 +28,16 @@ int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void
 
     auto* h = static_cast<Shader*>(header);
 
+    if (h->file_header != ShaderRegs::SHADER_FILE_HEADER_MAGIC || h->version != ShaderRegs::SHADER_VERSION) {
+        throw std::runtime_error(std::string(fn) + ": invalid shader header or version");
+    }
+    const auto base = reinterpret_cast<std::uint64_t>(code);
+    if ((base & ShaderRegs::SHADER_BASE_ALIGN_MASK) != 0 || h->shader_size == 0 || (h->shader_size & 3u) != 0) {
+        throw std::runtime_error(std::string(fn) + ": invalid shader code address or size");
+    }
+    std::uint32_t programOffset = 0;
+    (void)GetProgramAddressRegisterOffset(h->type, programOffset);
+
     ResolveRelativePtr(h->cx_registers);
     ResolveRelativePtr(h->sh_registers);
     ResolveRelativePtr(h->user_data);
@@ -44,19 +54,6 @@ int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void
     }
 
     h->code = code;
-
-    if (h->file_header != ShaderRegs::SHADER_FILE_HEADER_MAGIC) {
-        throw std::runtime_error(std::string(fn) + ": invalid file_header magic");
-    }
-    if (h->version != ShaderRegs::SHADER_VERSION) {
-        throw std::runtime_error(std::string(fn) + ": unsupported shader version");
-    }
-
-    const auto base = reinterpret_cast<std::uint64_t>(code);
-
-    if ((base & ShaderRegs::SHADER_BASE_ALIGN_MASK) != 0) {
-        throw std::runtime_error(std::string(fn) + ": code address violates alignment mask");
-    }
 
     int result = PatchProgramAddressRegister(h->sh_registers, h->num_sh_registers, h->type, base);
     if (result != 0) {

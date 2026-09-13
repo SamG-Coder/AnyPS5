@@ -18,6 +18,20 @@ int APS5_VABI sceAgcCreatePrimState(ShaderRegister* cx_regs, ShaderRegister* uc_
         throw std::runtime_error(std::string(__func__) + ": gs is null");
     }
 
+    if (gs->type != static_cast<std::uint8_t>(ShaderRegs::ShaderBinaryType::Gs) || gs->specials == nullptr || (hs != nullptr && (hs->type != static_cast<std::uint8_t>(ShaderRegs::ShaderBinaryType::Hs) || hs->specials == nullptr))) {
+        throw std::runtime_error(std::string(__func__) + ": invalid shader type or missing special registers");
+    }
+    (void)GraphicsPrimTypeToGsOut(prim_type);
+    if (cx_regs != nullptr) {
+        const auto valid = [](const Shader* shader) { return shader->specials->vgt_shader_stages_en.offset == ShaderRegs::VGT_SHADER_STAGES_EN && shader->specials->vgt_gs_out_prim_type.offset == ShaderRegs::VGT_GS_OUT_PRIM_TYPE; };
+        if (!valid(gs) || (hs != nullptr && !valid(hs))) {
+            throw std::runtime_error(std::string(__func__) + ": invalid context register offsets");
+        }
+    }
+    if (uc_regs != nullptr && (gs->specials->ge_cntl.offset != ShaderRegs::GE_CNTL || gs->specials->ge_user_vgpr_en.offset != ShaderRegs::GE_USER_VGPR_EN || (hs != nullptr && hs->specials->ge_user_vgpr_en.offset != ShaderRegs::GE_USER_VGPR_EN))) {
+        throw std::runtime_error(std::string(__func__) + ": invalid user configuration register offsets");
+    }
+
     if (cx_regs != nullptr) {
         cx_regs[0] = gs->specials->vgt_shader_stages_en;
         if ((cx_regs[0].value & ShaderRegs::VGT_SHADER_STAGES_GS_BIT) != 0) {

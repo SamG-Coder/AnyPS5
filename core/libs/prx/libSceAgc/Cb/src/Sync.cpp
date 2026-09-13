@@ -18,26 +18,40 @@ uint32_t APS5_VABI sceAgcCbNopGetSize(uint32_t size_in_dwords) {
  return 0;
 }
 
-uint32_t APS5_VABI sceAgcCbQueueEndOfPipeActionGetSize(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcCbQueueEndOfPipeActionGetSize() {
+    return 32;
 }
 
-uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer* buf, uint8_t action, uint16_t gcr_cntl, uint8_t dst, uint8_t cache_policy, const volatile Label* address, uint8_t data_sel, uint64_t data, uint16_t gds_offset, uint16_t gds_size, uint8_t interrupt, uint32_t interrupt_ctx_id) {
- (void)buf;
- (void)action;
- (void)gcr_cntl;
- (void)dst;
- (void)cache_policy;
- (void)address;
- (void)data_sel;
- (void)data;
- (void)gds_offset;
- (void)gds_size;
- (void)interrupt;
- (void)interrupt_ctx_id;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer* buf, std::uint8_t action, std::uint16_t gcrControl, std::uint8_t dst, std::uint8_t cachePolicy, const volatile Label* address, std::uint8_t dataSelect, std::uint64_t data, std::uint16_t gdsOffset, std::uint16_t gdsSize, std::uint8_t interrupt, std::uint32_t interruptContextId) {
+    Agc::Command::CheckBits(action, 0x3fu, __func__);
+    Agc::Command::CheckBits(gcrControl, 0xfffu, __func__);
+    Agc::Command::CheckBits(dst, 1, __func__);
+    Agc::Command::CheckBits(cachePolicy, 3, __func__);
+    Agc::Command::Require(dataSelect <= 3 || dataSelect == 5, __func__, "invalid release data selector");
+    Agc::Command::Require(interrupt <= 4, __func__, "invalid release interrupt selector");
+    Agc::Command::CheckBits(interruptContextId, 0x7ffffffu, __func__);
+    auto guestAddress = reinterpret_cast<std::uintptr_t>(address);
+    auto value = data;
+    if (interrupt == 4) {
+        Agc::Command::Require(guestAddress == 0 && value == 0, __func__, "interrupt-only release cannot write data");
+    } else if (dataSelect == 5) {
+        Agc::Command::Require(data == 0, __func__, "GDS release cannot use immediate data");
+        value = gdsOffset | (static_cast<std::uint64_t>(gdsSize) << 16u);
+    } else {
+        Agc::Command::Require(gdsOffset == 0 && gdsSize == 0, __func__, "GDS parameters supplied for a non-GDS release");
+    }
+    if (dataSelect != 0 && interrupt != 4) {
+        Agc::Command::CheckAddress(guestAddress, dataSelect == 2 || dataSelect == 3 ? 8 : 4, __func__);
+    }
+    if (dataSelect == 1) {
+        Agc::Command::CheckBits(data, 0xffffffffu, __func__);
+    }
+    std::uint32_t control = gcrControl;
+    if ((control & 0x300u) == 0x100u) {
+        control |= 0x200u;
+    }
+    const auto eventIndex = action >= 0x2fu ? 6u : 5u;
+    return Agc::Command::Emit(buf, 0x49u, {action | (eventIndex << 8u) | (control << 12u) | (static_cast<std::uint32_t>(cachePolicy) << 25u), (static_cast<std::uint32_t>(dst) << 16u) | (static_cast<std::uint32_t>(interrupt) << 24u) | (static_cast<std::uint32_t>(dataSelect) << 29u), static_cast<std::uint32_t>(guestAddress), static_cast<std::uint32_t>(guestAddress >> 32u), static_cast<std::uint32_t>(value), static_cast<std::uint32_t>(value >> 32u), interruptContextId}, __func__);
 }
 
 }

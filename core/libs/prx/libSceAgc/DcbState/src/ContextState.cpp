@@ -29,14 +29,12 @@ uint32_t* APS5_VABI sceAgcDcbContextStateAnotherOp(CommandBuffer* buf, uint32_t 
     return nullptr;
 }
 
-uint32_t APS5_VABI sceAgcDcbSetBaseDispatchIndirectArgsGetSize() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbSetBaseDispatchIndirectArgsGetSize() {
+    return 16;
 }
 
-uint32_t APS5_VABI sceAgcDcbSetBaseDrawIndirectArgsGetSize() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+std::uint32_t APS5_VABI sceAgcDcbSetBaseDrawIndirectArgsGetSize() {
+    return 16;
 }
 
 uint32_t APS5_VABI sceAgcDcbQueueEndOfShaderActionGetSize() {
