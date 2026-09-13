@@ -11,6 +11,7 @@ struct Args {
     bool toWindows = false;
     bool lazyBinding = false;
     bool autorun = false;
+    bool windowsDiagnostics = false;
     std::uint32_t unusedFilterLevel = 2;
     std::string inputPath;
     std::string outputPath;

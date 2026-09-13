@@ -30,8 +30,12 @@ std::vector<std::uint8_t> LinuxElfPatcher::Patch(
     const Domain::SysVDynamicSection& dynSection,
     const std::uint64_t originalPltGotVaddr,
     const std::string& runPath,
-    const bool lazyBinding)
+    const bool lazyBinding,
+    const bool dependencyDiagnostics)
 {
+    if (dependencyDiagnostics)
+        throw Domain::RelinkerException("Linux target does not support --windows-diagnostics");
+
     std::vector<std::uint8_t> buf = sourceElf;
 
     buf[kEhdrOsAbiOffset] = 0;

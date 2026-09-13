@@ -96,7 +96,7 @@ int main(const int argc, char* argv[]) {
             );
         }
 
-        fileWriter.Write(absPath, patcher->Patch(sourceBytes, result.OriginalHeaders, result.DynamicSection, result.OriginalPltGotVaddr, args.runPath, args.lazyBinding));
+        fileWriter.Write(absPath, patcher->Patch(sourceBytes, result.OriginalHeaders, result.DynamicSection, result.OriginalPltGotVaddr, args.runPath, args.lazyBinding, args.windowsDiagnostics));
         std::cout << "External prx references: " << result.RegistryEntries.size() << "\nOutput file: " << absPath << '\n';
 
         if (args.autorun) Cli::Autorun(absPath, args.toWindows);

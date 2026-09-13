@@ -23,7 +23,7 @@ void writeGotStub(std::vector<PeSection>& sections, const std::uint32_t targetRv
 
 }
 
-std::vector<std::uint8_t> WindowsPePatcher::Patch(const std::vector<std::uint8_t>& sourceElf, const std::vector<Domain::ProgramHeader>& originalHeaders, const Domain::SysVDynamicSection& dynamicSection, const std::uint64_t originalPltGotVaddr, const std::string& runPath, const bool lazyBinding) {
+std::vector<std::uint8_t> WindowsPePatcher::Patch(const std::vector<std::uint8_t>& sourceElf, const std::vector<Domain::ProgramHeader>& originalHeaders, const Domain::SysVDynamicSection& dynamicSection, const std::uint64_t originalPltGotVaddr, const std::string& runPath, const bool lazyBinding, const bool dependencyDiagnostics) {
     WindowsLoadImage image(sourceElf, originalHeaders);
     if (originalPltGotVaddr != 0)
         image.GetRva(originalPltGotVaddr, 8);
@@ -52,7 +52,7 @@ std::vector<std::uint8_t> WindowsPePatcher::Patch(const std::vector<std::uint8_t
     directories[12] = nativeImports.AddressTable;
     nextRva = AlignRva(nextRva + nativeImports.Section.Data.size());
     const auto libraries = importBuilder.ReadLibraries(dynamicSection);
-    auto entry = WindowsEntryStubBuilder().Build(nextRva, image.GetEntryRva(), nativeImports, libraries, relocations.Imports, runPath, lazyBinding);
+    auto entry = WindowsEntryStubBuilder().Build(nextRva, image.GetEntryRva(), nativeImports, libraries, relocations.Imports, runPath, lazyBinding, dependencyDiagnostics);
     directories[3] = entry.ExceptionDirectory;
     const auto entryRva = entry.Code.Rva;
     sections.push_back(std::move(nativeImports.Section));

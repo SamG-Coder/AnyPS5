@@ -19,7 +19,7 @@ struct WindowsEntryStub {
 
 class WindowsEntryStubBuilder {
 public:
-    WindowsEntryStub Build(std::uint32_t dataRva, std::uint32_t entryRva, const WindowsImports& nativeImports, const std::vector<std::string>& libraries, const std::vector<PeImport>& imports, const std::string& runPath, bool lazyBinding) const;
+    WindowsEntryStub Build(std::uint32_t dataRva, std::uint32_t entryRva, const WindowsImports& nativeImports, const std::vector<std::string>& libraries, const std::vector<PeImport>& imports, const std::string& runPath, bool lazyBinding, bool dependencyDiagnostics) const;
 };
 
 }

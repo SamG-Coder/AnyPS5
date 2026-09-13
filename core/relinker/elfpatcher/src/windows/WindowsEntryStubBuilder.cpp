@@ -3,6 +3,7 @@
 #include <elfpatcher/windows/WindowsDependencyStubBuilder.hpp>
 #include <io/BufferUtils.hpp>
 #include <algorithm>
+#include <optional>
 
 namespace Elfpatcher::Windows {
 
@@ -28,7 +29,7 @@ std::string normalizeRunPath(std::string path) {
 
 }
 
-WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, const std::uint32_t entryRva, const WindowsImports& nativeImports, const std::vector<std::string>& libraries, const std::vector<PeImport>& imports, const std::string& runPath, const bool lazyBinding) const {
+WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, const std::uint32_t entryRva, const WindowsImports& nativeImports, const std::vector<std::string>& libraries, const std::vector<PeImport>& imports, const std::string& runPath, const bool lazyBinding, const bool dependencyDiagnostics) const {
     if (!imports.empty() && libraries.empty())
         throw Domain::RelinkerException("ELF imports have no DT_NEEDED libraries");
     const auto path = normalizeRunPath(runPath);
@@ -97,7 +98,9 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
     if (data.size() <= diagnosticsOffset)
         throw Domain::RelinkerException("Empty startup diagnostics");
 
-    const WindowsDependencyStubBuilder dependencyBuilder(result.Data);
+    std::optional<WindowsDependencyStubBuilder> dependencyBuilder;
+    if (dependencyDiagnostics)
+        dependencyBuilder.emplace(result.Data);
     std::vector<std::size_t> dependencyCalls;
     result.Code.Rva = AlignRva(dataRva + data.size());
     WindowsStubEmitter code(result.Code.Rva);
@@ -247,9 +250,11 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
         captureLastError();
         writeString(loadFailed, true);
         writeLastError();
-        code.Rip({0x48, 0x8d, 0x0d}, resolvedPaths[index]);
-        code.Rip({0x48, 0x8d, 0x15}, programPath);
-        dependencyCalls.push_back(code.Branch({0xe8}));
+        if (dependencyDiagnostics) {
+            code.Rip({0x48, 0x8d, 0x0d}, resolvedPaths[index]);
+            code.Rip({0x48, 0x8d, 0x15}, programPath);
+            dependencyCalls.push_back(code.Branch({0xe8}));
+        }
         raise(0xc0000135u);
         code.PatchBranch(loadSucceeded, code.GetRva());
         code.Rip({0x48, 0x89, 0x05}, CheckedRva(handles + index * 8));
@@ -332,16 +337,20 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
     Io::WriteU32(data, functionTable - dataRva, result.Code.Rva);
     Io::WriteU32(data, functionTable - dataRva + 4, functionEnd);
     Io::WriteU32(data, functionTable - dataRva + 8, unwindRva);
-    const auto dependency = dependencyBuilder.Build(code, nativeImports);
-    for (const auto offset : dependencyCalls)
-        code.PatchBranch(offset, dependency.EntryRva);
-    if (dependency.Functions.size() >= 32)
-        throw Domain::RelinkerException("Too many dependency diagnostic routines");
-    for (std::size_t index = 0; index < dependency.Functions.size(); ++index) {
-        for (std::size_t field = 0; field < 3; ++field)
-            Io::WriteU32(data, functionTable - dataRva + (index + 1) * 12 + field * 4, dependency.Functions[index][field]);
+    auto exceptionEntries = CheckedRva(1);
+    if (dependencyBuilder.has_value()) {
+        const auto dependency = dependencyBuilder->Build(code, nativeImports);
+        for (const auto offset : dependencyCalls)
+            code.PatchBranch(offset, dependency.EntryRva);
+        if (dependency.Functions.size() >= 32)
+            throw Domain::RelinkerException("Too many dependency diagnostic routines");
+        for (std::size_t index = 0; index < dependency.Functions.size(); ++index) {
+            for (std::size_t field = 0; field < 3; ++field)
+                Io::WriteU32(data, functionTable - dataRva + (index + 1) * 12 + field * 4, dependency.Functions[index][field]);
+        }
+        exceptionEntries = CheckedRva(dependency.Functions.size() + 1);
     }
-    result.ExceptionDirectory = {functionTable, CheckedRva((dependency.Functions.size() + 1) * 12)};
+    result.ExceptionDirectory = {functionTable, CheckedRva(exceptionEntries * 12)};
     result.Code.Data = code.TakeBytes();
     return result;
 }

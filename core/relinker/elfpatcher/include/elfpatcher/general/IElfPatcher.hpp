@@ -18,7 +18,8 @@ public:
         const Domain::SysVDynamicSection& dynamicSection,
         std::uint64_t originalPltGotVaddr,
         const std::string& runPath,
-        bool lazyBinding
+        bool lazyBinding,
+        bool dependencyDiagnostics
     ) = 0;
 };
 
