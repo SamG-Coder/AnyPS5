@@ -90,4 +90,29 @@ int APS5_VABI scePthreadMutexUnlock(PthreadMutex* mutex) {
     return SCE_OK;
 }
 
+// ---------------------------------------------------------------------------
+// The following were moved as-is (not yet implemented) from the duplicated
+// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI scePthreadMutexTimedlock(PthreadMutex* mutex, KernelUseconds usec) {
+ (void)mutex;
+ (void)usec;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadMutexTrylock(PthreadMutex* mutex) {
+ (void)mutex;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadMutexattrSetprotocol(PthreadMutexattr* attr, int protocol) {
+ (void)attr;
+ (void)protocol;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

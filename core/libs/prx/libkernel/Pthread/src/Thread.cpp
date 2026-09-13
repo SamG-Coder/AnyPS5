@@ -209,4 +209,83 @@ void APS5_VABI scePthreadYield() {
     std::this_thread::yield();
 }
 
+// ---------------------------------------------------------------------------
+// The following were moved as-is (not yet implemented) from the duplicated
+// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI scePthreadCancel(Pthread thread) {
+ (void)thread;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadEqual(Pthread thread1, Pthread thread2) {
+ (void)thread1;
+ (void)thread2;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadGetaffinity(Pthread thread, KernelCpumask* mask) {
+ (void)thread;
+ (void)mask;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadGetname(Pthread thread, char* name) {
+ (void)thread;
+ (void)name;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadGetprio(Pthread thread, int* prio) {
+ (void)thread;
+ (void)prio;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadGetthreadid(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadRename(Pthread thread, const char* name) {
+ (void)thread;
+ (void)name;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadSetaffinity(Pthread thread, KernelCpumask mask) {
+ (void)thread;
+ (void)mask;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadSetcancelstate(int state, int* old_state) {
+ (void)state;
+ (void)old_state;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadSetcanceltype(int type, int* old_type) {
+ (void)type;
+ (void)old_type;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadSetprio(Pthread thread, int prio) {
+ (void)thread;
+ (void)prio;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }

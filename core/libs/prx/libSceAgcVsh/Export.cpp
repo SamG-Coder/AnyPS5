@@ -5,9 +5,6 @@
 
 extern "C" {
 
-int DummyFunction_nid_no_patch() {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
-}
+APS5_DUMMY_FUN
 
 }

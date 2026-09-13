@@ -85,4 +85,108 @@ int APS5_VABI scePthreadAttrGet(Pthread thread, PthreadAttr* attr) {
     return SCE_OK;
 }
 
+// ---------------------------------------------------------------------------
+// The following were moved as-is (not yet implemented) from the duplicated
+// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
+// ---------------------------------------------------------------------------
+
+int APS5_VABI scePthreadAttrGetaffinity(const PthreadAttr* attr, KernelCpumask* mask) {
+ (void)attr;
+ (void)mask;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetdetachstate(const PthreadAttr* attr, int* state) {
+ (void)attr;
+ (void)state;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetguardsize(const PthreadAttr* attr, size_t* guard_size) {
+ (void)attr;
+ (void)guard_size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetschedparam(const PthreadAttr* attr, KernelSchedParam* param) {
+ (void)attr;
+ (void)param;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetsolosched(const PthreadAttr* attr, int* solosched) {
+ (void)attr;
+ (void)solosched;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetstackaddr(const PthreadAttr* attr, void** stack_addr) {
+ (void)attr;
+ (void)stack_addr;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrGetstacksize(const PthreadAttr* attr, size_t* stack_size) {
+ (void)attr;
+ (void)stack_size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetaffinity(PthreadAttr* attr, KernelCpumask mask) {
+ (void)attr;
+ (void)mask;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetguardsize(PthreadAttr* attr, size_t guard_size) {
+ (void)attr;
+ (void)guard_size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetinheritsched(PthreadAttr* attr, int inherit_sched) {
+ (void)attr;
+ (void)inherit_sched;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetschedpolicy(PthreadAttr* attr, int policy) {
+ (void)attr;
+ (void)policy;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetsolosched(PthreadAttr* attr, int solosched) {
+ (void)attr;
+ (void)solosched;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetstack(PthreadAttr* attr, void* addr, size_t size) {
+ (void)attr;
+ (void)addr;
+ (void)size;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
+int APS5_VABI scePthreadAttrSetstackaddr(PthreadAttr* attr, void* addr) {
+ (void)attr;
+ (void)addr;
+ NotImplemented_nid_no_patch(__func__);
+ return 0;
+}
+
 }
