@@ -42,6 +42,10 @@ struct RdnaInstruction {
     std::uint32_t dataDwordCount;
     bool clampResult;
     bool is64Bit;
+    std::uint32_t exportTarget;
+    std::uint32_t exportEnableMask;
+    bool exportIsCompressed;
+    bool exportIsLast;
 };
 
 }
