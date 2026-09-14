@@ -1,4 +1,4 @@
-#include <IntermediateRepresentation/IrBlock.hpp>
+#include "IntermediateRepresentation/IrBlock.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {
@@ -35,6 +35,30 @@ void IrBlock::AddPredecessor(IrBlock* block) {
 }
 void IrBlock::AddSuccessor(IrBlock* block) {
     throw std::runtime_error("IrBlock::AddSuccessor not implemented");
+}
+
+const std::vector<IrBlock*>& IrBlock::Predecessors() const {
+    throw std::runtime_error("IrBlock::Predecessors not implemented");
+}
+
+const std::vector<IrBlock*>& IrBlock::Successors() const {
+    throw std::runtime_error("IrBlock::Successors not implemented");
+}
+
+void IrBlock::SsaSeal() {
+    throw std::runtime_error("IrBlock::SsaSeal not implemented");
+}
+
+bool IrBlock::IsSsaSealed() const {
+    throw std::runtime_error("IrBlock::IsSsaSealed not implemented");
+}
+
+void IrBlock::AddBranch(IrBlock* block) {
+    throw std::runtime_error("IrBlock::AddBranch not implemented");
+}
+
+bool IrBlock::Empty() const {
+    throw std::runtime_error("IrBlock::Empty not implemented");
 }
 
 }
