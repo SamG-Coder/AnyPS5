@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <cstddef>
 #include <limits>
+#include <stdexcept>
+#include <string>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
@@ -15,8 +17,8 @@ uint32_t APS5_VABI sceAgcDriverGetEqContextId(const KernelEvent* ev) {
 }
 
 int APS5_VABI sceAgcDriverGetEqEventType(const KernelEvent* ev) {
-    if (ev == nullptr) {
-        throw std::runtime_error(std::string(__func__) + ": null event");
+    if (ev == nullptr || reinterpret_cast<std::uintptr_t>(ev) % alignof(KernelEvent) != 0) {
+        throw std::runtime_error(std::string(__func__) + ": null or misaligned event");
     }
     if (ev->filter == -14) {
         if (ev->ident > static_cast<std::uintptr_t>(std::numeric_limits<int>::max())) {

@@ -47,8 +47,7 @@ add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
 )
 
 target_include_directories(libSceAgc PRIVATE ${LIBS_INCLUDE_DIR})
-add_shader_recompiler(shader_recompiler_agc libc)
-target_link_libraries(libSceAgc PRIVATE shader_recompiler_agc libc)
+target_link_libraries(libSceAgc PRIVATE libSceAgcDriver libc)
 
 option(APS5_AGC_CREATE_LOG "Logging sceAgcCreateShader Ok status" ON)
 
