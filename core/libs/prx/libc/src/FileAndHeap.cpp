@@ -29,7 +29,7 @@ FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) 
             }
         }
         if (!sibling.empty()) {
-            APS5_LOG_OUT("%s: \"%s\": %s. Sibling: \"%s\"", FOPEN_MSG_NOT_FOUND, abs_path.c_str(), reason, sibling.string().c_str());
+            APS5_LOG_OUT("%s: \"%s\": %s. Sibling: \"%s\"", FOPEN_MSG_NOT_FOUND, abs_path.c_str(), reason, sibling.filename().string().c_str());
             return nullptr;
         }
         throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_OPEN_FAILED + ": \"" + abs_path + "\": " + reason);

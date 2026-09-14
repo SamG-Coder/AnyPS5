@@ -13,7 +13,11 @@ extern "C" std::filesystem::path ResolvePath_nid_no_patch(const char* path) {
     while (start < s.size() && (s[start] == '/' || s[start] == '\\')) {
         ++start;
     }
-    std::filesystem::path result = std::filesystem::current_path() / std::filesystem::path(s.substr(start));
+    std::size_t end = s.size();
+    while (end > start && (s[end - 1] == '/' || s[end - 1] == '\\')) {
+        --end;
+    }
+    std::filesystem::path result = std::filesystem::current_path() / std::filesystem::path(s.substr(start, end - start));
     return result.make_preferred();
 }
 
