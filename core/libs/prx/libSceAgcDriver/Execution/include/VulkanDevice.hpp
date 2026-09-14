@@ -18,11 +18,14 @@ public:
     ShaderRecompiler::SpirvTarget Target() const;
     void WaitIdle();
     void* Window() const;
+    void Resize(std::uint32_t width, std::uint32_t height);
     std::uint64_t PresentClear(std::uint32_t width, std::uint32_t height, bool opaque);
+    std::uint64_t PresentPixels(std::uint32_t width, std::uint32_t height, std::span<const std::byte> pixels);
     void WaitPresented(std::uint64_t id);
     void Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z);
 
 private:
+    std::uint64_t present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels);
     struct State;
     std::unique_ptr<State> state;
 };

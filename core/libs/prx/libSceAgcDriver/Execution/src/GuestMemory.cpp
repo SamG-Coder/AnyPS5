@@ -75,3 +75,7 @@ void Write(std::uint64_t address, std::span<const std::byte> source, std::size_t
 }
 
 }
+
+extern "C" void AgcDriverCheckGuestMemory_nid_postfix(const void* pointer, std::size_t bytes, std::size_t alignment, bool writable) {
+    AgcDriver::GuestMemory::CheckRange(pointer, bytes, alignment, writable);
+}

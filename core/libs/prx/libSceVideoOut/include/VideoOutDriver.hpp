@@ -1,5 +1,5 @@
-#ifndef CORE_LIBS_PRX_LIBSCEVIDEOUOUT_INCLUDE_VIDEOOUTDRIVER_HPP
-#define CORE_LIBS_PRX_LIBSCEVIDEOUOUT_INCLUDE_VIDEOOUTDRIVER_HPP
+#ifndef CORE_LIBS_PRX_LIBSCEVIDEOOUT_INCLUDE_VIDEOOUTDRIVER_HPP
+#define CORE_LIBS_PRX_LIBSCEVIDEOOUT_INCLUDE_VIDEOOUTDRIVER_HPP
 
 #include <array>
 #include <condition_variable>
@@ -13,6 +13,7 @@
 #include <memory>
 #include <stdexcept>
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 
 #include "SDL.h"
 #include "SceTypes.hpp"
@@ -74,6 +75,8 @@ struct BufferAttributeGroup {
     bool occupied = false;
 };
 
+AgcDriver::DisplayBuffer DescribeVideoOutBuffer(const VideoOutBuffer& buffer, const BufferAttributeGroup& group);
+
 struct EventRegistration {
     KernelEqueue eq = 0;
     uint64_t generation = 0;
@@ -95,6 +98,7 @@ struct VideoOutConfig {
     bool closing = false;
     std::exception_ptr failure;
     int flipRate = 0;
+    uint64_t lastFlipVblank = 0;
     uint64_t outputMode = VIDEO_OUT_OUTPUT_MODE_DEFAULT;
     float gamma = 1.0f;
 
@@ -103,6 +107,7 @@ struct VideoOutConfig {
     VideoOutVblankStatus preVblankStatus{};
 
     std::array<VideoOutBuffer, VIDEO_OUT_BUFFER_NUM_MAX> buffers{};
+    std::array<uint32_t, VIDEO_OUT_BUFFER_NUM_MAX> bufferPending{};
     std::array<BufferAttributeGroup, VIDEO_OUT_BUFFER_ATTRIBUTE_NUM_MAX> groups{};
 
     void Check() const {
@@ -119,6 +124,7 @@ struct FlipRequest final : AgcDriver::IFlipRequest, std::enable_shared_from_this
     uint64_t generation = 0;
     int index = 0;
     int flipMode = 0;
+    int flipRate = 0;
     int64_t flipArg = 0;
     uint32_t width = 0;
     uint32_t height = 0;
@@ -164,7 +170,7 @@ public:
 private:
     bool close(int handle);
     void presentLoop(std::stop_token token);
-    void vblankBegin();
+    void vblankLoop(std::stop_token token);
     void vblankEnd();
     void processFlip(FlipRequest& req);
     void triggerEvents(VideoOutConfig& cfg, int eventKind, void* triggerData);
@@ -179,6 +185,7 @@ private:
     SDL_Window* window = nullptr;
 
     std::jthread presentThread;
+    std::jthread vblankThread;
 };
 
 #endif

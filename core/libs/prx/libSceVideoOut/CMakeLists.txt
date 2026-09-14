@@ -11,6 +11,7 @@ target_include_directories(libSceVideoOut PRIVATE
         ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
 )
 target_link_libraries(libSceVideoOut PRIVATE libSceAgcDriver libc libkernel SDL2-static)
+set_target_properties(libSceVideoOut PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(libSceVideoOut)
 
 foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
@@ -18,6 +19,6 @@ foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
 endforeach()
 add_executable(video_out_flip_tests EXCLUDE_FROM_ALL tests/Flip.cpp)
 target_include_directories(video_out_flip_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/3rdparty/SDL2/include)
-target_link_libraries(video_out_flip_tests PRIVATE libSceVideoOut libSceAgcDriver libc)
+target_link_libraries(video_out_flip_tests PRIVATE libSceVideoOut libSceAgcDriver libkernel libc)
 set_target_properties(video_out_flip_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(video_out_flip_tests)

@@ -189,7 +189,7 @@ public:
         changed.notify_all();
     }
 
-    void PresentClear(const PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
+    void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context) {
         CheckFailure();
         require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
         std::shared_ptr<VulkanDevice> presenting;
@@ -203,7 +203,15 @@ public:
                 }
                 require(device->Window() == window.context, "presentation window does not match device surface");
                 presenting = device;
-                id = presenting->PresentClear(window.width, window.height, opaque);
+                presenting->Resize(window.width, window.height);
+                if (buffer != nullptr) {
+                    require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
+                    presenting->WaitIdle();
+                    const auto pixels = ReadDisplayBuffer(*buffer);
+                    id = presenting->PresentPixels(window.width, window.height, pixels);
+                } else {
+                    id = presenting->PresentClear(window.width, window.height, opaque);
+                }
             }
             gpuReady(context);
             presenting->WaitPresented(id);
@@ -474,7 +482,11 @@ void UnregisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOut
 }
 
 void PresentClear(const PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
-    Driver::Get().PresentClear(window, opaque, gpuReady, context);
+    Driver::Get().Present(window, nullptr, opaque, gpuReady, context);
+}
+
+void PresentBuffer(const PresentationWindow& window, const DisplayBuffer& buffer, void (*gpuReady)(void*), void* context) {
+    Driver::Get().Present(window, &buffer, true, gpuReady, context);
 }
 
 void ReleaseWindow(void* window) {
@@ -509,6 +521,10 @@ extern "C" void AgcDriverUnregisterVideoOutput_nid_postfix(std::uint32_t handle,
 
 extern "C" void AgcDriverPresentClear_nid_postfix(const AgcDriver::PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
     AgcDriver::PresentClear(window, opaque, gpuReady, context);
+}
+
+extern "C" void AgcDriverPresentBuffer_nid_postfix(const AgcDriver::PresentationWindow& window, const AgcDriver::DisplayBuffer& buffer, void (*gpuReady)(void*), void* context) {
+    AgcDriver::PresentBuffer(window, buffer, gpuReady, context);
 }
 
 extern "C" void AgcDriverReleaseWindow_nid_postfix(void* window) {

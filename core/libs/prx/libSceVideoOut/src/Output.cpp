@@ -1,6 +1,7 @@
 #include <cstring>
 #include <mutex>
 #include <stdexcept>
+#include <cmath>
 
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
@@ -60,7 +61,10 @@ int APS5_VABI sceVideoOutSetFlipRate(int handle, int rate) {
     if (rate < 0 || rate > 2) {
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
-    throw std::runtime_error(std::string(__func__) + " not implemented");
+    std::lock_guard lock(cfg->mutex);
+    cfg->Check();
+    cfg->flipRate = rate;
+    return 0;
 }
 
 int APS5_VABI sceVideoOutGetFlipStatus(int handle, VideoOutFlipStatus* status) {
@@ -199,7 +203,7 @@ int APS5_VABI sceVideoOutColorSettingsSetGamma(VideoOutColorSettings* settings, 
     if (settings == nullptr) {
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
-    if (gamma < 0.1f || gamma > 2.0f) {
+    if (!std::isfinite(gamma) || gamma < 0.1f || gamma > 2.0f) {
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     settings->gamma = gamma;

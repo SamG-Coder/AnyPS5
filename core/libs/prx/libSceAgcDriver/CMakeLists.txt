@@ -1,4 +1,5 @@
 add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp

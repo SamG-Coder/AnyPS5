@@ -27,17 +27,21 @@ static int registerVideoOutEvent(int handle, KernelEqueue eq, int16_t eventKind,
     if (!EqueuePin_nid_postfix(eq)) {
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_EVENT_QUEUE");
     }
+    std::unique_lock lock(cfg->mutex);
+    cfg->Check();
+    auto* registrations = getEventList(*cfg, eventKind);
+    const auto existing = std::find_if(registrations->begin(), registrations->end(), [eq](const auto& item) { return item.eq == eq; });
+    const bool replace = existing != registrations->end();
+    if (!replace) registrations->reserve(registrations->size() + 1);
     KernelEqueueEvent event{};
     event.event.ident = static_cast<uintptr_t>(eventKind);
     event.event.filter = EVFILT_VIDEO_OUT;
     event.event.flags = EV_ADD;
     event.event.udata = udata;
     if (eventKind == VIDEO_OUT_EVENT_SET_MODE) {
-        std::unique_lock lock(cfg->mutex);
-        cfg->Check();
         event.triggered = true;
         event.event.fflags = 1;
-        event.event.data = static_cast<intptr_t>(cfg->outputMode);
+        event.event.data = static_cast<intptr_t>((cfg->outputMode << 16u) | (1u << 12u));
     }
     event.filter.triggerFunc = [](KernelEqueueEvent* e, void* data) {
         const uint64_t old = static_cast<uint64_t>(e->event.data);
@@ -71,12 +75,12 @@ static int registerVideoOutEvent(int handle, KernelEqueue eq, int16_t eventKind,
     if (result == EQUEUE_ERROR_EBADF) {
         throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_EVENT_QUEUE");
     }
-    std::unique_lock lock(cfg->mutex);
-    cfg->Check();
+    if (result != EQUEUE_OK) throw std::runtime_error("VideoOut: event registration failed");
     EventRegistration reg;
     reg.eq = eq;
     reg.generation = cfg->generation;
-    getEventList(*cfg, eventKind)->push_back(reg);
+    if (replace) *existing = reg;
+    else registrations->push_back(reg);
     return result;
 }
 
@@ -112,7 +116,10 @@ int APS5_VABI sceVideoOutAddVblankEvent(KernelEqueue eq, int handle, void* udata
 }
 
 int APS5_VABI sceVideoOutAddPreVblankStartEvent(KernelEqueue eq, int handle, void* udata) {
-    return registerVideoOutEvent(handle, eq, VIDEO_OUT_EVENT_PRE_VBLANK_START, udata);
+    static_cast<void>(eq);
+    static_cast<void>(udata);
+    VideoOutDriver::Get().GetConfig(handle);
+    throw std::runtime_error("VideoOut: physical pre-vblank timing is not implemented");
 }
 
 int APS5_VABI sceVideoOutAddOutputModeEvent(KernelEqueue eq, int handle, void* udata) {

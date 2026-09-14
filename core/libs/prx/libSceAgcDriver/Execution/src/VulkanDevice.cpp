@@ -30,6 +30,7 @@ struct VulkanDevice::State {
     PFN_vkGetDeviceProcAddr deviceProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
+    VkPhysicalDevice physical = VK_NULL_HANDLE;
     VkQueue queue = VK_NULL_HANDLE;
     VkCommandPool pool = VK_NULL_HANDLE;
     void* window = nullptr;
@@ -44,6 +45,11 @@ struct VulkanDevice::State {
     VkCommandBuffer clearCommands = VK_NULL_HANDLE;
     std::uint64_t presentId = 0;
     bool presentQueued = false;
+    VkPhysicalDeviceMemoryProperties memoryProperties{};
+    VkBuffer uploadBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory uploadMemory = VK_NULL_HANDLE;
+    void* uploadMapping = nullptr;
+    VkDeviceSize uploadSize = 0;
     VkPhysicalDeviceProperties properties{};
     VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     std::array<std::uint32_t, 1> capabilities{1};
@@ -66,6 +72,42 @@ struct VulkanDevice::State {
         return function;
     }
 
+    void Upload(std::span<const std::byte> pixels) {
+        if (uploadSize < pixels.size()) {
+            if (uploadMapping) DeviceFunction<PFN_vkUnmapMemory>("vkUnmapMemory")(device, uploadMemory);
+            uploadMapping = nullptr;
+            if (uploadBuffer) DeviceFunction<PFN_vkDestroyBuffer>("vkDestroyBuffer")(device, uploadBuffer, nullptr);
+            uploadBuffer = VK_NULL_HANDLE;
+            if (uploadMemory) DeviceFunction<PFN_vkFreeMemory>("vkFreeMemory")(device, uploadMemory, nullptr);
+            uploadMemory = VK_NULL_HANDLE;
+            uploadSize = 0;
+            VkBufferCreateInfo buffer{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+            buffer.size = pixels.size();
+            buffer.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            buffer.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            check(DeviceFunction<PFN_vkCreateBuffer>("vkCreateBuffer")(device, &buffer, nullptr, &uploadBuffer), "vkCreateBuffer display upload");
+            VkMemoryRequirements requirements{};
+            DeviceFunction<PFN_vkGetBufferMemoryRequirements>("vkGetBufferMemoryRequirements")(device, uploadBuffer, &requirements);
+            std::uint32_t memoryType = memoryProperties.memoryTypeCount;
+            const auto flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            for (std::uint32_t i = 0; i < memoryProperties.memoryTypeCount; ++i) {
+                if ((requirements.memoryTypeBits & (1u << i)) != 0 && (memoryProperties.memoryTypes[i].propertyFlags & flags) == flags) {
+                    memoryType = i;
+                    break;
+                }
+            }
+            require(memoryType < memoryProperties.memoryTypeCount, "coherent host upload memory is unavailable");
+            VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+            allocation.allocationSize = requirements.size;
+            allocation.memoryTypeIndex = memoryType;
+            check(DeviceFunction<PFN_vkAllocateMemory>("vkAllocateMemory")(device, &allocation, nullptr, &uploadMemory), "vkAllocateMemory display upload");
+            check(DeviceFunction<PFN_vkBindBufferMemory>("vkBindBufferMemory")(device, uploadBuffer, uploadMemory, 0), "vkBindBufferMemory display upload");
+            check(DeviceFunction<PFN_vkMapMemory>("vkMapMemory")(device, uploadMemory, 0, pixels.size(), 0, &uploadMapping), "vkMapMemory display upload");
+            uploadSize = pixels.size();
+        }
+        std::memcpy(uploadMapping, pixels.data(), pixels.size());
+    }
+
     ~State() {
         if (device != VK_NULL_HANDLE) {
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
@@ -79,6 +121,9 @@ struct VulkanDevice::State {
             if (renderFence) destroyFence(device, renderFence, nullptr);
             if (presentFence) destroyFence(device, presentFence, nullptr);
             if (rendered) reinterpret_cast<PFN_vkDestroySemaphore>(deviceProc(device, "vkDestroySemaphore"))(device, rendered, nullptr);
+            if (uploadMapping) reinterpret_cast<PFN_vkUnmapMemory>(deviceProc(device, "vkUnmapMemory"))(device, uploadMemory);
+            if (uploadBuffer) reinterpret_cast<PFN_vkDestroyBuffer>(deviceProc(device, "vkDestroyBuffer"))(device, uploadBuffer, nullptr);
+            if (uploadMemory) reinterpret_cast<PFN_vkFreeMemory>(deviceProc(device, "vkFreeMemory"))(device, uploadMemory, nullptr);
             if (swapchain) reinterpret_cast<PFN_vkDestroySwapchainKHR>(deviceProc(device, "vkDestroySwapchainKHR"))(device, swapchain, nullptr);
             const auto destroyPool = reinterpret_cast<PFN_vkDestroyCommandPool>(deviceProc(device, "vkDestroyCommandPool"));
             const auto destroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(deviceProc(device, "vkDestroyDevice"));
@@ -205,6 +250,8 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     properties.pNext = &state->subgroup;
     state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties2>("vkGetPhysicalDeviceProperties2")(selected, &properties);
     state->properties = properties.properties;
+    state->physical = selected;
+    state->InstanceFunction<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(selected, &state->memoryProperties);
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfo.queueFamilyIndex = family;
@@ -287,11 +334,56 @@ void* VulkanDevice::Window() const {
     return state->window;
 }
 
+void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
+    require(state->swapchain != VK_NULL_HANDLE && !state->presentQueued, "cannot resize an unavailable or pending swapchain");
+    if (state->extent.width == width && state->extent.height == height) return;
+    WaitIdle();
+    VkSurfaceCapabilitiesKHR surface{};
+    check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(state->physical, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR resize");
+    require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == width && surface.currentExtent.height == height), "resized surface extent differs from output");
+    require(width >= surface.minImageExtent.width && width <= surface.maxImageExtent.width && height >= surface.minImageExtent.height && height <= surface.maxImageExtent.height, "unsupported resized output extent");
+    require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0 && (surface.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) != 0 && (surface.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0, "resized surface capabilities are unsupported");
+    VkSwapchainCreateInfoKHR create{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    create.surface = state->surface;
+    create.minImageCount = surface.minImageCount;
+    create.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    create.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    create.imageExtent = {width, height};
+    create.imageArrayLayers = 1;
+    create.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    create.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    create.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    create.oldSwapchain = state->swapchain;
+    VkSwapchainKHR replacement = VK_NULL_HANDLE;
+    check(state->DeviceFunction<PFN_vkCreateSwapchainKHR>("vkCreateSwapchainKHR")(state->device, &create, nullptr, &replacement), "vkCreateSwapchainKHR resize");
+    state->DeviceFunction<PFN_vkDestroySwapchainKHR>("vkDestroySwapchainKHR")(state->device, state->swapchain, nullptr);
+    state->swapchain = replacement;
+    state->extent = create.imageExtent;
+    auto getImages = state->DeviceFunction<PFN_vkGetSwapchainImagesKHR>("vkGetSwapchainImagesKHR");
+    std::uint32_t count = 0;
+    check(getImages(state->device, replacement, &count, nullptr), "vkGetSwapchainImagesKHR resize");
+    state->images.resize(count);
+    check(getImages(state->device, replacement, &count, state->images.data()), "vkGetSwapchainImagesKHR resize");
+}
+
 std::uint64_t VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t height, bool opaque) {
+    return present(width, height, opaque, {});
+}
+
+std::uint64_t VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t height, std::span<const std::byte> pixels) {
+    require(width != 0 && height != 0 && width <= 16384 && height <= 16384, "invalid display image extent");
+    require(pixels.size() == static_cast<std::uint64_t>(width) * height * 4, "invalid display pixel buffer size");
+    return present(width, height, true, pixels);
+}
+
+std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(width == state->extent.width && height == state->extent.height, "output resize is not implemented");
     require(!state->presentQueued, "previous presentation has not completed");
     require(state->presentId != std::numeric_limits<std::uint64_t>::max(), "presentation ID overflow");
+    if (!pixels.empty()) state->Upload(pixels);
     auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
     auto reset = state->DeviceFunction<PFN_vkResetFences>("vkResetFences");
     const std::array<VkFence, 3> fences{state->acquireFence, state->renderFence, state->presentFence};
@@ -315,9 +407,16 @@ std::uint64_t VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t heig
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-    VkClearColorValue clear{};
-    clear.float32[3] = opaque ? 1.0f : 0.0f;
-    state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
+    if (pixels.empty()) {
+        VkClearColorValue clear{};
+        clear.float32[3] = opaque ? 1.0f : 0.0f;
+        state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
+    } else {
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {width, height, 1};
+        state->DeviceFunction<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, state->uploadBuffer, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    }
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = 0;
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;

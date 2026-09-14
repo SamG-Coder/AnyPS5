@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <exception>
 #include <span>
+#include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 
 namespace AgcDriver {
 
@@ -20,6 +21,7 @@ struct PresentationWindow {
 }
 
 extern "C" void AgcDriverPresentClear_nid_postfix(const AgcDriver::PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context);
+extern "C" void AgcDriverPresentBuffer_nid_postfix(const AgcDriver::PresentationWindow& window, const AgcDriver::DisplayBuffer& buffer, void (*gpuReady)(void*), void* context);
 extern "C" void AgcDriverReleaseWindow_nid_postfix(void* window);
 extern "C" void AgcDriverReportFailure_nid_postfix(std::exception_ptr error);
 
