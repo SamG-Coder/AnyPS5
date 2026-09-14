@@ -20,10 +20,15 @@ constexpr char kNidNoPatchCut[] = "_nid_no_patch_cut";
 constexpr std::size_t kNidNoPatchCutLen = sizeof(kNidNoPatchCut) - 1u;
 constexpr char kNidDisambigMarker[] = "_nid_disambig";
 constexpr std::size_t kNidDisambigMarkerLen = sizeof(kNidDisambigMarker) - 1u;
+constexpr char kSDLPrefix[] = "SDL_";
+constexpr std::size_t kSDLPrefixLen = sizeof(kSDLPrefix) - 1u;
+
 
 inline bool IsNidNoPatch(const std::string& name) {
-    return name.size() >= kNidNoPatchLen &&
-        name.compare(name.size() - kNidNoPatchLen, kNidNoPatchLen, kNidNoPatch) == 0;
+    return (
+        name.size() >= kNidNoPatchLen &&
+        name.compare(name.size() - kNidNoPatchLen, kNidNoPatchLen, kNidNoPatch) == 0
+    ) || name.compare(0, kSDLPrefixLen, kSDLPrefix) == 0;
 }
 
 inline bool IsNidNoPatchCut(const std::string& name) {
