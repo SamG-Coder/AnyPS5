@@ -1,4 +1,4 @@
-#include <Translation/EmbeddedVertexFetch.hpp>
+#include "Translation/EmbeddedVertexFetch.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

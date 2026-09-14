@@ -1,11 +1,12 @@
-#ifndef SHADER_RECOMPILIER_TRANSLATION_INSTRUCTIONTRANSLATOR_HPP
-#define SHADER_RECOMPILIER_TRANSLATION_INSTRUCTIONTRANSLATOR_HPP
+#ifndef CORE_SHADER_RECOMPILIER_TRANSLATION_INCLUDE_TRANSLATION_INSTRUCTIONTRANSLATOR_HPP
+#define CORE_SHADER_RECOMPILIER_TRANSLATION_INCLUDE_TRANSLATION_INSTRUCTIONTRANSLATOR_HPP
 
-#include <ControlFlow/ControlFlowGraph.hpp>
-#include <RdnaDecoder/RdnaProgram.hpp>
-#include <IntermediateRepresentation/IrBuilder.hpp>
-#include <IntermediateRepresentation/IrProgram.hpp>
-#include <Translation/EmbeddedVertexFetch.hpp>
+#include "ControlFlow/ControlFlowGraph.hpp"
+#include "RdnaDecoder/RdnaProgram.hpp"
+#include "IntermediateRepresentation/IrBuilder.hpp"
+#include "IntermediateRepresentation/IrProgram.hpp"
+#include "Translation/EmbeddedVertexFetch.hpp"
+#include "Optimization/ShaderStageInputInfo.hpp"
 #include <cstdint>
 
 namespace ShaderRecompiler {
@@ -13,16 +14,24 @@ namespace ShaderRecompiler {
 enum class ShaderStageKind {
     Compute,
     Vertex,
-    Pixel
+    Pixel,
+    Unknown,
+    Fetch,
+    Mesh,
+    Local,
+    TessellationControl,
+    TessellationEvaluation
 };
 
 struct TranslateOptions {
-    ShaderStageKind stage;
-    std::uint32_t waveSize;
-    std::uint32_t userDataBaseRegister;
-    std::uint32_t userDataCount;
-    std::uint32_t scratchDwords;
-    const EmbeddedFetchPlan* embeddedFetch;
+    ShaderStageKind stage = ShaderStageKind::Unknown;
+    std::uint32_t waveSize = 64;
+    std::uint32_t userDataBaseRegister = 0;
+    std::uint32_t userDataCount = 64;
+    std::uint32_t scratchDwords = 0;
+    std::uint64_t shaderHash = 0;
+    ShaderStageInputInfo inputInfo;
+    const EmbeddedFetchPlan* embeddedFetch = nullptr;
 };
 
 class InstructionTranslator {

@@ -1,12 +1,16 @@
-#ifndef SHADER_RECOMPILIER_TRANSLATION_VECTORINSTRUCTIONS_HPP
-#define SHADER_RECOMPILIER_TRANSLATION_VECTORINSTRUCTIONS_HPP
+#ifndef CORE_SHADER_RECOMPILIER_TRANSLATION_INCLUDE_TRANSLATION_VECTORINSTRUCTIONS_HPP
+#define CORE_SHADER_RECOMPILIER_TRANSLATION_INCLUDE_TRANSLATION_VECTORINSTRUCTIONS_HPP
 
-#include <IntermediateRepresentation/IrBuilder.hpp>
-#include <RdnaDecoder/RdnaInstruction.hpp>
+#include "IntermediateRepresentation/IrBuilder.hpp"
+#include "RdnaDecoder/RdnaInstruction.hpp"
 
 namespace ShaderRecompiler {
 
-[[nodiscard]] void TranslateVectorInstruction(IrBuilder& builder, const RdnaInstruction& instruction);
+class TranslationContext;
+
+void TranslateVectorInstruction(IrBuilder& builder, const RdnaInstruction& instruction);
+
+void TranslateVectorInstruction(TranslationContext& context, const RdnaInstruction& instruction);
 
 }
 
