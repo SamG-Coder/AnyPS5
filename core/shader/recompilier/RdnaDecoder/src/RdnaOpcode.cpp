@@ -1,4 +1,4 @@
-#include <RdnaDecoder/RdnaOpcode.hpp>
+#include "RdnaDecoder/RdnaOpcode.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {
@@ -23,6 +23,14 @@ bool IsImageOpcode(RdnaOpcode opcode) {
 }
 bool IsExportOpcode(RdnaOpcode opcode) {
     throw std::runtime_error("IsExportOpcode not implemented");
+}
+
+bool IsConditionalBranchOpcode(RdnaOpcode opcode) {
+    throw std::runtime_error("IsConditionalBranchOpcode not implemented");
+}
+
+bool IsDirectBranchOpcode(RdnaOpcode opcode) {
+    throw std::runtime_error("IsDirectBranchOpcode not implemented");
 }
 
 }

@@ -1,4 +1,4 @@
-#include <RdnaDecoder/RdnaProgram.hpp>
+#include "RdnaDecoder/RdnaProgram.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {
