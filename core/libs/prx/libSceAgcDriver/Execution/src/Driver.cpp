@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libc/include/Shutdown.hpp"
@@ -71,14 +72,6 @@ void checkRange(const void* pointer, std::size_t bytes, std::size_t alignment) {
     require(cursor == end, "guest address range is not mapped");
 #endif
 }
-
-using Registers = std::map<std::uint32_t, std::uint32_t>;
-
-struct QueueState {
-    Registers shader;
-    Registers context;
-    Registers userConfig;
-};
 
 struct ShaderSnapshot {
     std::uint64_t codeAddress;
@@ -336,6 +329,11 @@ private:
             const auto packet = commands.subspan(cursor, count);
             const auto opcode = (header >> 8u) & 0xffu;
             switch (opcode) {
+                case 0x12:
+                    require(queue == 0, "CLEAR_STATE in compute queue");
+                    require(count == 2, "invalid CLEAR_STATE packet size");
+                    require((packet[1] & ~0xfu) == 0, "unsupported CLEAR_STATE payload bits");
+                    break;
                 case 0x10:
                     require((packet[1] & 0xffff0000u) != 0x68750000u, "marker NOP is not implemented");
                     break;
@@ -407,6 +405,9 @@ private:
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             const auto packet = std::span(submission.commands).subspan(cursor, count);
             switch ((header >> 8u) & 0xffu) {
+                case 0x12:
+                    queue.ClearContext();
+                    break;
                 case 0x10:
                     if (header == FlipPacketHeader) {
                         {

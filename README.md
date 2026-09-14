@@ -12,7 +12,7 @@ Execution reaches `_start`, stack unwinding and exception handling tables are bu
 Audio output and video output initialization pass
 Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
 
-Now: `AGC driver: unsupported PM4 opcode 18 at DWORD 0`.
+Now: `AGC driver: unsupported PM4 opcode 159 at DWORD 2`.
 
 ## Disclaimer
 

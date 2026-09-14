@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Acb.hpp"
@@ -82,6 +83,40 @@ void testValidation() {
     AgcDriverWaitIdle_nid_postfix();
 }
 
+void testClearState() {
+    AgcDriver::QueueState graphics{{{0x20c, 1}}, {{0x10, 17}, {0x11, 23}}, {{0x242, 5}}};
+    const auto shader = graphics.shader;
+    const auto userConfig = graphics.userConfig;
+    graphics.ClearContext();
+    check(graphics.context.empty(), "CLEAR_STATE retained context registers");
+    check(graphics.shader == shader && graphics.userConfig == userConfig, "CLEAR_STATE reset unrelated registers");
+    graphics.context.emplace(0x10, 31);
+    graphics.ClearContext();
+    check(graphics.context.empty(), "repeated CLEAR_STATE retained context registers");
+
+    std::array<std::uint32_t, 3> words{0xc0001200, 0, 0};
+    Packet packet{words.data(), 2, 0, {}};
+    expectFailure([&] { sceAgcDriverSubmitAcb(0x20, &packet); });
+    words[1] = 0x10;
+    expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
+    words[1] = 0;
+    words[0] = 0xc0011200;
+    packet.dw_num = 3;
+    expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
+    words[0] = 0xc0001201;
+    packet.dw_num = 2;
+    expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
+    words[0] = 0xc0001200;
+    packet.dw_num = 1;
+    expectFailure([&] { sceAgcDriverSubmitDcb(&packet); });
+    packet.dw_num = 2;
+    for (std::uint32_t state = 0; state <= 0xf; ++state) {
+        words[1] = state;
+        check(sceAgcDriverSubmitDcb(&packet) == 0, "CLEAR_STATE submit failed");
+    }
+    AgcDriverWaitIdle_nid_postfix();
+}
+
 void testSubmissions() {
     std::vector<std::thread> producers;
     std::array<std::exception_ptr, 4> errors{};
@@ -131,6 +166,7 @@ int main() {
     try {
         testEvents();
         testValidation();
+        testClearState();
         testSubmissions();
         testWorkerFailure();
         check(expectFailure([] { LibcRunShutdown_nid_postfix(); }).find("required shader register") != std::string::npos, "shutdown lost worker failure");
