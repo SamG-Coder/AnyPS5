@@ -1,6 +1,7 @@
 #include "prx/libSceAgc/Command/include/Packet.hpp"
 #include "prx/libSceAgc/Command/include/Memory.hpp"
 #include "prx/libSceAgc/Command/include/RegisterDefaults.hpp"
+#include "prx/libc/include/Shutdown.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,8 @@
 #include <string>
 
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
+extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
@@ -66,6 +69,22 @@ void testPackets() {
     exhausted.buffer.cursor_down = exhausted.words.data() + 2;
     expectFailure([&] { Agc::Command::WriteNop(&exhausted.buffer, 3, __func__); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed allocation advanced cursor");
+}
+
+void testFlip() {
+    Storage storage;
+    storage.words.fill(0xdeadbeefu);
+    auto* packet = sceAgcDcbSetFlip(&storage.buffer, 0xfedcba98u, -2, 0x12345678u, -0x123456789abcdefLL);
+    const std::array<std::uint32_t, 6> expected{0xc004105cu, 0xfedcba98u, 0xfffffffeu, 0x12345678u, 0x76543211u, 0xfedcba98u};
+    check(packet == storage.words.data(), "flip returned wrong packet address");
+    check(std::equal(expected.begin(), expected.end(), packet), "flip packet lost argument bits");
+    check(storage.buffer.cursor_up == packet + 6 && packet[6] == 0xdeadbeefu, "flip packet overran allocation");
+    expectFailure([] { sceAgcDcbSetFlip(nullptr, 1, 0, 1, 0); });
+    Storage exhausted;
+    exhausted.buffer.cursor_down = exhausted.words.data() + 5;
+    expectFailure([&] { sceAgcDcbSetFlip(&exhausted.buffer, 1, 0, 1, 0); });
+    check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed flip allocation advanced cursor");
+    check(sceAgcSuspendPoint() == 0, "empty suspend failed");
 }
 
 void testRegisters() {
@@ -159,15 +178,19 @@ void testDefaults() {
 int main() {
     try {
         testPackets();
+        testFlip();
         testRegisters();
         testRegisterRange();
         testPacketPayloadAddress();
         testMemory();
         testDefaults();
+        LibcRunShutdown_nid_postfix();
         std::puts("AGC command tests passed");
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
+        try { LibcRunShutdown_nid_postfix(); }
+        catch (const std::exception& shutdown) { std::fprintf(stderr, "shutdown: %s\n", shutdown.what()); }
         return 1;
     }
 }

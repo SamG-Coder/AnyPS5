@@ -33,3 +33,9 @@ target_include_directories(agc_driver_recompiler_tests PRIVATE ${LIBS_INCLUDE_DI
 target_link_libraries(agc_driver_recompiler_tests PRIVATE libSceAgcDriver libc)
 set_target_properties(agc_driver_recompiler_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_recompiler_tests)
+
+add_executable(agc_driver_flip_tests EXCLUDE_FROM_ALL tests/Flip.cpp)
+target_include_directories(agc_driver_flip_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_driver_flip_tests PRIVATE libSceAgcDriver libc)
+set_target_properties(agc_driver_flip_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_driver_flip_tests)

@@ -2,6 +2,8 @@
 #include <SDL_loadso.h>
 #include <SDL_error.h>
 #include <array>
+#include <algorithm>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -16,6 +18,10 @@ void check(VkResult result, const char* operation) {
     }
 }
 
+void require(bool condition, const char* reason) {
+    if (!condition) throw std::runtime_error(std::string("Vulkan presentation: ") + reason);
+}
+
 }
 
 struct VulkanDevice::State {
@@ -26,6 +32,18 @@ struct VulkanDevice::State {
     VkDevice device = VK_NULL_HANDLE;
     VkQueue queue = VK_NULL_HANDLE;
     VkCommandPool pool = VK_NULL_HANDLE;
+    void* window = nullptr;
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    VkExtent2D extent{};
+    std::vector<VkImage> images;
+    VkFence acquireFence = VK_NULL_HANDLE;
+    VkFence renderFence = VK_NULL_HANDLE;
+    VkFence presentFence = VK_NULL_HANDLE;
+    VkSemaphore rendered = VK_NULL_HANDLE;
+    VkCommandBuffer clearCommands = VK_NULL_HANDLE;
+    std::uint64_t presentId = 0;
+    bool presentQueued = false;
     VkPhysicalDeviceProperties properties{};
     VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     std::array<std::uint32_t, 1> capabilities{1};
@@ -50,6 +68,18 @@ struct VulkanDevice::State {
 
     ~State() {
         if (device != VK_NULL_HANDLE) {
+            const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
+            if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
+            if (presentQueued && idle != VK_ERROR_DEVICE_LOST) {
+                const auto result = reinterpret_cast<PFN_vkWaitForFences>(deviceProc(device, "vkWaitForFences"))(device, 1, &presentFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
+                if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) std::terminate();
+            }
+            const auto destroyFence = reinterpret_cast<PFN_vkDestroyFence>(deviceProc(device, "vkDestroyFence"));
+            if (acquireFence) destroyFence(device, acquireFence, nullptr);
+            if (renderFence) destroyFence(device, renderFence, nullptr);
+            if (presentFence) destroyFence(device, presentFence, nullptr);
+            if (rendered) reinterpret_cast<PFN_vkDestroySemaphore>(deviceProc(device, "vkDestroySemaphore"))(device, rendered, nullptr);
+            if (swapchain) reinterpret_cast<PFN_vkDestroySwapchainKHR>(deviceProc(device, "vkDestroySwapchainKHR"))(device, swapchain, nullptr);
             const auto destroyPool = reinterpret_cast<PFN_vkDestroyCommandPool>(deviceProc(device, "vkDestroyCommandPool"));
             const auto destroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(deviceProc(device, "vkDestroyDevice"));
             if (pool != VK_NULL_HANDLE) {
@@ -58,6 +88,7 @@ struct VulkanDevice::State {
             destroyDevice(device, nullptr);
         }
         if (instance != VK_NULL_HANDLE) {
+            if (surface) reinterpret_cast<PFN_vkDestroySurfaceKHR>(instanceProc(instance, "vkDestroySurfaceKHR"))(instance, surface, nullptr);
             reinterpret_cast<PFN_vkDestroyInstance>(instanceProc(instance, "vkDestroyInstance"))(instance, nullptr);
         }
         if (library != nullptr) {
@@ -66,7 +97,7 @@ struct VulkanDevice::State {
     }
 };
 
-VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
+VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_unique<State>()) {
 #ifdef _WIN32
     state->library = SDL_LoadObject("vulkan-1.dll");
 #else
@@ -84,7 +115,32 @@ VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
     application.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo create{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     create.pApplicationInfo = &application;
+    std::vector<const char*> instanceExtensions;
+    if (window != nullptr) {
+        require(window->context && window->createSurface && window->width && window->height, "invalid window descriptor");
+        instanceExtensions.assign(window->extensions.begin(), window->extensions.end());
+        instanceExtensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+        instanceExtensions.push_back(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+        std::uint32_t availableCount = 0;
+        const auto enumerateExtensions = state->InstanceFunction<PFN_vkEnumerateInstanceExtensionProperties>("vkEnumerateInstanceExtensionProperties");
+        check(enumerateExtensions(nullptr, &availableCount, nullptr), "vkEnumerateInstanceExtensionProperties");
+        std::vector<VkExtensionProperties> available(availableCount);
+        check(enumerateExtensions(nullptr, &availableCount, available.data()), "vkEnumerateInstanceExtensionProperties");
+        for (const auto* name : instanceExtensions) {
+            require(name != nullptr, "null instance extension");
+            if (std::none_of(available.begin(), available.end(), [&](const auto& item) { return std::strcmp(item.extensionName, name) == 0; })) {
+                throw std::runtime_error(std::string("Vulkan presentation: required instance extension missing: ") + name);
+            }
+        }
+        create.enabledExtensionCount = static_cast<std::uint32_t>(instanceExtensions.size());
+        create.ppEnabledExtensionNames = instanceExtensions.data();
+    }
     check(state->InstanceFunction<PFN_vkCreateInstance>("vkCreateInstance")(&create, nullptr, &state->instance), "vkCreateInstance");
+    if (window != nullptr) {
+        state->surface = window->createSurface(window->context, state->instance);
+        require(state->surface != VK_NULL_HANDLE, "window returned a null surface");
+        state->window = window->context;
+    }
     state->deviceProc = state->InstanceFunction<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
     const auto enumerate = state->InstanceFunction<PFN_vkEnumeratePhysicalDevices>("vkEnumeratePhysicalDevices");
     std::uint32_t count = 0;
@@ -94,11 +150,32 @@ VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
     devices.resize(count);
     VkPhysicalDevice selected = VK_NULL_HANDLE;
     std::uint32_t family = 0;
+    const std::array<const char*, 4> presentationExtensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PRESENT_ID_EXTENSION_NAME, VK_KHR_PRESENT_WAIT_EXTENSION_NAME, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME};
     for (auto physical : devices) {
         VkPhysicalDeviceProperties properties{};
         state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties")(physical, &properties);
         if (properties.apiVersion < VK_API_VERSION_1_1) {
             continue;
+        }
+        if (window != nullptr) {
+            std::uint32_t extensionCount = 0;
+            auto enumerateExtensions = state->InstanceFunction<PFN_vkEnumerateDeviceExtensionProperties>("vkEnumerateDeviceExtensionProperties");
+            check(enumerateExtensions(physical, nullptr, &extensionCount, nullptr), "vkEnumerateDeviceExtensionProperties");
+            std::vector<VkExtensionProperties> extensions(extensionCount);
+            check(enumerateExtensions(physical, nullptr, &extensionCount, extensions.data()), "vkEnumerateDeviceExtensionProperties");
+            const bool supported = std::all_of(presentationExtensions.begin(), presentationExtensions.end(), [&](const char* name) {
+                return std::any_of(extensions.begin(), extensions.end(), [&](const auto& item) { return std::strcmp(item.extensionName, name) == 0; });
+            });
+            if (!supported) continue;
+            VkPhysicalDevicePresentIdFeaturesKHR id{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+            VkPhysicalDevicePresentWaitFeaturesKHR wait{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+            VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
+            VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            features.pNext = &id;
+            id.pNext = &wait;
+            wait.pNext = &maintenance;
+            state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(physical, &features);
+            if (!id.presentId || !wait.presentWait || !maintenance.swapchainMaintenance1) continue;
         }
         std::uint32_t families = 0;
         auto getFamilies = state->InstanceFunction<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties");
@@ -107,6 +184,11 @@ VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
         getFamilies(physical, &families, queues.data());
         for (std::uint32_t i = 0; i < families; ++i) {
             if (queues[i].queueCount != 0 && (queues[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) == (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) {
+                if (window != nullptr) {
+                    VkBool32 supported = VK_FALSE;
+                    check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>("vkGetPhysicalDeviceSurfaceSupportKHR")(physical, i, state->surface, &supported), "vkGetPhysicalDeviceSurfaceSupportKHR");
+                    if (!supported) continue;
+                }
                 selected = physical;
                 family = i;
                 break;
@@ -117,7 +199,7 @@ VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
         }
     }
     if (selected == VK_NULL_HANDLE) {
-        throw std::runtime_error("Vulkan: no Vulkan 1.1 graphics and compute queue");
+        throw std::runtime_error(window ? "Vulkan: no presentation device with graphics, compute, present_id, present_wait and swapchain_maintenance1" : "Vulkan: no Vulkan 1.1 graphics and compute queue");
     }
     VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     properties.pNext = &state->subgroup;
@@ -131,14 +213,151 @@ VulkanDevice::VulkanDevice() : state(std::make_unique<State>()) {
     VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     deviceInfo.queueCreateInfoCount = 1;
     deviceInfo.pQueueCreateInfos = &queueInfo;
+    VkPhysicalDevicePresentIdFeaturesKHR idFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, nullptr, VK_TRUE};
+    VkPhysicalDevicePresentWaitFeaturesKHR waitFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR, nullptr, VK_TRUE};
+    VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenanceFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT, nullptr, VK_TRUE};
+    if (window != nullptr) {
+        deviceInfo.enabledExtensionCount = static_cast<std::uint32_t>(presentationExtensions.size());
+        deviceInfo.ppEnabledExtensionNames = presentationExtensions.data();
+        deviceInfo.pNext = &idFeature;
+        idFeature.pNext = &waitFeature;
+        waitFeature.pNext = &maintenanceFeature;
+    }
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
     state->DeviceFunction<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(state->device, family, 0, &state->queue);
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = family;
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
+    if (window != nullptr) {
+        VkSurfaceCapabilitiesKHR surface{};
+        check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        state->extent = {window->width, window->height};
+        require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == window->width && surface.currentExtent.height == window->height), "window extent differs from requested output");
+        require(window->width >= surface.minImageExtent.width && window->width <= surface.maxImageExtent.width && window->height >= surface.minImageExtent.height && window->height <= surface.maxImageExtent.height, "unsupported output extent");
+        require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0, "surface does not support transfer destination images");
+        require((surface.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) != 0, "opaque composition is unavailable");
+        require((surface.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0, "identity surface transform is unavailable");
+        std::uint32_t formatCount = 0;
+        auto getFormats = state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceFormatsKHR>("vkGetPhysicalDeviceSurfaceFormatsKHR");
+        check(getFormats(selected, state->surface, &formatCount, nullptr), "vkGetPhysicalDeviceSurfaceFormatsKHR");
+        std::vector<VkSurfaceFormatKHR> formats(formatCount);
+        check(getFormats(selected, state->surface, &formatCount, formats.data()), "vkGetPhysicalDeviceSurfaceFormatsKHR");
+        require(std::any_of(formats.begin(), formats.end(), [](const auto& format) { return format.format == VK_FORMAT_B8G8R8A8_UNORM && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR; }), "BGRA8 sRGB-nonlinear surface format is unavailable");
+        VkSwapchainCreateInfoKHR swapchain{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+        swapchain.surface = state->surface;
+        swapchain.minImageCount = surface.minImageCount;
+        swapchain.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        swapchain.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+        swapchain.imageExtent = state->extent;
+        swapchain.imageArrayLayers = 1;
+        swapchain.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        swapchain.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        swapchain.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        swapchain.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapchain.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        swapchain.clipped = VK_FALSE;
+        check(state->DeviceFunction<PFN_vkCreateSwapchainKHR>("vkCreateSwapchainKHR")(state->device, &swapchain, nullptr, &state->swapchain), "vkCreateSwapchainKHR");
+        std::uint32_t imageCount = 0;
+        auto getImages = state->DeviceFunction<PFN_vkGetSwapchainImagesKHR>("vkGetSwapchainImagesKHR");
+        check(getImages(state->device, state->swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
+        state->images.resize(imageCount);
+        check(getImages(state->device, state->swapchain, &imageCount, state->images.data()), "vkGetSwapchainImagesKHR");
+        VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        for (auto* destination : {&state->acquireFence, &state->renderFence, &state->presentFence}) {
+            check(state->DeviceFunction<PFN_vkCreateFence>("vkCreateFence")(state->device, &fence, nullptr, destination), "vkCreateFence");
+        }
+        VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        check(state->DeviceFunction<PFN_vkCreateSemaphore>("vkCreateSemaphore")(state->device, &semaphore, nullptr, &state->rendered), "vkCreateSemaphore");
+        VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocation.commandPool = state->pool;
+        allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocation.commandBufferCount = 1;
+        check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &state->clearCommands), "vkAllocateCommandBuffers");
+    }
 }
 
 VulkanDevice::~VulkanDevice() = default;
+
+void VulkanDevice::WaitIdle() {
+    check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
+}
+
+void* VulkanDevice::Window() const {
+    return state->window;
+}
+
+std::uint64_t VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t height, bool opaque) {
+    require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
+    require(width == state->extent.width && height == state->extent.height, "output resize is not implemented");
+    require(!state->presentQueued, "previous presentation has not completed");
+    require(state->presentId != std::numeric_limits<std::uint64_t>::max(), "presentation ID overflow");
+    auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
+    auto reset = state->DeviceFunction<PFN_vkResetFences>("vkResetFences");
+    const std::array<VkFence, 3> fences{state->acquireFence, state->renderFence, state->presentFence};
+    check(reset(state->device, static_cast<std::uint32_t>(fences.size()), fences.data()), "vkResetFences");
+    std::uint32_t index = 0;
+    check(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR");
+    check(wait(state->device, 1, &state->acquireFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences acquire");
+    require(index < state->images.size(), "acquired image index is out of range");
+    auto commands = state->clearCommands;
+    check(state->DeviceFunction<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(commands, 0), "vkResetCommandBuffer");
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    check(state->DeviceFunction<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer");
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = state->images[index];
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
+    pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    VkClearColorValue clear{};
+    clear.float32[3] = opaque ? 1.0f : 0.0f;
+    state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = 0;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    pipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    check(state->DeviceFunction<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
+    VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &commands;
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores = &state->rendered;
+    check(state->DeviceFunction<PFN_vkQueueSubmit>("vkQueueSubmit")(state->queue, 1, &submit, state->renderFence), "vkQueueSubmit clear");
+    check(wait(state->device, 1, &state->renderFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences clear");
+    ++state->presentId;
+    VkSwapchainPresentFenceInfoEXT completion{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+    completion.swapchainCount = 1;
+    completion.pFences = &state->presentFence;
+    VkPresentIdKHR id{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+    id.pNext = &completion;
+    id.swapchainCount = 1;
+    id.pPresentIds = &state->presentId;
+    VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    present.pNext = &id;
+    present.waitSemaphoreCount = 1;
+    present.pWaitSemaphores = &state->rendered;
+    present.swapchainCount = 1;
+    present.pSwapchains = &state->swapchain;
+    present.pImageIndices = &index;
+    const auto result = state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present);
+    state->presentQueued = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR || result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT;
+    check(result, "vkQueuePresentKHR");
+    return state->presentId;
+}
+
+void VulkanDevice::WaitPresented(std::uint64_t id) {
+    require(state->presentQueued && id == state->presentId, "invalid presentation wait");
+    check(state->DeviceFunction<PFN_vkWaitForPresentKHR>("vkWaitForPresentKHR")(state->device, state->swapchain, id, 5'000'000'000ULL), "vkWaitForPresentKHR");
+    check(state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences")(state->device, 1, &state->presentFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences presentation resources");
+    state->presentQueued = false;
+}
 
 ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
     const auto& limits = state->properties.limits;

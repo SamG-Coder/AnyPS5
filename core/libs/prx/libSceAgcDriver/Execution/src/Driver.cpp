@@ -1,5 +1,8 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+#include "prx/libc/include/Shutdown.hpp"
+#include <bit>
 #include <algorithm>
 #include <array>
 #include <condition_variable>
@@ -90,6 +93,8 @@ struct Submission {
     std::uint32_t queue;
     std::vector<std::uint32_t> commands;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
+    std::map<std::size_t, std::shared_ptr<IFlipRequest>> flips;
+    bool suspend = false;
 };
 
 std::uint32_t readRegister(const Registers& registers, std::uint32_t offset) {
@@ -115,13 +120,27 @@ public:
     }
 
     ~Driver() {
+        stop();
+    }
+
+    void Shutdown() {
+        stop();
+        CheckFailure();
+    }
+
+private:
+    void stop() {
+        require(std::this_thread::get_id() != worker.get_id(), "worker cannot stop itself");
+        std::lock_guard shutdownLock(shutdownMutex);
         {
             std::lock_guard lock(mutex);
             stopping = true;
         }
         changed.notify_all();
-        worker.join();
+        if (worker.joinable()) worker.join();
     }
+
+public:
 
     void Submit(const Packet* packet, std::uint32_t queue) {
         CheckFailure();
@@ -142,6 +161,18 @@ public:
             rethrowFailure();
             require(!stopping, "submission during shutdown");
             require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
+            for (std::size_t cursor = 0; cursor < submission.commands.size();) {
+                const auto* words = submission.commands.data() + cursor;
+                if (words[0] == FlipPacketHeader) {
+                    const auto output = outputs.find(words[1]);
+                    require(output != outputs.end(), "flip references an unregistered video output");
+                    const FlipInfo info{words[1], std::bit_cast<std::int32_t>(words[2]), words[3], std::bit_cast<std::int64_t>(static_cast<std::uint64_t>(words[4]) | (static_cast<std::uint64_t>(words[5]) << 32u))};
+                    auto request = output->second->Reserve(info);
+                    require(request != nullptr, "video output returned a null flip reservation");
+                    submission.flips.emplace(cursor, std::move(request));
+                }
+                cursor += static_cast<std::size_t>((words[0] >> 16u) & 0x3fffu) + 2;
+            }
             submission.shaders = shaders;
             submission.serial = accepted + 1;
             pending.push_back(std::move(submission));
@@ -158,9 +189,84 @@ public:
         rethrowFailure();
     }
 
+    void SuspendPoint() {
+        require(std::this_thread::get_id() != worker.get_id(), "worker cannot suspend itself");
+        std::unique_lock lock(mutex);
+        rethrowFailure();
+        require(!stopping, "suspend during shutdown");
+        require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
+        Submission boundary{};
+        boundary.serial = accepted + 1;
+        boundary.suspend = true;
+        pending.push_back(std::move(boundary));
+        const auto target = ++accepted;
+        changed.notify_all();
+        changed.wait(lock, [&] { return failure != nullptr || completed >= target; });
+        rethrowFailure();
+    }
+
+    void RegisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output) {
+        require(output != nullptr, "null video output");
+        std::lock_guard lock(mutex);
+        rethrowFailure();
+        require(!stopping, "video output registration during shutdown");
+        require(outputs.emplace(handle, output).second, "video output already registered");
+    }
+
+    void UnregisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output) {
+        std::lock_guard lock(mutex);
+        const auto it = outputs.find(handle);
+        require(it != outputs.end() && it->second == output, "video output registration mismatch");
+        outputs.erase(it);
+    }
+
     void CheckFailure() {
         std::lock_guard lock(mutex);
         rethrowFailure();
+    }
+
+    void ReportFailure(std::exception_ptr error) {
+        require(error != nullptr, "null asynchronous failure");
+        {
+            std::lock_guard lock(mutex);
+            if (!failure) failure = error;
+            for (const auto& [handle, output] : outputs) output->Fail(failure);
+            for (const auto& item : pending) {
+                for (const auto& [offset, flip] : item.flips) flip->Fail(failure);
+            }
+            pending.clear();
+        }
+        changed.notify_all();
+    }
+
+    void PresentClear(const PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
+        CheckFailure();
+        require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
+        std::shared_ptr<VulkanDevice> presenting;
+        std::uint64_t id = 0;
+        try {
+            {
+                std::lock_guard lock(gpuMutex);
+                if (device == nullptr || device->Window() == nullptr) {
+                    if (device) device->WaitIdle();
+                    device = std::make_shared<VulkanDevice>(&window);
+                }
+                require(device->Window() == window.context, "presentation window does not match device surface");
+                presenting = device;
+                id = presenting->PresentClear(window.width, window.height, opaque);
+            }
+            gpuReady(context);
+            presenting->WaitPresented(id);
+            CheckFailure();
+        } catch (...) {
+            ReportFailure(std::current_exception());
+            throw;
+        }
+    }
+
+    void ReleaseWindow(void* window) {
+        std::lock_guard lock(gpuMutex);
+        if (device && device->Window() == window) device.reset();
     }
 
     void RegisterShader(const Shader* shader) {
@@ -185,18 +291,29 @@ public:
 
 private:
     std::mutex mutex;
+    std::mutex shutdownMutex;
     std::condition_variable changed;
     std::deque<Submission> pending;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
     std::map<std::uint32_t, QueueState> queues;
-    std::unique_ptr<VulkanDevice> device;
+    std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
+    std::mutex gpuMutex;
+    std::shared_ptr<VulkanDevice> device;
     std::uint64_t accepted = 0;
     std::uint64_t completed = 0;
     std::exception_ptr failure;
     bool stopping = false;
+    bool resetGraphics = false;
     std::thread worker;
 
-    Driver() : worker([this] { run(); }) {}
+    Driver() : worker([this] { run(); }) {
+        try {
+            LibcRegisterShutdown_nid_postfix([] { Driver::Get().Shutdown(); });
+        } catch (...) {
+            stop();
+            throw;
+        }
+    }
 
     void rethrowFailure() const {
         if (failure != nullptr) {
@@ -210,6 +327,11 @@ private:
             require((header & 0xc0000000u) == 0xc0000000u, "unsupported PM4 packet type");
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             require(count <= commands.size() - cursor, "truncated PM4 packet");
+            if (header == FlipPacketHeader) {
+                require(count == FlipPacketWords && queue == 0, "invalid flip packet size or queue");
+                cursor += count;
+                continue;
+            }
             require((header & 0xffu) == 0, "PM4 header flags or internal extension are not implemented");
             const auto packet = commands.subspan(cursor, count);
             const auto opcode = (header >> 8u) & 0xffu;
@@ -236,6 +358,7 @@ private:
     }
 
     void dispatch(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
+        std::lock_guard gpuLock(gpuMutex);
         const auto address = (static_cast<std::uint64_t>(readRegister(queue.shader, 0x20c)) << 8u) | (static_cast<std::uint64_t>(readRegister(queue.shader, 0x20d) & 0xffu) << 40u);
         auto it = submission.shaders.upper_bound(address);
         require(it != submission.shaders.begin(), "compute program does not belong to a registered shader");
@@ -253,7 +376,7 @@ private:
         auto userConfigRegisters = registerValues(queue.userConfig);
         const std::array<ShaderRecompiler::MemoryRegion, 2> memory{{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}};
         if (device == nullptr) {
-            device = std::make_unique<VulkanDevice>();
+            device = std::make_shared<VulkanDevice>();
         }
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
         const ShaderRecompiler::RecompileRequest request{
@@ -267,13 +390,32 @@ private:
     }
 
     void execute(const Submission& submission) {
+        if (submission.suspend) {
+            std::lock_guard gpuLock(gpuMutex);
+            if (device != nullptr) device->WaitIdle();
+            resetGraphics = true;
+            return;
+        }
+        if (submission.queue == 0 && resetGraphics) {
+            queues.erase(0);
+            resetGraphics = false;
+        }
         auto& queue = queues[submission.queue];
         for (std::size_t cursor = 0; cursor < submission.commands.size();) {
+            CheckFailure();
             const auto header = submission.commands[cursor];
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             const auto packet = std::span(submission.commands).subspan(cursor, count);
             switch ((header >> 8u) & 0xffu) {
                 case 0x10:
+                    if (header == FlipPacketHeader) {
+                        {
+                            std::lock_guard gpuLock(gpuMutex);
+                            if (device != nullptr) device->WaitIdle();
+                        }
+                        CheckFailure();
+                        submission.flips.at(cursor)->GpuReady();
+                    }
                     break;
                 case 0x69:
                 case 0x76:
@@ -296,12 +438,14 @@ private:
     }
 
     void run() noexcept {
+        Submission submission;
         try {
             for (;;) {
-                Submission submission;
+                submission = Submission{};
                 {
                     std::unique_lock lock(mutex);
-                    changed.wait(lock, [&] { return stopping || !pending.empty(); });
+                    changed.wait(lock, [&] { return failure || stopping || !pending.empty(); });
+                    rethrowFailure();
                     if (pending.empty()) {
                         break;
                     }
@@ -311,23 +455,21 @@ private:
                 execute(submission);
                 {
                     std::lock_guard lock(mutex);
+                    rethrowFailure();
                     completed = submission.serial;
                 }
                 changed.notify_all();
             }
+            std::lock_guard gpuLock(gpuMutex);
             device.reset();
         } catch (...) {
             const auto error = std::current_exception();
-            device.reset();
+            for (const auto& [offset, flip] : submission.flips) flip->Fail(error);
+            ReportFailure(error);
             {
-                std::lock_guard lock(mutex);
-                failure = error;
-                if (failure == nullptr) {
-                    std::terminate();
-                }
-                pending.clear();
+                std::lock_guard gpuLock(gpuMutex);
+                device.reset();
             }
-            changed.notify_all();
         }
     }
 };
@@ -346,6 +488,30 @@ void RegisterShader(const Shader* shader) {
     Driver::Get().RegisterShader(shader);
 }
 
+void SuspendPoint() {
+    Driver::Get().SuspendPoint();
+}
+
+void RegisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output) {
+    Driver::Get().RegisterVideoOutput(handle, output);
+}
+
+void UnregisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOutput>& output) {
+    Driver::Get().UnregisterVideoOutput(handle, output);
+}
+
+void PresentClear(const PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
+    Driver::Get().PresentClear(window, opaque, gpuReady, context);
+}
+
+void ReleaseWindow(void* window) {
+    Driver::Get().ReleaseWindow(window);
+}
+
+void ReportFailure(std::exception_ptr error) {
+    Driver::Get().ReportFailure(error);
+}
+
 }
 
 extern "C" void AgcDriverWaitIdle_nid_postfix() {
@@ -354,4 +520,28 @@ extern "C" void AgcDriverWaitIdle_nid_postfix() {
 
 extern "C" void AgcDriverRegisterShader_nid_postfix(const Shader* shader) {
     AgcDriver::RegisterShader(shader);
+}
+
+extern "C" void AgcDriverSuspendPoint_nid_postfix() {
+    AgcDriver::SuspendPoint();
+}
+
+extern "C" void AgcDriverRegisterVideoOutput_nid_postfix(std::uint32_t handle, const std::shared_ptr<AgcDriver::IVideoOutput>& output) {
+    AgcDriver::RegisterVideoOutput(handle, output);
+}
+
+extern "C" void AgcDriverUnregisterVideoOutput_nid_postfix(std::uint32_t handle, const std::shared_ptr<AgcDriver::IVideoOutput>& output) {
+    AgcDriver::UnregisterVideoOutput(handle, output);
+}
+
+extern "C" void AgcDriverPresentClear_nid_postfix(const AgcDriver::PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
+    AgcDriver::PresentClear(window, opaque, gpuReady, context);
+}
+
+extern "C" void AgcDriverReleaseWindow_nid_postfix(void* window) {
+    AgcDriver::ReleaseWindow(window);
+}
+
+extern "C" void AgcDriverReportFailure_nid_postfix(std::exception_ptr error) {
+    AgcDriver::ReportFailure(error);
 }

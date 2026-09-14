@@ -8,6 +8,11 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <atomic>
+#include <exception>
+#include <memory>
+#include <stdexcept>
+#include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 
 #include "SDL.h"
 #include "SceTypes.hpp"
@@ -88,6 +93,7 @@ struct VideoOutConfig {
     uint64_t generation = 0;
     bool opened = false;
     bool closing = false;
+    std::exception_ptr failure;
     int flipRate = 0;
     uint64_t outputMode = VIDEO_OUT_OUTPUT_MODE_DEFAULT;
     float gamma = 1.0f;
@@ -98,14 +104,43 @@ struct VideoOutConfig {
 
     std::array<VideoOutBuffer, VIDEO_OUT_BUFFER_NUM_MAX> buffers{};
     std::array<BufferAttributeGroup, VIDEO_OUT_BUFFER_ATTRIBUTE_NUM_MAX> groups{};
+
+    void Check() const {
+        if (failure) std::rethrow_exception(failure);
+        if (!opened || closing) throw std::runtime_error("VideoOut: port is closed");
+    }
 };
 
-struct FlipRequest {
-    VideoOutConfig* cfg = nullptr;
+struct FlipQueue;
+
+struct FlipRequest final : AgcDriver::IFlipRequest, std::enable_shared_from_this<FlipRequest> {
+    std::shared_ptr<VideoOutConfig> cfg;
+    std::shared_ptr<FlipQueue> queue;
     uint64_t generation = 0;
     int index = 0;
     int flipMode = 0;
     int64_t flipArg = 0;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    VideoOutBuffer buffer;
+    BufferAttributeGroup group;
+    bool reserved = false;
+    bool ready = false;
+    bool gpuComplete = false;
+    bool terminal = false;
+
+    ~FlipRequest() override;
+    void GpuReady() override;
+    void Fail(std::exception_ptr error) noexcept override;
+};
+
+struct FlipQueue {
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::list<std::shared_ptr<FlipRequest>> requests;
+    std::atomic<std::size_t> reservations = 0;
+    std::exception_ptr failure;
+    bool stopping = false;
 };
 
 class VideoOutDriver {
@@ -114,33 +149,34 @@ public:
 
     VideoOutDriver();
     ~VideoOutDriver();
+    void Shutdown();
 
     VideoOutDriver(const VideoOutDriver&) = delete;
     VideoOutDriver& operator=(const VideoOutDriver&) = delete;
 
     int Open(int busType);
     bool Close(int handle);
-    VideoOutConfig* GetConfig(int handle);
+    std::shared_ptr<VideoOutConfig> GetConfig(int handle);
     bool IsOpen(int handle);
 
-    void SubmitFlip(VideoOutConfig* cfg, int index, int flipMode, int64_t flipArg);
+    void SubmitFlip(int handle, int index, int flipMode, int64_t flipArg);
 
 private:
+    bool close(int handle);
     void presentLoop(std::stop_token token);
     void vblankBegin();
     void vblankEnd();
-    void processFlip(const FlipRequest& req);
+    void processFlip(FlipRequest& req);
     void triggerEvents(VideoOutConfig& cfg, int eventKind, void* triggerData);
 
     std::mutex mutex;
-    VideoOutConfig contexts[VIDEO_OUT_NUM_MAX];
-
-    std::mutex flipMutex;
-    std::condition_variable flipCond;
-    std::list<FlipRequest> flipQueue;
+    std::mutex shutdownMutex;
+    bool stopped = false;
+    std::array<std::shared_ptr<VideoOutConfig>, VIDEO_OUT_NUM_MAX> contexts;
+    std::array<std::shared_ptr<AgcDriver::IVideoOutput>, VIDEO_OUT_NUM_MAX> outputs;
+    std::shared_ptr<FlipQueue> flipQueue = std::make_shared<FlipQueue>();
 
     SDL_Window* window = nullptr;
-    SDL_Surface* windowSurface = nullptr;
 
     std::jthread presentThread;
 };

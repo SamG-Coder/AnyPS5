@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libc/include/Shutdown.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Acb.hpp"
 #include <array>
 #include <cstdio>
@@ -30,11 +31,19 @@ int main() {
                 throw;
             }
             std::puts("Vulkan device initialized; real recompiler exception propagated from compute dispatch");
+            try {
+                LibcRunShutdown_nid_postfix();
+                throw std::runtime_error("shutdown lost recompiler failure");
+            } catch (const std::runtime_error& shutdown) {
+                if (std::string(shutdown.what()) != "ShaderRecompiler::Recompile not implemented") throw;
+            }
             return 0;
         }
         throw std::runtime_error("dispatch unexpectedly completed without a recompiler");
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());
+        try { LibcRunShutdown_nid_postfix(); }
+        catch (const std::exception& shutdown) { std::fprintf(stderr, "shutdown: %s\n", shutdown.what()); }
         return 1;
     }
 }

@@ -1,4 +1,5 @@
 #include "prx/libSceAgc/Misc/include/Suspend.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 
 #include <cstdint>
 #include <cstddef>
@@ -8,8 +9,8 @@
 extern "C" {
 
 int APS5_VABI sceAgcSuspendPoint(void) {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    AgcDriverSuspendPoint_nid_postfix();
+    return 0;
 }
 
 }

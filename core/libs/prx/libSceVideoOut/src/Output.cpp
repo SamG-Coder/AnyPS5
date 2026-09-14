@@ -8,20 +8,20 @@
 
 static int validateOutputConfig(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reservedPtr, uint64_t reserved) {
     if (!VideoOutDriver::Get().IsOpen(handle)) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     if (reservedPtr != nullptr || reserved != 0) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     if (options != nullptr) {
         for (auto v : options->internalData) {
             if (v != 0) {
-                return VIDEO_OUT_ERROR_INVALID_OPTION;
+                throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_OPTION");
             }
         }
     }
     if (mode != VIDEO_OUT_OUTPUT_MODE_DEFAULT && mode != VIDEO_OUT_OUTPUT_MODE_119_88HZ) {
-        return VIDEO_OUT_ERROR_UNSUPPORTED_OUTPUT_MODE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_UNSUPPORTED_OUTPUT_MODE");
     }
     return 0;
 }
@@ -33,17 +33,17 @@ int APS5_VABI sceVideoOutOpen(int userId, int busType, int index, const void* pa
         throw std::runtime_error(std::string(__func__) + ": param not implemented");
     }
     if (userId != 255 && userId != 0) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     if (busType != VIDEO_OUT_BUS_TYPE_MAIN && busType != VIDEO_OUT_BUS_TYPE_OVERLAY && busType != VIDEO_OUT_BUS_TYPE_SUB) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     if (index != 0) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     const int handle = VideoOutDriver::Get().Open(busType);
     if (handle < 0) {
-        return VIDEO_OUT_ERROR_RESOURCE_BUSY;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_RESOURCE_BUSY");
     }
     return handle;
 }
@@ -53,51 +53,54 @@ int APS5_VABI sceVideoOutClose(int handle) {
 }
 
 int APS5_VABI sceVideoOutSetFlipRate(int handle, int rate) {
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     if (rate < 0 || rate > 2) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     throw std::runtime_error(std::string(__func__) + " not implemented");
 }
 
 int APS5_VABI sceVideoOutGetFlipStatus(int handle, VideoOutFlipStatus* status) {
     if (status == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     *status = cfg->flipStatus;
     return 0;
 }
 
 int APS5_VABI sceVideoOutGetVblankStatus(int handle, VideoOutVblankStatus* status) {
     if (status == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     *status = cfg->vblankStatus;
     return 0;
 }
 
 int APS5_VABI sceVideoOutGetOutputStatus(int handle, VideoOutOutputStatus* status) {
     if (status == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     status->resolution = (cfg->width >= 3840 || cfg->height >= 2160) ? 2u : 1u;
     status->dynamicRange = 1;
     status->refreshRate = (cfg->outputMode == VIDEO_OUT_OUTPUT_MODE_119_88HZ) ? VIDEO_OUT_REFRESH_RATE_119_88HZ : VIDEO_OUT_REFRESH_RATE_59_94HZ;
@@ -109,30 +112,34 @@ int APS5_VABI sceVideoOutGetOutputStatus(int handle, VideoOutOutputStatus* statu
 }
 
 int APS5_VABI sceVideoOutIsFlipPending(int handle) {
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     return cfg->flipStatus.flipPendingNum;
 }
 
 int APS5_VABI sceVideoOutWaitVblank(int handle) {
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     const uint64_t count = cfg->vblankStatus.count;
-    while (cfg->opened && cfg->vblankStatus.count == count) {
+    while (cfg->opened && !cfg->failure && cfg->vblankStatus.count == count) {
         cfg->vblankCond.wait(lock);
     }
+    if (cfg->failure) std::rethrow_exception(cfg->failure);
+    if (!cfg->opened || cfg->closing) throw std::runtime_error("sceVideoOutWaitVblank: port closed during wait");
     return 0;
 }
 
 int APS5_VABI sceVideoOutInitializeOutputOptions(VideoOutOutputOptions* options) {
     if (options == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
     std::memset(options, 0, sizeof(VideoOutOutputOptions));
     return 0;
@@ -152,13 +159,14 @@ int APS5_VABI sceVideoOutConfigureOutput(int handle, uint64_t mode, const VideoO
         return supported;
     }
     if (supported == 0 && mode == VIDEO_OUT_OUTPUT_MODE_119_88HZ) {
-        return VIDEO_OUT_ERROR_UNAVAILABLE_OUTPUT_MODE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_UNAVAILABLE_OUTPUT_MODE");
     }
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     std::unique_lock lock(cfg->mutex);
+    cfg->Check();
     cfg->outputMode = mode;
     return 0;
 }
@@ -167,14 +175,14 @@ int APS5_VABI sceVideoOutSetWindowModeMargins(int handle, int top, int bottom) {
     (void)top;
     (void)bottom;
     if (!VideoOutDriver::Get().IsOpen(handle)) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     throw std::runtime_error(std::string(__func__) + " not implemented");
 }
 
 int APS5_VABI sceVideoOutLatencyControlWaitBeforeInput(int handle) {
     if (!VideoOutDriver::Get().IsOpen(handle)) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     throw std::runtime_error(std::string(__func__) + " not implemented");
 }
@@ -182,17 +190,17 @@ int APS5_VABI sceVideoOutLatencyControlWaitBeforeInput(int handle) {
 int APS5_VABI sceVideoOutLatencyMeasureSetStartPoint(int handle, uint32_t point) {
     (void)point;
     if (!VideoOutDriver::Get().IsOpen(handle)) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     throw std::runtime_error(std::string(__func__) + " not implemented");
 }
 
 int APS5_VABI sceVideoOutColorSettingsSetGamma(VideoOutColorSettings* settings, float gamma) {
     if (settings == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
     if (gamma < 0.1f || gamma > 2.0f) {
-        return VIDEO_OUT_ERROR_INVALID_VALUE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_VALUE");
     }
     settings->gamma = gamma;
     return 0;
@@ -200,11 +208,11 @@ int APS5_VABI sceVideoOutColorSettingsSetGamma(VideoOutColorSettings* settings, 
 
 int APS5_VABI sceVideoOutAdjustColor(int handle, const VideoOutColorSettings* settings) {
     if (settings == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_ADDRESS;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_ADDRESS");
     }
-    auto* cfg = VideoOutDriver::Get().GetConfig(handle);
+    auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {
-        return VIDEO_OUT_ERROR_INVALID_HANDLE;
+        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_INVALID_HANDLE");
     }
     throw std::runtime_error(std::string(__func__) + " not implemented");
 }
