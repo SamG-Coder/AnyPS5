@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include <cstdio>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -126,6 +127,36 @@ void testContextAndBases() {
     check(state.shader.empty() && state.context.empty() && state.dispatchIndirectBase == 0 && state.indexBase == 0 && !state.savedContext, "dispatch reset retained state");
 }
 
+void testIndexedDraw() {
+    AgcDriver::QueueState state;
+    alignas(4) std::array<std::uint32_t, 8> indices{};
+    state.indexBase = reinterpret_cast<std::uintptr_t>(indices.data());
+    state.instanceCount = 3;
+    const auto packet = makePacket(0x35, {4, 2, 4, 0x20});
+    for (std::uint32_t type = 0; type < 3; ++type) {
+        state.indexType = type;
+        const auto draw = AgcDriver::Pm4::ResolveDraw(packet, state);
+        const auto size = type == 0 ? 2u : type == 1 ? 4u : 1u;
+        check(draw.indexAddress == state.indexBase + 2 * size && draw.indexSize == size && draw.indexCount == 4 && draw.instanceCount == 3 && draw.flags == 0x20, "indexed draw state mismatch");
+    }
+    expectFailure([&] { AgcDriver::Pm4::Validate(packet, 0x20); }, "compute queue");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x35, {3, 0, 4, 0}), 0); }, "maximum index size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x35, {4, 0, 4, 1}), 0); }, "draw flags");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x35, {4, 0, 4}), 0); }, "packet size");
+    state.indexType = 3;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "index type");
+    state.indexType = 1;
+    state.indexBase += 1;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "misaligned index base");
+    state.indexBase = std::numeric_limits<std::uint64_t>::max() - 3;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "index address overflow");
+    state.indexType = 2;
+    state.indexBase = std::numeric_limits<std::uint64_t>::max() - 4;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "address range overflow");
+    state.indexBase = 0x1000;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "guest");
+}
+
 void testMemory() {
     AgcDriver::QueueState state;
     std::array<std::uint32_t, 4> data{0, 0, 0, 0};
@@ -211,6 +242,7 @@ int main(int argc, char** argv) {
         testCatalog();
         testRegisters();
         testContextAndBases();
+        testIndexedDraw();
         testMemory();
         testCopies();
         testDriverSubmission();

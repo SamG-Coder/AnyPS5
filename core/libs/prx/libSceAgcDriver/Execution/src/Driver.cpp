@@ -318,6 +318,59 @@ private:
         device->Dispatch(compiled, packet[1], packet[2], packet[3]);
     }
 
+    void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
+        const auto indexed = Pm4::ResolveDraw(packet, queue);
+        struct Program {
+            ShaderRecompiler::ShaderBinary binary;
+            std::uint32_t userDataBase;
+            std::vector<std::uint32_t> userData;
+            std::array<ShaderRecompiler::MemoryRegion, 2> memory;
+        };
+        const auto programAddress = [&](std::uint32_t base) {
+            return (static_cast<std::uint64_t>(readRegister(queue.shader, base)) << 8u) | (static_cast<std::uint64_t>(readRegister(queue.shader, base + 1) & 0xffu) << 40u);
+        };
+        const auto prepare = [&](std::uint64_t address, std::uint8_t type, ShaderRecompiler::ShaderStage stage, std::uint32_t rsrc2, std::uint32_t userDataBase) {
+            auto it = submission.shaders.upper_bound(address);
+            require(it != submission.shaders.begin(), "graphics program does not belong to a registered shader");
+            --it;
+            const auto& snapshot = *it->second;
+            require(address - snapshot.codeAddress < snapshot.code.size() * sizeof(std::uint32_t), "graphics program is outside registered shader code");
+            require(snapshot.type == type, "graphics program refers to an incompatible shader binary type");
+            const auto resources = readRegister(queue.shader, rsrc2);
+            const auto userCount = ((resources >> 1u) & 0x1fu) | (((resources >> 27u) & 1u) << 5u);
+            const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
+            Program result{
+                {stage, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
+                userDataBase,
+                {},
+                {{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}}
+            };
+            for (std::uint32_t i = 0; i < userCount; ++i) result.userData.push_back(readRegister(queue.shader, userDataBase + i));
+            return result;
+        };
+        const auto vertex = prepare(programAddress(0x0c8), 2, ShaderRecompiler::ShaderStage::Vertex, 0x08b, 0x08c);
+        const auto pixelAddress = programAddress(0x008);
+        std::optional<Program> pixel;
+        if (pixelAddress != 0) pixel = prepare(pixelAddress, 1, ShaderRecompiler::ShaderStage::Fragment, 0x00b, 0x00c);
+        const auto shaderRegisters = registerValues(queue.shader);
+        const auto contextRegisters = registerValues(queue.context);
+        const auto userConfigRegisters = registerValues(queue.userConfig);
+        std::lock_guard gpuLock(gpuMutex);
+        if (device == nullptr) device = std::make_shared<VulkanDevice>();
+        const auto compile = [&](const Program& program) {
+            const ShaderRecompiler::RecompileRequest request{
+                program.binary,
+                {64, program.userDataBase, program.userData, shaderRegisters, contextRegisters, userConfigRegisters, program.memory},
+                device->Target(),
+                {0, 0, 0, 128}
+            };
+            return ShaderRecompiler::Recompile(request);
+        };
+        if (pixel) static_cast<void>(compile(*pixel));
+        static_cast<void>(compile(vertex));
+        throw std::runtime_error("AGC driver: graphics pipeline and guest render-target materialization are not implemented for indexed draw at " + std::to_string(indexed.indexAddress));
+    }
+
     void execute(const Submission& submission) {
         if (submission.suspend) {
             std::lock_guard gpuLock(gpuMutex);
@@ -348,6 +401,8 @@ private:
             } else if (opcode == 0x16) {
                 const auto direct = Pm4::ResolveDispatch(packet, queue);
                 dispatch(queue, direct, submission);
+            } else if (opcode == 0x35) {
+                draw(queue, packet, submission);
             } else if (opcode != 0x42) {
                 Pm4::Execute(packet, queue);
             }
