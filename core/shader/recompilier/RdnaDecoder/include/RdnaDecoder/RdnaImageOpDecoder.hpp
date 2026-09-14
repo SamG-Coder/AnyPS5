@@ -7,7 +7,7 @@
 
 namespace ShaderRecompiler {
 
-[[nodiscard]] RdnaInstruction DecodeRdnaImageOp(std::span<const std::uint32_t> code, std::uint32_t wordIndex);
+    [[nodiscard]] RdnaInstruction DecodeRdnaImageOp(std::span<const std::uint32_t> code, std::uint32_t wordIndex);
 
 }
 
