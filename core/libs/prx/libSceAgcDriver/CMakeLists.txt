@@ -1,5 +1,7 @@
 add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/VulkanDevice.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Event.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Query.cpp
@@ -39,3 +41,9 @@ target_include_directories(agc_driver_flip_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_driver_flip_tests PRIVATE libSceAgcDriver libc)
 set_target_properties(agc_driver_flip_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_flip_tests)
+
+add_executable(agc_driver_pm4_tests EXCLUDE_FROM_ALL tests/Pm4.cpp)
+target_include_directories(agc_driver_pm4_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_driver_pm4_tests PRIVATE libSceAgcDriver libc)
+set_target_properties(agc_driver_pm4_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_driver_pm4_tests)

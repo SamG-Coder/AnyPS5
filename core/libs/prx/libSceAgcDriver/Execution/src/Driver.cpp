@@ -1,4 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
@@ -18,15 +20,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#else
-#include <fstream>
-#include <sstream>
-#endif
 
 namespace AgcDriver {
 namespace {
@@ -35,42 +28,6 @@ void require(bool condition, const char* reason) {
     if (!condition) {
         throw std::runtime_error(std::string("AGC driver: ") + reason);
     }
-}
-
-void checkRange(const void* pointer, std::size_t bytes, std::size_t alignment) {
-    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
-    require(address != 0 && address % alignment == 0, "null or misaligned address");
-    require(bytes <= std::numeric_limits<std::uintptr_t>::max() - address, "address range overflow");
-    auto cursor = address;
-    const auto end = address + bytes;
-#ifdef _WIN32
-    while (cursor < end) {
-        MEMORY_BASIC_INFORMATION memory{};
-        require(VirtualQuery(reinterpret_cast<const void*>(cursor), &memory, sizeof(memory)) == sizeof(memory), "cannot query guest memory");
-        require(memory.State == MEM_COMMIT && (memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) == 0, "guest memory is not readable");
-        const auto protection = memory.Protect & 0xffu;
-        require(protection == PAGE_READONLY || protection == PAGE_READWRITE || protection == PAGE_WRITECOPY || protection == PAGE_EXECUTE_READ || protection == PAGE_EXECUTE_READWRITE || protection == PAGE_EXECUTE_WRITECOPY, "guest memory has no read permission");
-        const auto base = reinterpret_cast<std::uintptr_t>(memory.BaseAddress);
-        require(memory.RegionSize <= std::numeric_limits<std::uintptr_t>::max() - base && base + memory.RegionSize > cursor, "invalid guest memory mapping");
-        cursor = std::min(end, base + memory.RegionSize);
-    }
-#else
-    std::ifstream maps("/proc/self/maps");
-    require(maps.is_open(), "cannot query guest memory maps");
-    std::string line;
-    while (cursor < end && std::getline(maps, line)) {
-        std::istringstream fields(line);
-        std::uintptr_t first = 0;
-        std::uintptr_t last = 0;
-        char separator = 0;
-        std::string permissions;
-        require(static_cast<bool>(fields >> std::hex >> first >> separator >> last >> permissions) && separator == '-' && first < last && !permissions.empty(), "invalid guest memory map entry");
-        if (last <= cursor) continue;
-        require(first <= cursor && permissions[0] == 'r', "guest memory is not readable");
-        cursor = std::min(end, last);
-    }
-    require(cursor == end, "guest address range is not mapped");
-#endif
 }
 
 struct ShaderSnapshot {
@@ -138,14 +95,14 @@ public:
     void Submit(const Packet* packet, std::uint32_t queue) {
         CheckFailure();
         require(queue == 0 || (queue >= 0x20 && queue < 0x58), "unsupported compute queue");
-        checkRange(packet, sizeof(Packet), alignof(Packet));
+        GuestMemory::CheckRange(packet, sizeof(Packet), alignof(Packet));
         const auto descriptor = *packet;
         require(descriptor.flags == 0, "nonzero submission flags are not implemented");
         Submission submission{};
         submission.queue = queue;
         if (descriptor.dw_num != 0) {
             require(descriptor.dw_num <= std::numeric_limits<std::size_t>::max() / sizeof(std::uint32_t), "command size overflow");
-            checkRange(descriptor.addr, static_cast<std::size_t>(descriptor.dw_num) * sizeof(std::uint32_t), alignof(std::uint32_t));
+            GuestMemory::CheckRange(descriptor.addr, static_cast<std::size_t>(descriptor.dw_num) * sizeof(std::uint32_t), alignof(std::uint32_t));
             submission.commands.assign(descriptor.addr, descriptor.addr + descriptor.dw_num);
         }
         validate(submission.commands, queue);
@@ -264,13 +221,13 @@ public:
 
     void RegisterShader(const Shader* shader) {
         CheckFailure();
-        checkRange(shader, sizeof(Shader), alignof(Shader));
+        GuestMemory::CheckRange(shader, sizeof(Shader), alignof(Shader));
         require(shader->file_header == 0x34333231u && shader->version == 0x18u, "invalid shader header");
         require(shader->header_size >= sizeof(Shader), "shader header is smaller than its fixed fields");
         require(shader->shader_size != 0 && (shader->shader_size & 3u) == 0, "invalid shader size");
-        checkRange(shader, shader->header_size, alignof(Shader));
+        GuestMemory::CheckRange(shader, shader->header_size, alignof(Shader));
         const auto* code = const_cast<const void*>(shader->code);
-        checkRange(code, shader->shader_size, 256);
+        GuestMemory::CheckRange(code, shader->shader_size, 256);
         ShaderSnapshot snapshot{reinterpret_cast<std::uintptr_t>(code), reinterpret_cast<std::uintptr_t>(shader), shader->type, {}, {}};
         snapshot.code.resize(shader->shader_size / sizeof(std::uint32_t));
         std::memcpy(snapshot.code.data(), code, shader->shader_size);
@@ -320,36 +277,10 @@ private:
             require((header & 0xc0000000u) == 0xc0000000u, "unsupported PM4 packet type");
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             require(count <= commands.size() - cursor, "truncated PM4 packet");
-            if (header == FlipPacketHeader) {
-                require(count == FlipPacketWords && queue == 0, "invalid flip packet size or queue");
-                cursor += count;
-                continue;
-            }
-            require((header & 0xffu) == 0, "PM4 header flags or internal extension are not implemented");
-            const auto packet = commands.subspan(cursor, count);
-            const auto opcode = (header >> 8u) & 0xffu;
-            switch (opcode) {
-                case 0x12:
-                    require(queue == 0, "CLEAR_STATE in compute queue");
-                    require(count == 2, "invalid CLEAR_STATE packet size");
-                    require((packet[1] & ~0xfu) == 0, "unsupported CLEAR_STATE payload bits");
-                    break;
-                case 0x10:
-                    require((packet[1] & 0xffff0000u) != 0x68750000u, "marker NOP is not implemented");
-                    break;
-                case 0x69:
-                case 0x76:
-                case 0x79:
-                    require(count >= 3, "register packet has no values");
-                    require(packet[1] <= 0xffffu && count - 2 <= 0x10000u - packet[1], "register range overflow or unsupported register index");
-                    require(queue == 0 || opcode == 0x76, "graphics register packet in compute queue");
-                    break;
-                case 0x15:
-                    require(count == 5, "invalid dispatch packet size");
-                    require((packet[4] & ~0x8000u) == 0x41u, "dispatch modifiers are not implemented");
-                    break;
-                default:
-                    throw std::runtime_error("AGC driver: unsupported PM4 opcode " + std::to_string(opcode) + " at DWORD " + std::to_string(cursor));
+            try {
+                Pm4::Validate(commands.subspan(cursor, count), queue);
+            } catch (const std::exception& error) {
+                throw std::runtime_error("AGC driver: " + Pm4::Name(header) + " at DWORD " + std::to_string(cursor) + ": " + error.what());
             }
             cursor += count;
         }
@@ -404,35 +335,21 @@ private:
             const auto header = submission.commands[cursor];
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             const auto packet = std::span(submission.commands).subspan(cursor, count);
-            switch ((header >> 8u) & 0xffu) {
-                case 0x12:
-                    queue.ClearContext();
-                    break;
-                case 0x10:
-                    if (header == FlipPacketHeader) {
-                        {
-                            std::lock_guard gpuLock(gpuMutex);
-                            if (device != nullptr) device->WaitIdle();
-                        }
-                        CheckFailure();
-                        submission.flips.at(cursor)->GpuReady();
-                    }
-                    break;
-                case 0x69:
-                case 0x76:
-                case 0x79: {
-                    const auto opcode = (header >> 8u) & 0xffu;
-                    auto& registers = opcode == 0x69 ? queue.context : opcode == 0x76 ? queue.shader : queue.userConfig;
-                    for (std::size_t i = 2; i < count; ++i) {
-                        registers.insert_or_assign(packet[1] + static_cast<std::uint32_t>(i - 2), packet[i]);
-                    }
-                    break;
-                }
-                case 0x15:
-                    dispatch(queue, packet, submission);
-                    break;
-                default:
-                    throw std::runtime_error("AGC driver: validated packet has no executor");
+            const auto opcode = (header >> 8u) & 0xffu;
+            if (Pm4::AccessesMemory(header) || opcode == 0x42 || header == FlipPacketHeader) {
+                std::lock_guard gpuLock(gpuMutex);
+                if (device != nullptr) device->WaitIdle();
+            }
+            if (header == FlipPacketHeader) {
+                CheckFailure();
+                submission.flips.at(cursor)->GpuReady();
+            } else if (opcode == 0x15) {
+                dispatch(queue, packet, submission);
+            } else if (opcode == 0x16) {
+                const auto direct = Pm4::ResolveDispatch(packet, queue);
+                dispatch(queue, direct, submission);
+            } else if (opcode != 0x42) {
+                Pm4::Execute(packet, queue);
             }
             cursor += count;
         }
