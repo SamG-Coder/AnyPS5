@@ -68,7 +68,7 @@ int APS5_VABI libc_printf_nid_postfix(VA_ARGS) {
 
 int APS5_VABI snprintf_nid_postfix(VA_ARGS) {
     LibcDetail::RegSaveArea regs;
-    LibcDetail::FillRegSaveArea(regs, rdx, rcx, r8, r9, 0, 0,
+    LibcDetail::FillRegSaveArea(regs, rcx, r8, r9, 0, 0, 0,
         xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7);
     LibcDetail::VaListLayout layout;
     std::va_list* va = LibcDetail::BuildVaList(layout, regs, 0u,
@@ -83,7 +83,7 @@ int APS5_VABI snprintf_nid_postfix(VA_ARGS) {
 
 int APS5_VABI sprintf_nid_postfix(VA_ARGS) {
     LibcDetail::RegSaveArea regs;
-    LibcDetail::FillRegSaveArea(regs, rsi, rdx, rcx, r8, r9, 0,
+    LibcDetail::FillRegSaveArea(regs, rdx, rcx, r8, r9, 0, 0,
         xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7);
     LibcDetail::VaListLayout layout;
     std::va_list* va = LibcDetail::BuildVaList(layout, regs, 0u,
