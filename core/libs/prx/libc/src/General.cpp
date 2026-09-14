@@ -14,7 +14,7 @@ extern "C" std::filesystem::path ResolvePath_nid_no_patch(const char* path) {
         ++start;
     }
     std::filesystem::path result = std::filesystem::current_path() / std::filesystem::path(s.substr(start));
-    return result;
+    return result.make_preferred();
 }
 
 extern "C" void NotImplemented_nid_no_patch(const char* funcName) {
