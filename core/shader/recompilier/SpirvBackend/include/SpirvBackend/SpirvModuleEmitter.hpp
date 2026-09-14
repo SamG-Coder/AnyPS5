@@ -1,13 +1,17 @@
-#ifndef SHADER_RECOMPILIER_SPIRVBACKEND_SPIRVMODULEEMITTER_HPP
-#define SHADER_RECOMPILIER_SPIRVBACKEND_SPIRVMODULEEMITTER_HPP
+#ifndef CORE_SHADER_RECOMPILIER_SPIRVBACKEND_INCLUDE_SPIRVBACKEND_SPIRVMODULEEMITTER_HPP
+#define CORE_SHADER_RECOMPILIER_SPIRVBACKEND_INCLUDE_SPIRVBACKEND_SPIRVMODULEEMITTER_HPP
 
-#include <IntermediateRepresentation/IrProgram.hpp>
-#include <Optimization/BindingAllocator.hpp>
-#include <SpirvBackend/SpirvModule.hpp>
+#include "IntermediateRepresentation/IrProgram.hpp"
+#include "Optimization/BindingAllocator.hpp"
+#include "SpirvBackend/SpirvModule.hpp"
+
+#include "SpirvBackend/SpirvEmitterState.hpp"
 
 namespace ShaderRecompiler {
 
 void EmitModuleHeader(SpirvModule& module, const IrProgram& program, const BindingAllocationResult& bindings);
+
+void EmitModuleHeader(SpirvEmitterState& state, const BindingAllocationResult& bindings);
 
 }
 

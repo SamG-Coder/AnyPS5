@@ -1,4 +1,4 @@
-#include <SpirvBackend/SpirvAnalysis.hpp>
+#include "SpirvBackend/SpirvAnalysis.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

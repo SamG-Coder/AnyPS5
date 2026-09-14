@@ -1,8 +1,9 @@
-#ifndef SHADER_RECOMPILIER_SPIRVBACKEND_SPIRVEMITTER_HPP
-#define SHADER_RECOMPILIER_SPIRVBACKEND_SPIRVEMITTER_HPP
+#ifndef CORE_SHADER_RECOMPILIER_SPIRVBACKEND_INCLUDE_SPIRVBACKEND_SPIRVEMITTER_HPP
+#define CORE_SHADER_RECOMPILIER_SPIRVBACKEND_INCLUDE_SPIRVBACKEND_SPIRVEMITTER_HPP
 
-#include <IntermediateRepresentation/IrProgram.hpp>
-#include <Optimization/BindingAllocator.hpp>
+#include "IntermediateRepresentation/IrProgram.hpp"
+#include "Optimization/BindingAllocator.hpp"
+#include "Optimization/ShaderStageInputInfo.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -17,6 +18,8 @@ struct SpirvTargetOptions {
 class SpirvEmitter {
 public:
     [[nodiscard]] std::vector<std::uint32_t> Emit(const IrProgram& program, const BindingAllocationResult& bindings, const SpirvTargetOptions& target) const;
+    [[nodiscard]] std::vector<std::uint32_t> Emit(const IrProgram& program, const ShaderStageInputInfo& inputInfo, const BindingAllocationResult& bindings, const SpirvTargetOptions& target) const;
+
 };
 
 }
