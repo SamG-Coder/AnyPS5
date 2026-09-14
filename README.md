@@ -9,8 +9,8 @@ Releases will be published after the first full successful launch of at least on
 ## Status
 
 Execution reaches `_start`, stack unwinding and exception handling tables are built. All unimplemented functions throw std::runtime_error. `what()` is printed to stderr and the process terminates.
-Shader initialization via `sceAgcCreate*` passes.
 Audio output and video output initialization pass
+Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
 
 Now: `sceAgcDcbSetFlip not implemented`.
 
