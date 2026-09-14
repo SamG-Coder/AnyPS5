@@ -1,4 +1,4 @@
-#include <ControlFlow/GraphBuilder.hpp>
+#include "ControlFlow/GraphBuilder.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

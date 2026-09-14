@@ -1,8 +1,8 @@
-#ifndef SHADER_RECOMPILIER_CONTROLFLOW_GRAPHBUILDER_HPP
-#define SHADER_RECOMPILIER_CONTROLFLOW_GRAPHBUILDER_HPP
+#ifndef CORE_SHADER_RECOMPILIER_CONTROLFLOW_INCLUDE_CONTROLFLOW_GRAPHBUILDER_HPP
+#define CORE_SHADER_RECOMPILIER_CONTROLFLOW_INCLUDE_CONTROLFLOW_GRAPHBUILDER_HPP
 
-#include <ControlFlow/ControlFlowGraph.hpp>
-#include <RdnaDecoder/RdnaProgram.hpp>
+#include "ControlFlow/ControlFlowGraph.hpp"
+#include "RdnaDecoder/RdnaProgram.hpp"
 #include <vector>
 
 namespace ShaderRecompiler {
