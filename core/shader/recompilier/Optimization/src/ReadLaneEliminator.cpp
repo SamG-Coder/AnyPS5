@@ -1,4 +1,4 @@
-#include <Optimization/ReadLaneEliminator.hpp>
+#include "Optimization/ReadLaneEliminator.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

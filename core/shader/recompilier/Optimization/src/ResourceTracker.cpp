@@ -1,4 +1,4 @@
-#include <Optimization/ResourceTracker.hpp>
+#include "Optimization/ResourceTracker.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

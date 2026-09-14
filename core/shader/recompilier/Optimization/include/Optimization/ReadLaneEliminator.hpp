@@ -1,13 +1,13 @@
-#ifndef SHADER_RECOMPILIER_OPTIMIZATION_READLANEELIMINATOR_HPP
-#define SHADER_RECOMPILIER_OPTIMIZATION_READLANEELIMINATOR_HPP
+#ifndef CORE_SHADER_RECOMPILIER_OPTIMIZATION_INCLUDE_OPTIMIZATION_READLANEELIMINATOR_HPP
+#define CORE_SHADER_RECOMPILIER_OPTIMIZATION_INCLUDE_OPTIMIZATION_READLANEELIMINATOR_HPP
 
-#include <IntermediateRepresentation/IrProgram.hpp>
+#include "IntermediateRepresentation/IrProgram.hpp"
 #include <cstdint>
 
 namespace ShaderRecompiler {
 
 struct ReadLaneEliminationStats {
-    std::uint32_t rewrittenReads;
+    std::uint32_t rewrittenReads = 0;
 };
 
 class ReadLaneEliminator {

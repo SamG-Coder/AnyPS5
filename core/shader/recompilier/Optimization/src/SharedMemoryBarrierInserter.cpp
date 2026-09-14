@@ -1,4 +1,4 @@
-#include <Optimization/SharedMemoryBarrierInserter.hpp>
+#include "Optimization/SharedMemoryBarrierInserter.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {

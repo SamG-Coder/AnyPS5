@@ -1,4 +1,4 @@
-#include <Optimization/SsaBuilder.hpp>
+#include "Optimization/SsaBuilder.hpp"
 #include <stdexcept>
 
 namespace ShaderRecompiler {
@@ -11,6 +11,10 @@ void SsaBuilder::insertPhiNodes(IrProgram& program) const {
 }
 void SsaBuilder::renameVariables(IrProgram& program) const {
     throw std::runtime_error("SsaBuilder::renameVariables not implemented");
+}
+
+void SsaBuilder::Rewrite(std::span<IrBlock* const> blocks) const {
+    throw std::runtime_error("SsaBuilder::Rewrite not implemented");
 }
 
 }
