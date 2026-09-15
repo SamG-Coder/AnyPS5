@@ -14,7 +14,7 @@ AgcDriver::QueueState makeState() {
     AgcDriver::QueueState queue;
     queue.userConfig[0x242] = 4;
     queue.context = {
-        {0x2a5, 0}, {0x2e5, 0}, {0x2e6, 0}, {0x2d5, 0x2000},
+        {0x2d5, 0x2000},
         {0x1b6, 0}, {0x207, 0}, {0x200, 0}, {0x203, 0x800},
         {0x2dc, 0xaa00}, {0x2f8, 0}, {0x292, 2}, {0x293, 0},
         {0x80, 0}, {0x8d, 0}, {0x83, 0xffff}, {0x8c, 0xa},
@@ -55,11 +55,25 @@ void expectFailure(TAction action, std::string_view reason) {
 }
 
 void stateTests() {
+    AgcDriver::QueueState initial;
+    Require(initial.userConfig.at(0x24b) == 0, "primitive restart must be disabled in initial queue state");
+    initial.userConfig[0x24b] = 1;
+    initial.ClearContext();
+    Require(initial.userConfig.at(0x24b) == 1, "context clear must preserve user configuration");
+    initial = AgcDriver::QueueState{};
+    Require(initial.userConfig.at(0x24b) == 0, "queue reset must disable primitive restart");
     auto queue = makeState();
     auto state = AgcDriver::Graphics::DecodeState(queue);
     Require(state.color.address == reinterpret_cast<std::uintptr_t>(colorMemory.data()) && state.color.bytes == colorMemory.size(), "render-target address or size changed");
     Require(state.viewport.y == 4 && state.viewport.height == -4, "negative viewport height was lost");
     Require(state.color.format == VK_FORMAT_R8G8B8A8_UNORM, "RGBA format changed");
+    queue.userConfig[0x24b] = 1;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "GE_MULTI_PRIM_IB_RESET_EN");
+    queue = makeState();
+    queue.userConfig.erase(0x24b);
+    queue.context[0x2a5] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "user-config bank at DWORD 0x24b");
+    queue = makeState();
     queue.context[0x90] = 0x80010003;
     queue.context[0x91] = 0x30020;
     state = AgcDriver::Graphics::DecodeState(queue);

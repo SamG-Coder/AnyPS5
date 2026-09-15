@@ -24,6 +24,8 @@
 
 Missing required registers and unsupported active state raise exceptions. Unsupported resources are never replaced with empty buffers or dummy images. The renderer never substitutes a clear for a failed draw.
 
+Primitive restart uses the PS5 user-config register `GE_MULTI_PRIM_IB_RESET_EN` at `0x24B`, not the legacy context register at `0x2A5`. Queue creation/reset initializes it to zero; context-only clear preserves it. This matches `UserConfig::m_primitive_reset_control` and `HwUcSetMultiPrimIbReset` in `raw/source/KytyPS5-main/src/graphics/guest_gpu`, and the user-config bank of the project's AGC register defaults. Missing entries still fail at read time. Legacy context stream-output registers are not required for the supported primitive-generation stage; transform-feedback SPIR-V remains unsupported.
+
 The target's existing contents are uploaded before rendering. A render pass uses LOAD/STORE, and the finished image and writable shader buffers are copied back to guest memory after the GPU fence completes. Queue cleanup on an exceptional completion path must finish before Vulkan objects used by the queue can be destroyed; cleanup does not retry the draw.
 
 This path deliberately creates transient resources per draw. It provides no resource or pipeline cache. It does not establish a tiled VideoOut rendering path: VideoOut currently expects tiled display memory, while this renderer accepts linear color surfaces only. Tiled rendering, textures/samplers, depth/stencil, additional PM4 draw variants and presentation extension compatibility remain separate work.

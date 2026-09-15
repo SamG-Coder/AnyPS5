@@ -64,5 +64,6 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         Execution/src/GuestMemory.cpp
 )
 target_include_directories(agc_driver_graphics_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/core/shader/recompiler ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)
+target_link_libraries(agc_driver_graphics_tests PRIVATE libc)
 set_target_properties(agc_driver_graphics_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_graphics_tests)

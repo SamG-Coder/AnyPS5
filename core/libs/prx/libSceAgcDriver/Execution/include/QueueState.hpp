@@ -15,7 +15,7 @@ using Registers = std::map<std::uint32_t, std::uint32_t>;
 struct QueueState {
     Registers shader;
     Registers context;
-    Registers userConfig;
+    Registers userConfig{{0x24b, 0}};
     std::optional<Registers> savedContext;
     std::array<std::uint32_t, 0x3000> constantRam{};
     std::uint64_t indexBase = 0;

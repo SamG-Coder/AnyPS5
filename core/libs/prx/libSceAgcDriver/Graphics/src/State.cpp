@@ -4,13 +4,18 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <sstream>
 
 namespace AgcDriver::Graphics {
 namespace {
 
-std::uint32_t read(const Registers& registers, std::uint32_t offset) {
+std::uint32_t read(const Registers& registers, std::uint32_t offset, const char* bank = "context") {
     const auto it = registers.find(offset);
-    Require(it != registers.end(), "missing register at DWORD " + std::to_string(offset));
+    if (it == registers.end()) {
+        std::ostringstream message;
+        message << "missing register in " << bank << " bank at DWORD 0x" << std::hex << offset << " (" << std::dec << offset << ')';
+        throw std::runtime_error("AGC graphics: " + message.str());
+    }
     return it->second;
 }
 
@@ -20,8 +25,8 @@ float readFloat(const Registers& registers, std::uint32_t offset) {
     return value;
 }
 
-void zero(const Registers& registers, std::uint32_t offset, std::uint32_t mask, const char* name) {
-    Require((read(registers, offset) & mask) == 0, std::string(name) + " is unsupported");
+void zero(const Registers& registers, std::uint32_t offset, std::uint32_t mask, const char* name, const char* bank = "context") {
+    Require((read(registers, offset, bank) & mask) == 0, std::string(name) + " is unsupported");
 }
 
 VkBlendFactor blendFactor(std::uint32_t value) {
@@ -78,16 +83,14 @@ void intersect(VkRect2D& result, const Registers& registers, std::uint32_t offse
 State DecodeState(const QueueState& queue) {
     const auto& cx = queue.context;
     State result{};
-    const auto primitive = read(queue.userConfig, 0x242);
+    const auto primitive = read(queue.userConfig, 0x242, "user-config");
     switch (primitive) {
         case 4: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; break;
         case 5: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN; break;
         case 6: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP; break;
         default: throw std::runtime_error("AGC graphics: unsupported primitive type " + std::to_string(primitive));
     }
-    zero(cx, 0x2a5, ~0u, "primitive restart");
-    zero(cx, 0x2e5, ~0u, "stream output");
-    zero(cx, 0x2e6, ~0u, "stream output buffers");
+    zero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)", "user-config");
     Require(read(cx, 0x2d5) == 0x2000u, "only a wave64 primitive-generation vertex stage without tessellation or geometry amplification is supported");
     zero(cx, 0x1b6, 0x8000u, "wave32 fragment shaders");
     zero(cx, 0x207, ~0u, "clip distances, layer, viewport or auxiliary vertex exports");
