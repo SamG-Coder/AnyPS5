@@ -85,11 +85,6 @@ int APS5_VABI scePthreadAttrGet(Pthread thread, PthreadAttr* attr) {
     return SCE_OK;
 }
 
-// ---------------------------------------------------------------------------
-// The following were moved as-is (not yet implemented) from the duplicated
-// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 int APS5_VABI scePthreadAttrGetaffinity(const PthreadAttr* attr, KernelCpumask* mask) {
  (void)attr;
  (void)mask;

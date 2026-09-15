@@ -68,11 +68,6 @@ int APS5_VABI scePthreadCondTimedwait(PthreadCond* cond, PthreadMutex* mutex, un
     return res == std::cv_status::timeout ? SCE_KERNEL_ERROR_ETIMEDOUT : SCE_OK;
 }
 
-// ---------------------------------------------------------------------------
-// The following were moved as-is (not yet implemented) from the duplicated
-// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 int APS5_VABI scePthreadCondSignalto(PthreadCond* cond, Pthread thread) {
  (void)cond;
  (void)thread;

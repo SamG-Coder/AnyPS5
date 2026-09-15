@@ -54,7 +54,7 @@ function(add_shader_recompiler target runtimeTarget)
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvEmitter.cpp
     )
     target_include_directories(${target} PUBLIC
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/include
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/RdnaDecoder/include
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ControlFlow/include
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/include

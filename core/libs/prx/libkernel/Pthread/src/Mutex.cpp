@@ -90,11 +90,6 @@ int APS5_VABI scePthreadMutexUnlock(PthreadMutex* mutex) {
     return SCE_OK;
 }
 
-// ---------------------------------------------------------------------------
-// The following were moved as-is (not yet implemented) from the duplicated
-// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 int APS5_VABI scePthreadMutexTimedlock(PthreadMutex* mutex, KernelUseconds usec) {
  (void)mutex;
  (void)usec;

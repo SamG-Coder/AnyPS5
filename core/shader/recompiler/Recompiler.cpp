@@ -1,4 +1,4 @@
-#include "include/shader/recompilier/Recompiler.hpp"
+#include "Recompiler.hpp"
 #include "ControlFlow/include/ControlFlow/GraphBuilder.hpp"
 #include "ControlFlow/include/ControlFlow/Structurizer.hpp"
 #include "RdnaDecoder/include/RdnaDecoder/RdnaInstructionDecoder.hpp"

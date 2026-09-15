@@ -209,11 +209,6 @@ void APS5_VABI scePthreadYield() {
     std::this_thread::yield();
 }
 
-// ---------------------------------------------------------------------------
-// The following were moved as-is (not yet implemented) from the duplicated
-// stubs in libkernel_sys/Export.cpp and libkernel_web/Export.cpp.
-// ---------------------------------------------------------------------------
-
 int APS5_VABI scePthreadCancel(Pthread thread) {
  (void)thread;
  NotImplemented_nid_no_patch(__func__);

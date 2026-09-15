@@ -2,7 +2,7 @@
 #define CORE_SHADER_RECOMPILIER_OPTIMIZATION_INCLUDE_OPTIMIZATION_BINDINGALLOCATOR_HPP
 
 #include "IntermediateRepresentation/IrProgram.hpp"
-#include "shader/recompilier/Recompiler.hpp"
+#include "Recompiler.hpp"
 #include <cstdint>
 #include <vector>
 
