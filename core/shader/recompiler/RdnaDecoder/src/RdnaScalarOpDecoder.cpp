@@ -184,6 +184,37 @@ bool isSoppWaitOpcode(RdnaOpcode opcode) {
         opcode == RdnaOpcode::STrap || opcode == RdnaOpcode::STtracedata || opcode == RdnaOpcode::SInstPrefetch;
 }
 
+std::uint32_t scalarDestinationDwordCount(RdnaOpcode opcode) {
+    switch (opcode) {
+        case RdnaOpcode::SMovB64:
+        case RdnaOpcode::SCmovB64:
+        case RdnaOpcode::SNotB64:
+        case RdnaOpcode::SWqmB64:
+        case RdnaOpcode::SBitset0B64:
+        case RdnaOpcode::SBitset1B64:
+        case RdnaOpcode::SGetpcB64:
+        case RdnaOpcode::SAndSaveexecB64:
+        case RdnaOpcode::SOrn2SaveexecB64:
+        case RdnaOpcode::SQuadmaskB64:
+        case RdnaOpcode::SAndn1SaveexecB64:
+        case RdnaOpcode::SBitreplicateB64B32:
+        case RdnaOpcode::SCselectB64:
+        case RdnaOpcode::SAndB64:
+        case RdnaOpcode::SOrB64:
+        case RdnaOpcode::SXorB64:
+        case RdnaOpcode::SAndn2B64:
+        case RdnaOpcode::SOrn2B64:
+        case RdnaOpcode::SNandB64:
+        case RdnaOpcode::SNorB64:
+        case RdnaOpcode::SXnorB64:
+        case RdnaOpcode::SLshlB64:
+        case RdnaOpcode::SLshrB64:
+        case RdnaOpcode::SBfmB64:
+        case RdnaOpcode::SBfeU64: return 2u;
+        default: return 1u;
+    }
+}
+
 }
 
 RdnaInstruction DecodeRdnaScalarOp(std::span<const std::uint32_t> code, std::uint32_t wordIndex) {
@@ -226,6 +257,7 @@ RdnaInstruction DecodeRdnaSop1(std::uint32_t programCounter, std::span<const std
     instruction.family = RdnaInstructionFamily::SOP1;
     instruction.opcodeId = opcode;
     instruction.op = decodeSop1Opcode(opcode);
+    instruction.dataDwordCount = scalarDestinationDwordCount(instruction.op);
     SetRdnaRawWords(instruction, code, wordIndex, 1);
 
     if (instruction.op == RdnaOpcode::SGetpcB64) {
@@ -260,6 +292,7 @@ RdnaInstruction DecodeRdnaSop2(std::uint32_t programCounter, std::span<const std
     instruction.family = RdnaInstructionFamily::SOP2;
     instruction.opcodeId = opcode;
     instruction.op = decodeSop2Opcode(opcode);
+    instruction.dataDwordCount = scalarDestinationDwordCount(instruction.op);
     SetRdnaRawWords(instruction, code, wordIndex, 1);
 
     instruction.destination = DecodeRdnaScalarDestination(scalarDestination, programCounter);
