@@ -80,7 +80,7 @@ std::uint32_t ControlFlowGraph::FindNearestCommonPostDominator(std::uint32_t fir
     const auto& second = FindBlock(secondBlock);
     const auto common = intersectSorted(first.postDominators, second.postDominators);
     if (common.empty()) {
-        throw std::logic_error("blocks " + std::to_string(firstBlock) + " and " + std::to_string(secondBlock) + " have no common post-dominator");
+        return InvalidControlFlowId;
     }
     for (const auto candidate : common) {
         bool nearest = true;

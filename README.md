@@ -12,7 +12,7 @@ Execution reaches `_start`, stack unwinding and exception handling tables are bu
 Audio output and video output initialization pass.
 Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
 
-Now: `ShaderRecompiler::Recompile: Structurizer::Structurize not implemented`.
+Now: `ShaderRecompiler::Recompile: InstructionTranslator::Translate not implementedgi`.
 
 ## Disclaimer
 
