@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -16,7 +17,9 @@ enum class ShaderStage {
     TessellationControl,
     TessellationEvaluation,
     Geometry,
-    Fragment
+    Fragment,
+    Local,
+    Mesh
 };
 
 struct RegisterValue {
@@ -47,6 +50,28 @@ struct GuestContext {
     std::span<const MemoryRegion> memory;
 };
 
+struct MeshTargetLimits {
+    std::array<std::uint32_t, 3> maxWorkgroupSize;
+    std::uint32_t maxWorkgroupInvocations;
+    std::uint32_t maxSharedMemoryBytes;
+    std::uint32_t maxOutputVertices;
+    std::uint32_t maxOutputPrimitives;
+    std::uint32_t maxOutputComponents;
+    std::uint32_t maxOutputMemoryBytes;
+    std::uint32_t outputPerVertexGranularity;
+    std::uint32_t outputPerPrimitiveGranularity;
+};
+
+struct TessellationTargetLimits {
+    std::uint32_t maxPatchSize;
+    std::uint32_t maxControlPerVertexInputComponents;
+    std::uint32_t maxControlPerVertexOutputComponents;
+    std::uint32_t maxControlPerPatchOutputComponents;
+    std::uint32_t maxControlTotalOutputComponents;
+    std::uint32_t maxEvaluationInputComponents;
+    std::uint32_t maxEvaluationOutputComponents;
+};
+
 struct SpirvTarget {
     std::uint32_t vulkanVersion;
     std::uint32_t spirvVersion;
@@ -56,6 +81,8 @@ struct SpirvTarget {
     std::array<std::uint32_t, 3> maxWorkgroupSize;
     std::uint32_t maxWorkgroupInvocations;
     std::uint32_t maxWorkgroupSharedMemoryBytes;
+    std::optional<MeshTargetLimits> mesh;
+    std::optional<TessellationTargetLimits> tessellation;
 };
 
 struct BindingLayout {
@@ -65,11 +92,63 @@ struct BindingLayout {
     std::uint32_t pushConstantSizeBytes;
 };
 
+enum class ProgramRole {
+    Main,
+    GeometryBack,
+    Local,
+    Hull,
+    Domain,
+    Fragment
+};
+
+struct LinkedProgram {
+    ProgramRole role;
+    ShaderBinary binary;
+    std::uint32_t userDataBaseRegister;
+    std::uint32_t firstUserSgpr;
+    std::span<const std::uint32_t> userData;
+};
+
+struct MeshConfiguration {
+    std::uint32_t inputPrimitive;
+    std::uint32_t primitivesPerGroup;
+    std::uint32_t verticesPerGroup;
+    std::uint32_t maxVertices;
+    std::uint32_t maxPrimitives;
+    std::uint32_t threadsPerGroup;
+    std::uint32_t ldsSizeDwords;
+    std::uint32_t provokingVertex;
+};
+
+struct TessellationConfiguration {
+    std::uint32_t inputControlPoints;
+    std::uint32_t outputControlPoints;
+    std::uint32_t domain;
+    std::uint32_t partitioning;
+    std::uint32_t outputTopology;
+};
+
+struct GraphicsDrawParameters {
+    std::uint64_t indexAddress;
+    std::uint32_t indexCount;
+    std::uint32_t indexElementBytes;
+    std::uint32_t instanceCount;
+};
+
+struct GraphicsCompileContext {
+    std::uint32_t firstUserSgpr;
+    std::span<const LinkedProgram> linkedPrograms;
+    std::optional<MeshConfiguration> mesh;
+    std::optional<TessellationConfiguration> tessellation;
+    GraphicsDrawParameters draw;
+};
+
 struct RecompileRequest {
     ShaderBinary shader;
     GuestContext context;
     SpirvTarget target;
     BindingLayout layout;
+    std::optional<GraphicsCompileContext> graphics;
 };
 
 enum class DescriptorKind {
@@ -88,6 +167,7 @@ struct DescriptorBinding {
     std::uint32_t binding;
     std::uint32_t count;
     std::vector<std::uint32_t> guestDescriptor;
+    bool readOnly = false;
 };
 
 struct RecompileResult {

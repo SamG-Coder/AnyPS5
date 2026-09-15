@@ -3,6 +3,7 @@
 
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
 #include "Recompiler.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Shaders.hpp"
 #include <array>
 #include <memory>
 #include <vector>
@@ -12,10 +13,11 @@ namespace AgcDriver::Graphics {
 class ShaderResources {
 public:
     ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
+    ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
     ~ShaderResources();
     ShaderResources(const ShaderResources&) = delete;
     ShaderResources& operator=(const ShaderResources&) = delete;
-    const std::array<VkDescriptorSetLayout, 2>& Layouts() const;
+    const std::vector<VkDescriptorSetLayout>& Layouts() const;
     void Bind(VkCommandBuffer commands, VkPipelineLayout layout) const;
     void WriteBack();
 
@@ -29,8 +31,8 @@ private:
 
     void release() noexcept;
     const Context& context;
-    std::array<VkDescriptorSetLayout, 2> layouts{};
-    std::array<VkDescriptorSet, 2> sets{};
+    std::vector<VkDescriptorSetLayout> _layouts;
+    std::vector<VkDescriptorSet> _sets;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     std::vector<Allocation> allocations;
 };

@@ -99,7 +99,7 @@ void testContextAndBases() {
     execute(state, makePacket(0x69, {0x10, 17}));
     execute(state, makePacket(0x76, {0x20c, 2}));
     execute(state, makePacket(0x10, {3, 0}, 0x68));
-    check(state.context.empty() && state.shader.at(0x20c) == 2, "push-clear reset wrong state");
+    check(state.context == AgcDriver::InitialContextRegisters() && state.shader.at(0x20c) == 2, "push-clear reset wrong state");
     expectFailure([&] { execute(state, makePacket(0x10, {1, 0}, 0x68)); }, "already pushed");
     execute(state, makePacket(0x69, {0x10, 19}));
     execute(state, makePacket(0x10, {2, 0}, 0x68));
@@ -124,7 +124,7 @@ void testContextAndBases() {
     execute(state, makePacket(0x10, {0}, 0x30));
     expectFailure([&] { execute(state, makePacket(0x10, {0}, 0x30)); }, "underflow");
     execute(state, makePacket(0x10, {0}, 0x24));
-    check(state.shader.empty() && state.context.empty() && state.dispatchIndirectBase == 0 && state.indexBase == 0 && !state.savedContext, "dispatch reset retained state");
+    check(state.shader.empty() && state.context == AgcDriver::InitialContextRegisters() && state.dispatchIndirectBase == 0 && state.indexBase == 0 && !state.savedContext, "dispatch reset retained state");
 }
 
 void testIndexedDraw() {

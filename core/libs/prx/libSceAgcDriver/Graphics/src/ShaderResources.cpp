@@ -19,21 +19,24 @@ struct Binding {
 
 }
 
-ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : context(context) {
-    Require(context.limits.maxBoundDescriptorSets >= 2, "two graphics descriptor sets are unavailable");
-    std::array<std::vector<Binding>, 2> bindings;
+ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : ShaderResources(context, std::array<CompiledShader, 2>{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, StagePushConstantBytes}}}, target, indexAddress, indexBytes) {}
+
+ShaderResources::ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : context(context), _layouts(shaders.size()), _sets(shaders.size()) {
+    Require(!shaders.empty() && context.limits.maxBoundDescriptorSets >= shaders.size(), "graphics descriptor _sets exceed device limits");
+    std::vector<std::vector<Binding>> bindings(shaders.size());
     std::map<VkDescriptorType, std::uint32_t> poolCounts;
-    const std::array<const ShaderRecompiler::RecompileResult*, 2> shaders{&vertex, &fragment};
     try {
         for (std::uint32_t stage = 0; stage < shaders.size(); ++stage) {
+            Require(shaders[stage].program != nullptr, "missing compiled shader");
             std::set<std::uint32_t> occupied;
             std::uint32_t uniforms = 0;
             std::uint32_t storage = 0;
-            for (const auto& binding : shaders[stage]->bindings) {
+            for (const auto& binding : shaders[stage].program->bindings) {
                 Require(binding.descriptorSet == stage && binding.count == 1, "unexpected descriptor set or descriptor array");
                 Require(occupied.insert(binding.binding).second, "duplicate shader binding");
-                const bool writable = binding.kind == ShaderRecompiler::DescriptorKind::StorageBuffer;
-                Require(writable || binding.kind == ShaderRecompiler::DescriptorKind::UniformBuffer, "image, sampler and texel-buffer descriptors are unsupported");
+                const bool storageBuffer = binding.kind == ShaderRecompiler::DescriptorKind::StorageBuffer;
+                const bool writable = storageBuffer && !binding.readOnly;
+                Require(storageBuffer || binding.kind == ShaderRecompiler::DescriptorKind::UniformBuffer, "image, sampler and texel-buffer descriptors are unsupported");
                 Require(binding.guestDescriptor.size() == 4, "buffer descriptor must contain four DWORDs");
                 const auto& words = binding.guestDescriptor;
                 Require((words[1] & 0xffff0000u) == 0, "strided or swizzled buffer descriptors are unsupported");
@@ -41,7 +44,7 @@ ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler:
                 const auto address = static_cast<std::uint64_t>(words[0]) | (static_cast<std::uint64_t>(words[1] & 0xffffu) << 32u);
                 const auto size = static_cast<std::size_t>(words[2]);
                 Require(size != 0, "empty shader buffer descriptor");
-                const auto maxRange = writable ? context.limits.maxStorageBufferRange : context.limits.maxUniformBufferRange;
+                const auto maxRange = storageBuffer ? context.limits.maxStorageBufferRange : context.limits.maxUniformBufferRange;
                 Require(size <= maxRange, "shader buffer exceeds descriptor range limit");
                 GuestMemory::CheckRange(reinterpret_cast<const void*>(address), size, 1, writable);
                 Require(!overlap(address, size, target.address, target.bytes), "shader buffer aliases the render target");
@@ -62,21 +65,21 @@ ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler:
                 } else {
                     allocations[allocation].writable = allocations[allocation].writable || writable;
                 }
-                const auto type = writable ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                if (writable) ++storage;
+                const auto type = storageBuffer ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                if (storageBuffer) ++storage;
                 else ++uniforms;
                 ++poolCounts[type];
-                const VkShaderStageFlags flags = stage == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+                const VkShaderStageFlags flags = VulkanStage(shaders[stage].stage);
                 bindings[stage].push_back({{binding.binding, type, 1, flags, nullptr}, allocation});
             }
             Require(uniforms <= context.limits.maxPerStageDescriptorUniformBuffers && storage <= context.limits.maxPerStageDescriptorStorageBuffers, "shader descriptors exceed per-stage limits");
-            Require(shaders[stage]->bindings.size() <= context.limits.maxPerStageResources, "shader resources exceed per-stage limit");
+            Require(shaders[stage].program->bindings.size() <= context.limits.maxPerStageResources, "shader resources exceed per-stage limit");
             std::vector<VkDescriptorSetLayoutBinding> description;
             for (const auto& binding : bindings[stage]) description.push_back(binding.layout);
             VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
             info.bindingCount = static_cast<std::uint32_t>(description.size());
             info.pBindings = description.data();
-            Check(context.Function<PFN_vkCreateDescriptorSetLayout>("vkCreateDescriptorSetLayout")(context.device, &info, nullptr, &layouts[stage]), "vkCreateDescriptorSetLayout");
+            Check(context.Function<PFN_vkCreateDescriptorSetLayout>("vkCreateDescriptorSetLayout")(context.device, &info, nullptr, &_layouts[stage]), "vkCreateDescriptorSetLayout");
         }
         Require(poolCounts[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER] <= context.limits.maxDescriptorSetUniformBuffers && poolCounts[VK_DESCRIPTOR_TYPE_STORAGE_BUFFER] <= context.limits.maxDescriptorSetStorageBuffers, "pipeline descriptors exceed device limits");
         std::vector<VkDescriptorPoolSize> sizes;
@@ -84,21 +87,21 @@ ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler:
             if (count != 0) sizes.push_back({type, count});
         }
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        poolInfo.maxSets = 2;
+        poolInfo.maxSets = static_cast<std::uint32_t>(shaders.size());
         poolInfo.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
         poolInfo.pPoolSizes = sizes.data();
         Check(context.Function<PFN_vkCreateDescriptorPool>("vkCreateDescriptorPool")(context.device, &poolInfo, nullptr, &pool), "vkCreateDescriptorPool");
         VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         allocation.descriptorPool = pool;
-        allocation.descriptorSetCount = 2;
-        allocation.pSetLayouts = layouts.data();
-        Check(context.Function<PFN_vkAllocateDescriptorSets>("vkAllocateDescriptorSets")(context.device, &allocation, sets.data()), "vkAllocateDescriptorSets");
+        allocation.descriptorSetCount = static_cast<std::uint32_t>(shaders.size());
+        allocation.pSetLayouts = _layouts.data();
+        Check(context.Function<PFN_vkAllocateDescriptorSets>("vkAllocateDescriptorSets")(context.device, &allocation, _sets.data()), "vkAllocateDescriptorSets");
         for (std::size_t stage = 0; stage < bindings.size(); ++stage) {
             for (const auto& binding : bindings[stage]) {
                 const auto& resource = allocations[binding.allocation];
                 VkDescriptorBufferInfo buffer{resource.buffer->Handle(), 0, resource.size};
                 VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                write.dstSet = sets[stage];
+                write.dstSet = _sets[stage];
                 write.dstBinding = binding.layout.binding;
                 write.descriptorCount = 1;
                 write.descriptorType = binding.layout.descriptorType;
@@ -118,17 +121,17 @@ ShaderResources::~ShaderResources() {
 
 void ShaderResources::release() noexcept {
     if (pool) context.Function<PFN_vkDestroyDescriptorPool>("vkDestroyDescriptorPool")(context.device, pool, nullptr);
-    for (auto layout : layouts) {
+    for (auto layout : _layouts) {
         if (layout) context.Function<PFN_vkDestroyDescriptorSetLayout>("vkDestroyDescriptorSetLayout")(context.device, layout, nullptr);
     }
 }
 
-const std::array<VkDescriptorSetLayout, 2>& ShaderResources::Layouts() const {
-    return layouts;
+const std::vector<VkDescriptorSetLayout>& ShaderResources::Layouts() const {
+    return _layouts;
 }
 
 void ShaderResources::Bind(VkCommandBuffer commands, VkPipelineLayout layout) const {
-    context.Function<PFN_vkCmdBindDescriptorSets>("vkCmdBindDescriptorSets")(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 2, sets.data(), 0, nullptr);
+    context.Function<PFN_vkCmdBindDescriptorSets>("vkCmdBindDescriptorSets")(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, static_cast<std::uint32_t>(_sets.size()), _sets.data(), 0, nullptr);
 }
 
 void ShaderResources::WriteBack() {

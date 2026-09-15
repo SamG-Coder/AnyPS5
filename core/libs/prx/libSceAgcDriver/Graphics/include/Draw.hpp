@@ -6,7 +6,7 @@
 
 namespace AgcDriver::Graphics {
 
-void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedDraw& draw, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment);
+void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedDraw& draw, std::span<const CompiledShader> shaders);
 
 }
 

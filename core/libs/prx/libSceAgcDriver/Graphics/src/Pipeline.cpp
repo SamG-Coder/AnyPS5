@@ -5,31 +5,40 @@
 
 namespace AgcDriver::Graphics {
 
-Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget& target, const ShaderResources& resources, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) : context(context) {
-    ValidateShaderPair(vertex, fragment);
+Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) : context(context), _modules(shaders.size()) {
+    ValidateShaders(shaders, state);
+    if (state.stages.tessellation) {
+        Require(context.tessellationShader, "device does not support tessellation shaders");
+        Require(state.stages.tessellation->inputControlPoints <= context.limits.maxTessellationPatchSize && state.stages.tessellation->outputControlPoints <= context.limits.maxTessellationPatchSize, "tessellation patch exceeds device limits");
+    }
+    if (state.stages.mesh) {
+        Require(context.meshShader, "device does not support VK_EXT_mesh_shader");
+        const auto& mesh = *state.stages.mesh;
+        Require(mesh.threadsPerGroup <= context.meshLimits.maxMeshWorkGroupInvocations && mesh.threadsPerGroup <= context.meshLimits.maxMeshWorkGroupSize[0], "mesh workgroup exceeds device limits");
+        Require(mesh.maxVertices <= context.meshLimits.maxMeshOutputVertices && mesh.maxPrimitives <= context.meshLimits.maxMeshOutputPrimitives && static_cast<std::uint64_t>(mesh.ldsSizeDwords) * 4 <= context.meshLimits.maxMeshSharedMemorySize, "mesh output or LDS exceeds device limits");
+    }
     const auto& viewport = state.viewport;
     Require(std::isfinite(viewport.x) && std::isfinite(viewport.y) && std::isfinite(viewport.width) && std::isfinite(viewport.height), "viewport arithmetic overflow");
     Require(viewport.width <= context.limits.maxViewportDimensions[0] && std::abs(viewport.height) <= context.limits.maxViewportDimensions[1], "viewport dimensions exceed device limits");
     Require(viewport.x >= context.limits.viewportBoundsRange[0] && viewport.x + viewport.width <= context.limits.viewportBoundsRange[1], "viewport X exceeds device bounds");
     Require(std::min(viewport.y, viewport.y + viewport.height) >= context.limits.viewportBoundsRange[0] && std::max(viewport.y, viewport.y + viewport.height) <= context.limits.viewportBoundsRange[1], "viewport Y exceeds device bounds");
-    Require(context.limits.maxPushConstantsSize >= 2 * StagePushConstantBytes, "graphics push constant range exceeds device limit");
-    const std::array<const ShaderRecompiler::RecompileResult*, 2> shaders{&vertex, &fragment};
+    Require(context.limits.maxPushConstantsSize >= shaders.size() * PushConstantStride(shaders.size()), "graphics push constant range exceeds device limit");
     try {
-        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        std::vector<VkPipelineShaderStageCreateInfo> stages(shaders.size());
         std::vector<VkPushConstantRange> pushes;
         for (std::uint32_t i = 0; i < shaders.size(); ++i) {
-            const auto& shader = *shaders[i];
-            Require(shader.pushConstants.size() <= StagePushConstantBytes && shader.pushConstants.size() % 4 == 0, "shader push constants exceed the assigned stage range");
+            const auto& shader = *shaders[i].program;
+            Require(shader.pushConstants.size() <= PushConstantStride(shaders.size()) && shader.pushConstants.size() % 4 == 0, "shader push constants exceed the assigned stage range");
             VkShaderModuleCreateInfo module{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             module.codeSize = shader.spirv.size() * sizeof(std::uint32_t);
             module.pCode = shader.spirv.data();
-            Check(context.Function<PFN_vkCreateShaderModule>("vkCreateShaderModule")(context.device, &module, nullptr, &modules[i]), "vkCreateShaderModule graphics");
-            const auto stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+            Check(context.Function<PFN_vkCreateShaderModule>("vkCreateShaderModule")(context.device, &module, nullptr, &_modules[i]), "vkCreateShaderModule graphics");
+            const auto stage = VulkanStage(shaders[i].stage);
             stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             stages[i].stage = stage;
-            stages[i].module = modules[i];
+            stages[i].module = _modules[i];
             stages[i].pName = "main";
-            if (!shader.pushConstants.empty()) pushes.push_back({stage, i * StagePushConstantBytes, static_cast<std::uint32_t>(shader.pushConstants.size())});
+            if (!shader.pushConstants.empty()) pushes.push_back({stage, shaders[i].pushConstantOffset, static_cast<std::uint32_t>(shader.pushConstants.size())});
         }
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layoutInfo.setLayoutCount = static_cast<std::uint32_t>(resources.Layouts().size());
@@ -88,8 +97,13 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
         pipelineInfo.pStages = stages.data();
-        pipelineInfo.pVertexInputState = &input;
-        pipelineInfo.pInputAssemblyState = &assembly;
+        VkPipelineTessellationStateCreateInfo tessellation{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
+        if (state.stages.tessellation) {
+            tessellation.patchControlPoints = state.stages.tessellation->inputControlPoints;
+            pipelineInfo.pTessellationState = &tessellation;
+        }
+        pipelineInfo.pVertexInputState = state.stages.mesh ? nullptr : &input;
+        pipelineInfo.pInputAssemblyState = state.stages.mesh ? nullptr : &assembly;
         pipelineInfo.pViewportState = &viewports;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &samples;
@@ -112,7 +126,7 @@ void Pipeline::release() noexcept {
     if (framebuffer) context.Function<PFN_vkDestroyFramebuffer>("vkDestroyFramebuffer")(context.device, framebuffer, nullptr);
     if (renderPass) context.Function<PFN_vkDestroyRenderPass>("vkDestroyRenderPass")(context.device, renderPass, nullptr);
     if (layout) context.Function<PFN_vkDestroyPipelineLayout>("vkDestroyPipelineLayout")(context.device, layout, nullptr);
-    for (auto module : modules) {
+    for (auto module : _modules) {
         if (module) context.Function<PFN_vkDestroyShaderModule>("vkDestroyShaderModule")(context.device, module, nullptr);
     }
 }
@@ -130,13 +144,12 @@ void Pipeline::Begin(VkCommandBuffer commands, VkExtent2D extent) const {
     context.Function<PFN_vkCmdBindPipeline>("vkCmdBindPipeline")(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 }
 
-void Pipeline::PushConstants(VkCommandBuffer commands, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) const {
-    const std::array<const ShaderRecompiler::RecompileResult*, 2> shaders{&vertex, &fragment};
+void Pipeline::PushConstants(VkCommandBuffer commands, std::span<const CompiledShader> shaders) const {
     for (std::uint32_t i = 0; i < shaders.size(); ++i) {
-        const auto& bytes = shaders[i]->pushConstants;
+        const auto& bytes = shaders[i].program->pushConstants;
         if (bytes.empty()) continue;
-        const auto stage = i == 0 ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
-        context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, stage, i * StagePushConstantBytes, static_cast<std::uint32_t>(bytes.size()), bytes.data());
+        const auto stage = VulkanStage(shaders[i].stage);
+        context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, stage, shaders[i].pushConstantOffset, static_cast<std::uint32_t>(bytes.size()), bytes.data());
     }
 }
 

@@ -332,11 +332,14 @@ private:
         struct Program {
             ShaderRecompiler::ShaderBinary binary;
             std::uint32_t userDataBase;
+            std::uint32_t firstUserSgpr = 8;
             std::vector<std::uint32_t> userData;
             std::array<ShaderRecompiler::MemoryRegion, 2> memory;
         };
         const auto programAddress = [&](std::uint32_t base) {
-            return (static_cast<std::uint64_t>(readRegister(queue.shader, base)) << 8u) | (static_cast<std::uint64_t>(readRegister(queue.shader, base + 1) & 0xffu) << 40u);
+            const auto high = readRegister(queue.shader, base + 1);
+            require((high & ~0xffu) == 0, "reserved graphics program address bits are set");
+            return (static_cast<std::uint64_t>(readRegister(queue.shader, base)) << 8u) | (static_cast<std::uint64_t>(high) << 40u);
         };
         const auto prepare = [&](std::uint64_t address, std::uint8_t type, ShaderRecompiler::ShaderStage stage, std::uint32_t rsrc2, std::uint32_t userDataBase) {
             auto it = submission.shaders.upper_bound(address);
@@ -347,37 +350,95 @@ private:
             require(snapshot.type == type, "graphics program refers to an incompatible shader binary type");
             const auto resources = readRegister(queue.shader, rsrc2);
             const auto userCount = ((resources >> 1u) & 0x1fu) | (((resources >> 27u) & 1u) << 5u);
+            require(userCount <= 32, "graphics user SGPR count exceeds the register bank");
             const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
             Program result{
                 {stage, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
                 userDataBase,
+                8,
                 {},
                 {{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}}
             };
             for (std::uint32_t i = 0; i < userCount; ++i) result.userData.push_back(readRegister(queue.shader, userDataBase + i));
             return result;
         };
-        const auto vertex = prepare(programAddress(0x0c8), 2, ShaderRecompiler::ShaderStage::Vertex, 0x08b, 0x08c);
-        const auto pixelAddress = programAddress(0x008);
-        require(pixelAddress != 0, "graphics draw requires a fragment shader");
-        const auto pixel = prepare(pixelAddress, 1, ShaderRecompiler::ShaderStage::Fragment, 0x00b, 0x00c);
+        using Stage = ShaderRecompiler::ShaderStage;
+        using Role = ShaderRecompiler::ProgramRole;
+        std::vector<Program> programs;
+        std::vector<Role> roles;
+        programs.reserve(5);
+        roles.reserve(5);
+        const auto append = [&](std::uint32_t base, std::uint8_t type, Stage stage, std::uint32_t resources, std::uint32_t users, Role role) {
+            programs.push_back(prepare(programAddress(base), type, stage, resources, users));
+            roles.push_back(role);
+        };
+        const auto initializeMerged = [&](Program& program, std::uint32_t pointerBase, bool pointerRequired) {
+            program.firstUserSgpr = 0;
+            program.userData.insert(program.userData.begin(), 8, 0);
+            if (pointerRequired) {
+                const auto low = readRegister(queue.shader, pointerBase);
+                const auto high = readRegister(queue.shader, pointerBase + 1);
+                const auto address = static_cast<std::uint64_t>(low) | (static_cast<std::uint64_t>(high) << 32u);
+                require(address != 0, "merged shader user-data address is null");
+                GuestMemory::CheckRange(reinterpret_cast<const void*>(address), 8, 4);
+                program.userData[0] = low;
+                program.userData[1] = high;
+            }
+        };
+        if (graphics.stages.path == Graphics::ShaderPath::Tessellation) {
+            append(0x148, 5, Stage::Local, 0x10b, 0x10c, Role::Local);
+            append(0x108, 7, Stage::TessellationControl, 0x10b, 0x10c, Role::Hull);
+            initializeMerged(programs.back(), 0x102, true);
+            append(0x0c8, 2, Stage::TessellationEvaluation, 0x08b, 0x08c, Role::Domain);
+        } else if (graphics.stages.path == Graphics::ShaderPath::Geometry) {
+            const auto frontAddress = programAddress(0xc8);
+            auto snapshot = submission.shaders.upper_bound(frontAddress);
+            require(snapshot != submission.shaders.begin(), "geometry front program is not registered");
+            --snapshot;
+            const auto type = snapshot->second->type;
+            require(type == 2 || type == 4, "invalid geometry front binary type");
+            append(0xc8, type, Stage::Mesh, 0x8b, 0x8c, Role::Main);
+            initializeMerged(programs.back(), 0x82, type == 4);
+            if (type == 4) append(0x88, 6, Stage::Mesh, 0x8b, 0x8c, Role::GeometryBack);
+        } else {
+            append(0xc8, 2, Stage::Vertex, 0x8b, 0x8c, Role::Main);
+        }
+        append(0x008, 1, Stage::Fragment, 0x00b, 0x00c, Role::Fragment);
+        programs.back().firstUserSgpr = 0;
         const auto shaderRegisters = registerValues(queue.shader);
         const auto contextRegisters = registerValues(queue.context);
         const auto userConfigRegisters = registerValues(queue.userConfig);
+        std::vector<ShaderRecompiler::MemoryRegion> memory;
+        std::vector<ShaderRecompiler::LinkedProgram> linked;
+        for (std::size_t i = 0; i < programs.size(); ++i) {
+            const auto& program = programs[i];
+            memory.insert(memory.end(), program.memory.begin(), program.memory.end());
+            linked.push_back({roles[i], program.binary, program.userDataBase, program.firstUserSgpr, program.userData});
+        }
         std::lock_guard gpuLock(gpuMutex);
         if (device == nullptr) device = std::make_shared<VulkanDevice>();
-        const auto compile = [&](const Program& program, std::uint32_t descriptorSet) {
+        std::vector<ShaderRecompiler::RecompileResult> results;
+        std::vector<Graphics::CompiledShader> stages;
+        results.reserve(programs.size());
+        stages.reserve(programs.size());
+        const auto pushStride = Graphics::PushConstantStride(static_cast<std::size_t>(std::count_if(roles.begin(), roles.end(), [](Role role) { return role != Role::GeometryBack; })));
+        for (std::size_t i = 0; i < programs.size(); ++i) {
+            if (roles[i] == Role::GeometryBack) continue;
+            const auto& program = programs[i];
+            const auto descriptorSet = static_cast<std::uint32_t>(stages.size());
+            const auto offset = descriptorSet * pushStride;
+            const auto waveSize = program.binary.stage == Stage::Fragment ? graphics.stages.fragmentWaveSize : graphics.stages.vertexWaveSize;
             const ShaderRecompiler::RecompileRequest request{
                 program.binary,
-                {64, program.userDataBase, program.userData, shaderRegisters, contextRegisters, userConfigRegisters, program.memory},
+                {waveSize, program.userDataBase, program.userData, shaderRegisters, contextRegisters, userConfigRegisters, memory},
                 device->Target(),
-                {descriptorSet, 0, descriptorSet * Graphics::StagePushConstantBytes, Graphics::StagePushConstantBytes}
+                {descriptorSet, 0, offset, pushStride},
+                ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}
             };
-            return ShaderRecompiler::Recompile(request);
-        };
-        const auto fragmentShader = compile(pixel, 1);
-        const auto vertexShader = compile(vertex, 0);
-        device->DrawIndexed(graphics, indexed, vertexShader, fragmentShader);
+            results.push_back(ShaderRecompiler::Recompile(request));
+            stages.push_back({program.binary.stage, &results.back(), offset});
+        }
+        device->DrawIndexed(graphics, indexed, stages);
     }
 
     void execute(const Submission& submission) {

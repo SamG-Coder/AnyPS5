@@ -80,19 +80,67 @@ void intersect(VkRect2D& result, const Registers& registers, std::uint32_t offse
 
 }
 
+ShaderStages DecodeShaderStages(const QueueState& queue) {
+    const auto value = read(queue.context, 0x2d5);
+    std::ostringstream prefix;
+    prefix << "VGT_SHADER_STAGES_EN=0x" << std::hex << value << ": ";
+    const auto validate = [&](bool condition, const char* reason) { Require(condition, prefix.str() + reason); };
+    validate((value & 0xfc000000u) == 0, "reserved stage bits are set");
+    validate((value & 3u) != 3u && ((value >> 3u) & 3u) != 3u && ((value >> 6u) & 3u) != 3u, "reserved LS_EN, ES_EN or VS_EN encoding");
+    const auto primitive = read(queue.userConfig, 0x242, "user-config");
+    const bool tessellation = primitive == 9;
+    const bool geometry = (value & 0x20u) != 0;
+    validate(tessellation == ((value & 4u) != 0), "Patch topology and HS_EN disagree");
+    validate(!tessellation || !geometry, "combined tessellation and geometry is unsupported by the reference path");
+    const auto path = tessellation ? ShaderPath::Tessellation : geometry ? ShaderPath::Geometry : ShaderPath::Vertex;
+    ShaderStages result{path, value, (value & 0x00400000u) != 0 ? 32u : 64u, (read(queue.context, 0x1b6) & 0x8000u) != 0 ? 32u : 64u, {}, {}};
+    if (path == ShaderPath::Vertex) {
+        validate((value & 0x2000u) != 0, "legacy vertex routing without PRIMGEN_EN is unsupported");
+        validate((value & ~0x02402010u) == 0, "unsupported vertex routing, scheduling or wave-ID state");
+    } else if (path == ShaderPath::Tessellation) {
+        validate((value & 0x00600020u) == 0, "wave32 tessellation or geometry amplification is unsupported");
+        validate((value & ~0x0007ed0du) == 0 && (value & 3u) == 1u && ((value >> 3u) & 3u) == 1u, "unsupported tessellation routing");
+        const auto config = read(queue.context, 0x2d6);
+        const auto parameters = read(queue.context, 0x2db);
+        ShaderRecompiler::TessellationConfiguration tess{(config >> 8u) & 0x3fu, (config >> 14u) & 0x3fu, parameters & 3u, (parameters >> 2u) & 3u, (parameters >> 5u) & 3u};
+        validate(tess.inputControlPoints != 0 && tess.inputControlPoints <= 32 && tess.outputControlPoints != 0 && tess.outputControlPoints <= 32, "invalid tessellation control-point counts");
+        validate(tess.domain == 1 && tess.partitioning == 2 && tess.outputTopology == 2, "only triangular, fractional-odd, clockwise tessellation is supported by the reference path");
+        result.tessellation = tess;
+    } else {
+        validate((value & ~0x0047ec30u) == 0, "unsupported geometry routing, fast launch or wave-ID state");
+        const auto group = read(queue.userConfig, 0x25b, "user-config");
+        const auto vertices = (group >> 9u) & 0x1ffu;
+        const auto primitives = group & 0x1ffu;
+        const auto maxVertices = read(queue.context, 0x1ff);
+        const auto verticesPerPrimitive = read(queue.context, 0x2ce);
+        validate((primitive == 1 || primitive == 2 || primitive == 4 || primitive == 6) && read(queue.context, 0x29b) == 2 && verticesPerPrimitive >= 3, "unsupported geometry input or output assembly");
+        const auto inputSize = primitive == 1 ? 1u : primitive == 2 ? 2u : 3u;
+        validate(vertices >= inputSize && maxVertices != 0 && maxVertices <= 256 && verticesPerPrimitive <= 256, "invalid geometry subgroup output");
+        const auto inputStep = primitive == 6 ? 1u : inputSize;
+        const auto groupPrimitives = std::min({primitives, (vertices - inputSize) / inputStep + 1u, maxVertices / verticesPerPrimitive});
+        validate(groupPrimitives != 0, "geometry subgroup contains no primitives");
+        const auto resources = read(queue.shader, 0x8b, "shader");
+        validate(((read(queue.shader, 0x8a, "shader") >> 29u) & 3u) == 3 && ((resources >> 16u) & 3u) == 3, "unsupported geometry VGPR allocation");
+        result.mesh = ShaderRecompiler::MeshConfiguration{primitive, groupPrimitives, (groupPrimitives - 1u) * inputStep + inputSize, maxVertices, primitives * (verticesPerPrimitive - 2u), ((maxVertices + result.vertexWaveSize - 1u) / result.vertexWaveSize) * result.vertexWaveSize, ((resources >> 19u) & 0xffu) * 128u, 0};
+    }
+    return result;
+}
+
 State DecodeState(const QueueState& queue) {
     const auto& cx = queue.context;
     State result{};
+    result.stages = DecodeShaderStages(queue);
     const auto primitive = read(queue.userConfig, 0x242, "user-config");
     switch (primitive) {
+        case 1: Require(result.stages.mesh.has_value(), "point-list vertex rendering requires point-size output support"); result.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST; break;
+        case 2: result.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST; break;
+        case 9: result.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST; break;
         case 4: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; break;
         case 5: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN; break;
         case 6: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP; break;
         default: throw std::runtime_error("AGC graphics: unsupported primitive type " + std::to_string(primitive));
     }
     zero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)", "user-config");
-    Require(read(cx, 0x2d5) == 0x2000u, "only a wave64 primitive-generation vertex stage without tessellation or geometry amplification is supported");
-    zero(cx, 0x1b6, 0x8000u, "wave32 fragment shaders");
     zero(cx, 0x207, ~0u, "clip distances, layer, viewport or auxiliary vertex exports");
     zero(cx, 0x200, ~0x007007f0u, "depth, stencil or conditional color writes");
     zero(cx, 0x203, ~0x00009870u, "depth export, shader coverage or ordered fragment execution");

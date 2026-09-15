@@ -6,8 +6,25 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include "Recompiler.hpp"
 
 namespace AgcDriver::Graphics {
+
+enum class ShaderPath {
+    Vertex,
+    Geometry,
+    Tessellation,
+    TessellationGeometry
+};
+
+struct ShaderStages {
+    ShaderPath path;
+    std::uint32_t registerValue;
+    std::uint32_t vertexWaveSize;
+    std::uint32_t fragmentWaveSize;
+    std::optional<ShaderRecompiler::MeshConfiguration> mesh;
+    std::optional<ShaderRecompiler::TessellationConfiguration> tessellation;
+};
 
 struct ColorTarget {
     std::uint64_t address;
@@ -17,6 +34,7 @@ struct ColorTarget {
 };
 
 struct State {
+    ShaderStages stages;
     ColorTarget color;
     VkPrimitiveTopology topology;
     VkViewport viewport;
@@ -27,6 +45,7 @@ struct State {
     std::array<float, 4> blendConstants;
 };
 
+ShaderStages DecodeShaderStages(const QueueState& queue);
 State DecodeState(const QueueState& queue);
 
 }

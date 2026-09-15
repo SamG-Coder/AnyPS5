@@ -56,6 +56,11 @@ void expectFailure(TAction action, std::string_view reason) {
 
 void stateTests() {
     AgcDriver::QueueState initial;
+    Require(initial.context.at(0x200) == 0 && initial.context.at(0x83) == 0xffff, "initial context state is missing");
+    initial.context[0x200] = 7;
+    initial.context[0xdead] = 1;
+    initial.ClearContext();
+    Require(initial.context.at(0x200) == 0 && !initial.context.contains(0xdead), "context reset did not restore defaults");
     Require(initial.userConfig.at(0x24b) == 0, "primitive restart must be disabled in initial queue state");
     initial.userConfig[0x24b] = 1;
     initial.ClearContext();
@@ -100,6 +105,63 @@ void stateTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "non-finite");
 }
 
+void ShaderStageTests() {
+    auto queue = makeState();
+    for (const auto routing : {0x2000u, 0x2010u, 0x02002000u, 0x02002010u}) {
+        for (const auto vertexWave32 : {false, true}) {
+            for (const auto fragmentWave32 : {false, true}) {
+                queue.context[0x2d5] = routing | (vertexWave32 ? 0x00400000u : 0u);
+                queue.context[0x1b6] = fragmentWave32 ? 0x8000u : 0u;
+                const auto state = AgcDriver::Graphics::DecodeState(queue);
+                Require(state.stages.path == AgcDriver::Graphics::ShaderPath::Vertex, "vertex routing changed");
+                Require(state.stages.vertexWaveSize == (vertexWave32 ? 32u : 64u), "incorrect vertex wave size");
+                Require(state.stages.fragmentWaveSize == (fragmentWave32 ? 32u : 64u), "incorrect fragment wave size");
+            }
+        }
+    }
+    queue = makeState();
+    queue.context[0x2d5] = 0x2020;
+    queue.userConfig[0x25b] = (64u << 9u) | 21u;
+    queue.context[0x1ff] = 64;
+    queue.context[0x2ce] = 3;
+    queue.context[0x29b] = 2;
+    queue.shader[0x8a] = 3u << 29u;
+    queue.shader[0x8b] = 3u << 16u;
+    auto stages = AgcDriver::Graphics::DecodeState(queue).stages;
+    Require(stages.path == AgcDriver::Graphics::ShaderPath::Geometry && stages.mesh && stages.mesh->primitivesPerGroup == 21 && stages.mesh->verticesPerGroup == 63, "geometry assembly changed");
+    queue.userConfig[0x25b] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "invalid geometry subgroup");
+    queue = makeState();
+    queue.context[0x2d5] = 0x200d;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "Patch topology and HS_EN disagree");
+    queue.userConfig[0x242] = 9;
+    queue.context[0x2d6] = (3u << 8u) | (3u << 14u);
+    queue.context[0x2db] = 1u | (2u << 2u) | (2u << 5u);
+    stages = AgcDriver::Graphics::DecodeState(queue).stages;
+    Require(stages.path == AgcDriver::Graphics::ShaderPath::Tessellation && stages.tessellation && stages.tessellation->inputControlPoints == 3, "tessellation routing changed");
+    queue.context[0x2d5] = 0x202d;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "combined tessellation and geometry");
+    queue.context[0x2d5] = 0x200d;
+    queue.context[0x2d6] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "control-point counts");
+    queue = makeState();
+    for (const auto value : {0x2003u, 0x2018u, 0x20c0u, 0x80002000u}) {
+        queue.context[0x2d5] = value;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "reserved");
+    }
+    for (const auto bit : {1u, 8u, 0x40u, 0x100u, 0x200u, 0x400u, 0x1000u, 0x4000u, 0x8000u, 0x80000u, 0x200000u, 0x800000u, 0x1000000u}) {
+        queue.context[0x2d5] = 0x2000u | bit;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported vertex");
+    }
+    queue.context[0x2d5] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "without PRIMGEN_EN");
+    queue.context.erase(0x2d5);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+    queue.context[0x2d5] = 0x2000;
+    queue.context.erase(0x1b6);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+}
+
 void resourceTests() {
     AgcDriver::Graphics::Context context{};
     context.limits.maxBoundDescriptorSets = 2;
@@ -126,6 +188,7 @@ void resourceTests() {
 int main() {
     try {
         stateTests();
+        ShaderStageTests();
         resourceTests();
         std::cout << "Graphics validation tests passed\n";
         return 0;

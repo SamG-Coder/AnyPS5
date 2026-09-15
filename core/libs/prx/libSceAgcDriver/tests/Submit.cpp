@@ -88,11 +88,11 @@ void testClearState() {
     const auto shader = graphics.shader;
     const auto userConfig = graphics.userConfig;
     graphics.ClearContext();
-    check(graphics.context.empty(), "CLEAR_STATE retained context registers");
+    check(graphics.context == AgcDriver::InitialContextRegisters(), "CLEAR_STATE retained context registers");
     check(graphics.shader == shader && graphics.userConfig == userConfig, "CLEAR_STATE reset unrelated registers");
     graphics.context.emplace(0x10, 31);
     graphics.ClearContext();
-    check(graphics.context.empty(), "repeated CLEAR_STATE retained context registers");
+    check(graphics.context == AgcDriver::InitialContextRegisters(), "repeated CLEAR_STATE retained context registers");
 
     std::array<std::uint32_t, 3> words{0xc0001200, 0, 0};
     Packet packet{words.data(), 2, 0, {}};

@@ -29,6 +29,9 @@ struct Context {
     PFN_vkGetPhysicalDeviceImageFormatProperties imageFormatProperties;
     VkPhysicalDeviceMemoryProperties memory;
     VkPhysicalDeviceLimits limits;
+    bool tessellationShader = false;
+    bool meshShader = false;
+    VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 
     template<typename TFunction>
     TFunction Function(const char* name) const {
