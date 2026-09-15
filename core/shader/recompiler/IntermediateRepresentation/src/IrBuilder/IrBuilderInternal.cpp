@@ -12,4 +12,10 @@ IrValue& createRegisterOperand(IrProgram& program, RegisterBank bank, std::uint3
     return operand;
 }
 
+IrValue& createLabelValue(IrProgram& program, const IrBlock& block) {
+    IrValue& label = createLeafValue(program, IrType::Label);
+    label.SetImmediateU32(block.Id());
+    return label;
+}
+
 }

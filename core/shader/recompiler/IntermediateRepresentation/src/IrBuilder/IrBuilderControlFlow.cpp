@@ -1,14 +1,20 @@
 #include "IntermediateRepresentation/IrBuilder.hpp"
-#include <stdexcept>
+#include "IntermediateRepresentation/IrBuilderInternal.hpp"
 
 namespace ShaderRecompiler {
 
 void IrBuilder::Branch(IrBlock& target) {
-    throw std::runtime_error("IrBuilder::Branch not implemented");
+    IrValue& label = createLabelValue(program, target);
+    (void)Emit(IrOpcode::Branch, IrType::Void, {&label});
+    insertionPoint->AddBranch(&target);
 }
 
 void IrBuilder::BranchConditional(IrValue& condition, IrBlock& trueTarget, IrBlock& falseTarget) {
-    throw std::runtime_error("IrBuilder::BranchConditional not implemented");
+    IrValue& trueLabel = createLabelValue(program, trueTarget);
+    IrValue& falseLabel = createLabelValue(program, falseTarget);
+    (void)Emit(IrOpcode::BranchConditional, IrType::Void, {&condition, &trueLabel, &falseLabel});
+    insertionPoint->AddBranch(&trueTarget);
+    insertionPoint->AddBranch(&falseTarget);
 }
 
 }
