@@ -21,7 +21,15 @@ function(add_shader_recompiler target runtimeTarget)
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrValue.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBlock.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrProgram.cpp
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderInternal.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderCore.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderConstants.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderRegisters.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderControlFlow.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderExtendedRegisters.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderConversions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderArithmetic.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrBuilder/IrBuilderLogic.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/EmbeddedVertexFetch.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/InstructionTranslator.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/ScalarInstructions.cpp
