@@ -1,78 +1,79 @@
 #include "IntermediateRepresentation/IrBuilder.hpp"
-#include <stdexcept>
 
 namespace ShaderRecompiler {
 
 IrValue& IrBuilder::GetGotoVariable(std::uint32_t id) {
-    throw std::runtime_error("IrBuilder::GetGotoVariable not implemented");
+    IrValue& idValue = Constant(id);
+    return Emit(IrOpcode::GetGotoVariable, IrType::Bool, {&idValue});
 }
 
 void IrBuilder::SetGotoVariable(std::uint32_t id, IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetGotoVariable not implemented");
+    IrValue& idValue = Constant(id);
+    (void)Emit(IrOpcode::SetGotoVariable, IrType::Void, {&idValue, &value});
 }
 
 IrValue& IrBuilder::GetScc() {
-    throw std::runtime_error("IrBuilder::GetScc not implemented");
+    return Emit(IrOpcode::GetScc, IrType::Bool, {});
 }
 
 void IrBuilder::SetScc(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetScc not implemented");
+    (void)Emit(IrOpcode::SetScc, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetExec() {
-    throw std::runtime_error("IrBuilder::GetExec not implemented");
+    return Emit(IrOpcode::GetExec, IrType::Bool, {});
 }
 
 void IrBuilder::SetExec(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetExec not implemented");
+    (void)Emit(IrOpcode::SetExec, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetExecLo() {
-    throw std::runtime_error("IrBuilder::GetExecLo not implemented");
+    return Emit(IrOpcode::GetExecLo, IrType::U32, {});
 }
 
 void IrBuilder::SetExecLo(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetExecLo not implemented");
+    (void)Emit(IrOpcode::SetExecLo, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetExecHi() {
-    throw std::runtime_error("IrBuilder::GetExecHi not implemented");
+    return Emit(IrOpcode::GetExecHi, IrType::U32, {});
 }
 
 void IrBuilder::SetExecHi(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetExecHi not implemented");
+    (void)Emit(IrOpcode::SetExecHi, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetVcc() {
-    throw std::runtime_error("IrBuilder::GetVcc not implemented");
+    return Emit(IrOpcode::GetVcc, IrType::Bool, {});
 }
 
 void IrBuilder::SetVcc(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetVcc not implemented");
+    (void)Emit(IrOpcode::SetVcc, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetVccLo() {
-    throw std::runtime_error("IrBuilder::GetVccLo not implemented");
+    return Emit(IrOpcode::GetVccLo, IrType::U32, {});
 }
 
 void IrBuilder::SetVccLo(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetVccLo not implemented");
+    (void)Emit(IrOpcode::SetVccLo, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetVccHi() {
-    throw std::runtime_error("IrBuilder::GetVccHi not implemented");
+    return Emit(IrOpcode::GetVccHi, IrType::U32, {});
 }
 
 void IrBuilder::SetVccHi(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetVccHi not implemented");
+    (void)Emit(IrOpcode::SetVccHi, IrType::Void, {&value});
 }
 
 IrValue& IrBuilder::GetM0() {
-    throw std::runtime_error("IrBuilder::GetM0 not implemented");
+    return Emit(IrOpcode::GetM0, IrType::U32, {});
 }
 
 void IrBuilder::SetM0(IrValue& value) {
-    throw std::runtime_error("IrBuilder::SetM0 not implemented");
+    (void)Emit(IrOpcode::SetM0, IrType::Void, {&value});
 }
 
 }
