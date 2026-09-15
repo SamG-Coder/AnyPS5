@@ -328,6 +328,7 @@ private:
 
     void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
         const auto indexed = Pm4::ResolveDraw(packet, queue);
+        const auto graphics = Graphics::DecodeState(queue);
         struct Program {
             ShaderRecompiler::ShaderBinary binary;
             std::uint32_t userDataBase;
@@ -358,25 +359,25 @@ private:
         };
         const auto vertex = prepare(programAddress(0x0c8), 2, ShaderRecompiler::ShaderStage::Vertex, 0x08b, 0x08c);
         const auto pixelAddress = programAddress(0x008);
-        std::optional<Program> pixel;
-        if (pixelAddress != 0) pixel = prepare(pixelAddress, 1, ShaderRecompiler::ShaderStage::Fragment, 0x00b, 0x00c);
+        require(pixelAddress != 0, "graphics draw requires a fragment shader");
+        const auto pixel = prepare(pixelAddress, 1, ShaderRecompiler::ShaderStage::Fragment, 0x00b, 0x00c);
         const auto shaderRegisters = registerValues(queue.shader);
         const auto contextRegisters = registerValues(queue.context);
         const auto userConfigRegisters = registerValues(queue.userConfig);
         std::lock_guard gpuLock(gpuMutex);
         if (device == nullptr) device = std::make_shared<VulkanDevice>();
-        const auto compile = [&](const Program& program) {
+        const auto compile = [&](const Program& program, std::uint32_t descriptorSet) {
             const ShaderRecompiler::RecompileRequest request{
                 program.binary,
                 {64, program.userDataBase, program.userData, shaderRegisters, contextRegisters, userConfigRegisters, program.memory},
                 device->Target(),
-                {0, 0, 0, 128}
+                {descriptorSet, 0, descriptorSet * Graphics::StagePushConstantBytes, Graphics::StagePushConstantBytes}
             };
             return ShaderRecompiler::Recompile(request);
         };
-        if (pixel) static_cast<void>(compile(*pixel));
-        static_cast<void>(compile(vertex));
-        throw std::runtime_error("AGC driver: graphics pipeline and guest render-target materialization are not implemented for indexed draw at " + std::to_string(indexed.indexAddress));
+        const auto fragmentShader = compile(pixel, 1);
+        const auto vertexShader = compile(vertex, 0);
+        device->DrawIndexed(graphics, indexed, vertexShader, fragmentShader);
     }
 
     void execute(const Submission& submission) {

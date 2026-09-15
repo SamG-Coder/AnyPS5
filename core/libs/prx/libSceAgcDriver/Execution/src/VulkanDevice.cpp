@@ -260,6 +260,13 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     deviceInfo.queueCreateInfoCount = 1;
     deviceInfo.pQueueCreateInfos = &queueInfo;
+    VkPhysicalDeviceFeatures available{};
+    state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures>("vkGetPhysicalDeviceFeatures")(selected, &available);
+    require(available.vertexPipelineStoresAndAtomics && available.fragmentStoresAndAtomics, "graphics shader buffer writes and atomics are unavailable");
+    VkPhysicalDeviceFeatures enabled{};
+    enabled.vertexPipelineStoresAndAtomics = VK_TRUE;
+    enabled.fragmentStoresAndAtomics = VK_TRUE;
+    deviceInfo.pEnabledFeatures = &enabled;
     VkPhysicalDevicePresentIdFeaturesKHR idFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR, nullptr, VK_TRUE};
     VkPhysicalDevicePresentWaitFeaturesKHR waitFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR, nullptr, VK_TRUE};
     VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenanceFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT, nullptr, VK_TRUE};
@@ -461,6 +468,21 @@ void VulkanDevice::WaitPresented(std::uint64_t id) {
 ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
     const auto& limits = state->properties.limits;
     return {VK_API_VERSION_1_1, 0x00010300u, state->subgroup.subgroupSize, state->capabilities, {}, {limits.maxComputeWorkGroupSize[0], limits.maxComputeWorkGroupSize[1], limits.maxComputeWorkGroupSize[2]}, limits.maxComputeWorkGroupInvocations, limits.maxComputeSharedMemorySize};
+}
+
+void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) {
+    const Graphics::Context context{
+        state->device,
+        state->physical,
+        state->queue,
+        state->pool,
+        state->deviceProc,
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFormatProperties>("vkGetPhysicalDeviceFormatProperties"),
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceImageFormatProperties>("vkGetPhysicalDeviceImageFormatProperties"),
+        state->memoryProperties,
+        state->properties.limits
+    };
+    Graphics::DrawIndexed(context, graphics, draw, vertex, fragment);
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z) {
