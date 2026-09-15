@@ -1,64 +1,118 @@
 #include "IntermediateRepresentation/IrBlock.hpp"
+#include <algorithm>
 #include <stdexcept>
 
 namespace ShaderRecompiler {
 
 IrBlock::IrBlock(std::uint32_t id) : id(id) {
-    throw std::runtime_error("IrBlock::IrBlock not implemented");
 }
+
 std::uint32_t IrBlock::Id() const {
-    throw std::runtime_error("IrBlock::Id not implemented");
+    return id;
 }
+
 std::list<IrValue*>& IrBlock::Instructions() {
-    throw std::runtime_error("IrBlock::Instructions not implemented");
+    return instructions;
 }
+
 const std::list<IrValue*>& IrBlock::Instructions() const {
-    throw std::runtime_error("IrBlock::Instructions not implemented");
+    return instructions;
 }
+
 std::vector<IrBlock*>& IrBlock::Predecessors() {
-    throw std::runtime_error("IrBlock::Predecessors not implemented");
+    return predecessors;
 }
+
 std::vector<IrBlock*>& IrBlock::Successors() {
-    throw std::runtime_error("IrBlock::Successors not implemented");
+    return successors;
 }
+
 void IrBlock::AppendInstruction(IrValue* value) {
-    throw std::runtime_error("IrBlock::AppendInstruction not implemented");
+    if (value == nullptr) {
+        throw std::invalid_argument("IrBlock::AppendInstruction value cannot be null");
+    }
+    if (value->Parent() != nullptr) {
+        throw std::runtime_error("IrBlock::AppendInstruction value already belongs to a block");
+    }
+    instructions.push_back(value);
+    value->SetParent(this);
 }
+
 void IrBlock::InsertInstructionBefore(IrValue* position, IrValue* value) {
-    throw std::runtime_error("IrBlock::InsertInstructionBefore not implemented");
+    if (value == nullptr) {
+        throw std::invalid_argument("IrBlock::InsertInstructionBefore value cannot be null");
+    }
+    if (value->Parent() != nullptr) {
+        throw std::runtime_error("IrBlock::InsertInstructionBefore value already belongs to a block");
+    }
+    if (position == nullptr) {
+        instructions.push_front(value);
+        value->SetParent(this);
+        return;
+    }
+    const auto it = std::find(instructions.begin(), instructions.end(), position);
+    if (it == instructions.end()) {
+        throw std::runtime_error("IrBlock::InsertInstructionBefore position is not in this block");
+    }
+    instructions.insert(it, value);
+    value->SetParent(this);
 }
+
 void IrBlock::RemoveInstruction(IrValue* value) {
-    throw std::runtime_error("IrBlock::RemoveInstruction not implemented");
+    if (value == nullptr) {
+        throw std::invalid_argument("IrBlock::RemoveInstruction value cannot be null");
+    }
+    const auto it = std::find(instructions.begin(), instructions.end(), value);
+    if (it == instructions.end()) {
+        throw std::runtime_error("IrBlock::RemoveInstruction value is not in this block");
+    }
+    instructions.erase(it);
+    value->SetParent(nullptr);
 }
+
 void IrBlock::AddPredecessor(IrBlock* block) {
-    throw std::runtime_error("IrBlock::AddPredecessor not implemented");
+    if (block == nullptr) {
+        throw std::invalid_argument("IrBlock::AddPredecessor block cannot be null");
+    }
+    predecessors.push_back(block);
 }
+
 void IrBlock::AddSuccessor(IrBlock* block) {
-    throw std::runtime_error("IrBlock::AddSuccessor not implemented");
+    if (block == nullptr) {
+        throw std::invalid_argument("IrBlock::AddSuccessor block cannot be null");
+    }
+    successors.push_back(block);
 }
 
 const std::vector<IrBlock*>& IrBlock::Predecessors() const {
-    throw std::runtime_error("IrBlock::Predecessors not implemented");
+    return predecessors;
 }
 
 const std::vector<IrBlock*>& IrBlock::Successors() const {
-    throw std::runtime_error("IrBlock::Successors not implemented");
+    return successors;
 }
 
 void IrBlock::SsaSeal() {
-    throw std::runtime_error("IrBlock::SsaSeal not implemented");
+    if (ssaSealed) {
+        throw std::runtime_error("IrBlock::SsaSeal called on an already sealed block");
+    }
+    ssaSealed = true;
 }
 
 bool IrBlock::IsSsaSealed() const {
-    throw std::runtime_error("IrBlock::IsSsaSealed not implemented");
+    return ssaSealed;
 }
 
 void IrBlock::AddBranch(IrBlock* block) {
-    throw std::runtime_error("IrBlock::AddBranch not implemented");
+    if (block == nullptr) {
+        throw std::invalid_argument("IrBlock::AddBranch block cannot be null");
+    }
+    AddSuccessor(block);
+    block->AddPredecessor(this);
 }
 
 bool IrBlock::Empty() const {
-    throw std::runtime_error("IrBlock::Empty not implemented");
+    return instructions.empty();
 }
 
 }

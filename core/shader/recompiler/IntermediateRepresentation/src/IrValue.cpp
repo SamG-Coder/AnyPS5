@@ -1,177 +1,288 @@
 #include "IntermediateRepresentation/IrValue.hpp"
+#include <algorithm>
+#include <bit>
 #include <stdexcept>
 
 namespace ShaderRecompiler {
 
 IrValue::IrValue(IrOpcode opcode, IrType type, std::uint32_t id) : opcode(opcode), type(type), id(id), hasImmediate(false), parent(nullptr) {
-    throw std::runtime_error("IrValue::IrValue not implemented");
 }
+
 IrOpcode IrValue::Opcode() const {
-    throw std::runtime_error("IrValue::Opcode not implemented");
+    return opcode;
 }
+
 IrType IrValue::Type() const {
-    throw std::runtime_error("IrValue::Type not implemented");
+    return type;
 }
+
 std::uint32_t IrValue::Id() const {
-    throw std::runtime_error("IrValue::Id not implemented");
+    return id;
 }
+
 const std::vector<IrValue*>& IrValue::Arguments() const {
-    throw std::runtime_error("IrValue::Arguments not implemented");
+    return arguments;
 }
+
 const std::vector<IrValue*>& IrValue::Uses() const {
-    throw std::runtime_error("IrValue::Uses not implemented");
+    return uses;
 }
+
 IrBlock* IrValue::Parent() const {
-    throw std::runtime_error("IrValue::Parent not implemented");
+    return parent;
 }
+
 bool IrValue::HasImmediate() const {
-    throw std::runtime_error("IrValue::HasImmediate not implemented");
+    return hasImmediate;
 }
+
 std::uint32_t IrValue::ImmediateU32() const {
-    throw std::runtime_error("IrValue::ImmediateU32 not implemented");
+    return static_cast<std::uint32_t>(immediateBits);
 }
+
 void IrValue::AddArgument(IrValue* argument) {
-    throw std::runtime_error("IrValue::AddArgument not implemented");
+    arguments.push_back(argument);
+    if (argument == nullptr) {
+        return;
+    }
+    argument->uses.push_back(this);
+    argument->operandUses.push_back(IrUse{this, arguments.size() - 1});
 }
+
 void IrValue::ReplaceArgument(std::size_t index, IrValue* argument) {
-    throw std::runtime_error("IrValue::ReplaceArgument not implemented");
+    if (index >= arguments.size()) {
+        throw std::out_of_range("IrValue::ReplaceArgument index is out of range");
+    }
+    IrValue* previous = arguments[index];
+    if (previous != nullptr) {
+        const auto useIt = std::find(previous->uses.begin(), previous->uses.end(), this);
+        if (useIt != previous->uses.end()) {
+            previous->uses.erase(useIt);
+        }
+        const auto operandIt = std::find_if(previous->operandUses.begin(), previous->operandUses.end(), [this, index](const IrUse& use) {
+            return use.user == this && use.operand == index;
+        });
+        if (operandIt != previous->operandUses.end()) {
+            previous->operandUses.erase(operandIt);
+        }
+    }
+    arguments[index] = argument;
+    if (argument != nullptr) {
+        argument->uses.push_back(this);
+        argument->operandUses.push_back(IrUse{this, index});
+    }
 }
+
 void IrValue::ReplaceAllUsesWith(IrValue* replacement) {
-    throw std::runtime_error("IrValue::ReplaceAllUsesWith not implemented");
+    if (replacement == this) {
+        return;
+    }
+    while (!operandUses.empty()) {
+        const IrUse use = operandUses.back();
+        use.user->ReplaceArgument(use.operand, replacement);
+    }
 }
+
 void IrValue::SetImmediateU32(std::uint32_t value) {
-    throw std::runtime_error("IrValue::SetImmediateU32 not implemented");
+    immediateBits = value;
+    hasImmediate = true;
 }
+
 void IrValue::SetParent(IrBlock* parent) {
-    throw std::runtime_error("IrValue::SetParent not implemented");
+    this->parent = parent;
 }
 
 bool IrValue::IsEmpty() const {
-    throw std::runtime_error("IrValue::IsEmpty not implemented");
+    return opcode == IrOpcode::Void;
 }
 
 bool IrValue::IsIdentity() const {
-    throw std::runtime_error("IrValue::IsIdentity not implemented");
+    return opcode == IrOpcode::Identity;
 }
 
 bool IrValue::IsPhi() const {
-    throw std::runtime_error("IrValue::IsPhi not implemented");
+    return opcode == IrOpcode::Phi;
 }
 
 IrValue* IrValue::Resolve() const {
-    throw std::runtime_error("IrValue::Resolve not implemented");
+    const IrValue* current = this;
+    while (current->IsIdentity()) {
+        if (current->arguments.empty() || current->arguments.front() == nullptr) {
+            throw std::runtime_error("IrValue::Resolve encountered a malformed Identity value");
+        }
+        current = current->arguments.front();
+    }
+    return const_cast<IrValue*>(current);
 }
 
 bool IrValue::MayHaveSideEffects() const {
-    throw std::runtime_error("IrValue::MayHaveSideEffects not implemented");
+    return IrOpcodeHasSideEffects(opcode);
 }
 
 bool IrValue::HasUses() const {
-    throw std::runtime_error("IrValue::HasUses not implemented");
+    return !uses.empty();
 }
 
 std::size_t IrValue::UseCount() const {
-    throw std::runtime_error("IrValue::UseCount not implemented");
+    return uses.size();
 }
 
 std::size_t IrValue::ArgumentCount() const {
-    throw std::runtime_error("IrValue::ArgumentCount not implemented");
+    return arguments.size();
 }
 
 std::size_t IrValue::PhiBlockCount() const {
-    throw std::runtime_error("IrValue::PhiBlockCount not implemented");
+    return phiBlocks.size();
 }
 
 IrValue* IrValue::Argument(std::size_t index) const {
-    throw std::runtime_error("IrValue::Argument not implemented");
+    if (index >= arguments.size()) {
+        throw std::out_of_range("IrValue::Argument index is out of range");
+    }
+    return arguments[index];
 }
 
 IrBlock* IrValue::PhiBlock(std::size_t index) const {
-    throw std::runtime_error("IrValue::PhiBlock not implemented");
+    if (index >= phiBlocks.size()) {
+        throw std::out_of_range("IrValue::PhiBlock index is out of range");
+    }
+    return phiBlocks[index];
 }
 
 const std::vector<IrUse>& IrValue::OperandUses() const {
-    throw std::runtime_error("IrValue::OperandUses not implemented");
+    return operandUses;
 }
 
 std::uint64_t IrValue::ImmediateU64() const {
-    throw std::runtime_error("IrValue::ImmediateU64 not implemented");
+    return immediateBits;
 }
 
 std::uint16_t IrValue::ImmediateF16Bits() const {
-    throw std::runtime_error("IrValue::ImmediateF16Bits not implemented");
+    return static_cast<std::uint16_t>(immediateBits);
 }
 
 float IrValue::ImmediateF32() const {
-    throw std::runtime_error("IrValue::ImmediateF32 not implemented");
+    return std::bit_cast<float>(static_cast<std::uint32_t>(immediateBits));
 }
 
 bool IrValue::ImmediateBool() const {
-    throw std::runtime_error("IrValue::ImmediateBool not implemented");
+    return immediateBits != 0u;
 }
 
 std::uint8_t IrValue::ImmediateU8() const {
-    throw std::runtime_error("IrValue::ImmediateU8 not implemented");
+    return static_cast<std::uint8_t>(immediateBits);
 }
 
 std::uint16_t IrValue::ImmediateU16() const {
-    throw std::runtime_error("IrValue::ImmediateU16 not implemented");
+    return static_cast<std::uint16_t>(immediateBits);
 }
 
 GuestRegister IrValue::Register() const {
-    throw std::runtime_error("IrValue::Register not implemented");
+    return registerValue;
 }
 
 void IrValue::SetImmediateU64(std::uint64_t value) {
-    throw std::runtime_error("IrValue::SetImmediateU64 not implemented");
+    immediateBits = value;
+    hasImmediate = true;
 }
 
 void IrValue::SetImmediateF16Bits(std::uint16_t bits) {
-    throw std::runtime_error("IrValue::SetImmediateF16Bits not implemented");
+    immediateBits = bits;
+    hasImmediate = true;
 }
 
 void IrValue::SetImmediateF32(float value) {
-    throw std::runtime_error("IrValue::SetImmediateF32 not implemented");
+    immediateBits = std::bit_cast<std::uint32_t>(value);
+    hasImmediate = true;
 }
 
 void IrValue::SetImmediateBool(bool value) {
-    throw std::runtime_error("IrValue::SetImmediateBool not implemented");
+    immediateBits = value ? 1u : 0u;
+    hasImmediate = true;
 }
 
 void IrValue::SetImmediateU8(std::uint8_t value) {
-    throw std::runtime_error("IrValue::SetImmediateU8 not implemented");
+    immediateBits = value;
+    hasImmediate = true;
 }
 
 void IrValue::SetImmediateU16(std::uint16_t value) {
-    throw std::runtime_error("IrValue::SetImmediateU16 not implemented");
+    immediateBits = value;
+    hasImmediate = true;
 }
 
 void IrValue::SetRegister(const GuestRegister& reg) {
-    throw std::runtime_error("IrValue::SetRegister not implemented");
+    registerValue = reg;
 }
 
 void IrValue::AddPhiOperand(IrBlock* predecessor, IrValue* value) {
-    throw std::runtime_error("IrValue::AddPhiOperand not implemented");
+    if (!IsPhi()) {
+        throw std::runtime_error("IrValue::AddPhiOperand called on a non-Phi value");
+    }
+    if (predecessor == nullptr) {
+        throw std::invalid_argument("IrValue::AddPhiOperand predecessor cannot be null");
+    }
+    phiBlocks.push_back(predecessor);
+    AddArgument(value);
 }
 
 void IrValue::ReplaceOpcode(IrOpcode opcode) {
-    throw std::runtime_error("IrValue::ReplaceOpcode not implemented");
+    this->opcode = opcode;
 }
 
 void IrValue::Invalidate() {
-    throw std::runtime_error("IrValue::Invalidate not implemented");
+    if (!uses.empty()) {
+        throw std::runtime_error("IrValue::Invalidate called on a value that still has uses");
+    }
+    for (std::size_t index = 0; index < arguments.size(); index++) {
+        ReplaceArgument(index, nullptr);
+    }
+    opcode = IrOpcode::Unreachable;
 }
 
 void IrValue::ReplaceUsesWith(IrValue* replacement, bool preserve) {
-    throw std::runtime_error("IrValue::ReplaceUsesWith not implemented");
+    if (replacement == this) {
+        return;
+    }
+    if (preserve) {
+        for (std::size_t index = 0; index < arguments.size(); index++) {
+            ReplaceArgument(index, nullptr);
+        }
+        arguments.clear();
+        opcode = IrOpcode::Identity;
+        AddArgument(replacement);
+        return;
+    }
+    ReplaceAllUsesWith(replacement);
+    Invalidate();
 }
 
 bool IrValue::operator==(const IrValue& other) const {
-    throw std::runtime_error("operator== not implemented");
+    if (this == &other) {
+        return true;
+    }
+    if (opcode != other.opcode || type != other.type || hasImmediate != other.hasImmediate) {
+        return false;
+    }
+    if (hasImmediate && immediateBits != other.immediateBits) {
+        return false;
+    }
+    if (!(registerValue == other.registerValue)) {
+        return false;
+    }
+    if (arguments.size() != other.arguments.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < arguments.size(); index++) {
+        if (arguments[index] != other.arguments[index]) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool IrUse::operator==(const IrUse& other) const {
-    throw std::runtime_error("IrUse::operator== not implemented");
+    return user == other.user && operand == other.operand;
 }
 
 }
