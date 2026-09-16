@@ -22,7 +22,7 @@ struct Binding {
 ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : ShaderResources(context, std::array<CompiledShader, 2>{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, StagePushConstantBytes}}}, target, indexAddress, indexBytes) {}
 
 ShaderResources::ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : context(context), _layouts(shaders.size()), _sets(shaders.size()) {
-    Require(!shaders.empty() && context.limits.maxBoundDescriptorSets >= shaders.size(), "graphics descriptor _sets exceed device limits");
+    Require(!shaders.empty() && context.limits.maxBoundDescriptorSets >= shaders.size(), "graphics descriptor sets exceed device limits");
     std::vector<std::vector<Binding>> bindings(shaders.size());
     std::map<VkDescriptorType, std::uint32_t> poolCounts;
     try {

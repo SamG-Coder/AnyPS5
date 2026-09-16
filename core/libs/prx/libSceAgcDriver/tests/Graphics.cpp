@@ -162,6 +162,25 @@ void ShaderStageTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void InitialContextTests() {
+    const auto configured = makeState();
+    AgcDriver::QueueState queue;
+    Require(queue.context.at(0x3) == 0 && queue.context.at(0x8) == 0 && queue.context.at(0x9) == 0x3f800000, "depth bounds overlap render override");
+    Require(queue.context.at(0x2dc) == 0xaa00 && queue.context.at(0x313) == 0x6000 && queue.context.at(0x2f9) == 0x2d, "initial raster controls are incomplete");
+    Require(queue.context.at(0x30e) == 0xffffffff && queue.context.at(0x30f) == 0xffffffff, "initial sample mask excludes samples");
+    queue.userConfig[0x242] = 4;
+    for (const auto offset : {0x2d5u, 0x204u, 0x206u, 0x8eu, 0x8fu, 0x1c3u, 0x1c5u, 0x31cu, 0x3b0u, 0x3b8u, 0x318u, 0x390u, 0x10fu, 0x110u, 0x111u, 0x112u, 0x113u, 0x114u, 0xb4u, 0xb5u}) queue.context.at(offset) = configured.context.at(offset);
+    const auto state = AgcDriver::Graphics::DecodeState(queue);
+    Require(state.color.address == reinterpret_cast<std::uintptr_t>(colorMemory.data()) && state.color.bytes == colorMemory.size(), "sparse guest setup lost its render target");
+    queue.context[0x2dc] |= 1;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "alpha-to-coverage");
+    queue.context.erase(0x2dc);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+    queue.ClearContext();
+    Require(queue.context.at(0x2dc) == 0xaa00 && queue.context.at(0x318) == 0 && queue.context.at(0x8e) == 0, "clear did not restore controls and discard target state");
+    Require(!queue.context.contains(0xdead), "unknown context register acquired a default");
+}
+
 void resourceTests() {
     AgcDriver::Graphics::Context context{};
     context.limits.maxBoundDescriptorSets = 2;
@@ -189,6 +208,7 @@ int main() {
     try {
         stateTests();
         ShaderStageTests();
+        InitialContextTests();
         resourceTests();
         std::cout << "Graphics validation tests passed\n";
         return 0;

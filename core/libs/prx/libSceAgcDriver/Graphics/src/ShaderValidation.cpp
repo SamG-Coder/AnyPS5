@@ -145,6 +145,8 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
     Module module;
     std::uint32_t entries = 0;
     std::uint32_t memoryModels = 0;
+    std::uint32_t entryPoint = 0;
+    std::set<std::uint32_t> executionModeTargets;
     bool upperLeft = false;
     for (std::size_t cursor = 5; cursor < words.size();) {
         const auto count = words[cursor] >> 16u;
@@ -178,11 +180,13 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
                 break;
             case spv::OpEntryPoint:
                 Require(count >= 5 && instruction[1] == model && instruction[3] == 0x6e69616du && instruction[4] == 0, "expected a main entry point for the assigned graphics stage");
+                entryPoint = instruction[2];
                 ++entries;
                 for (std::size_t i = 5; i < count; ++i) Require(module.interface.insert(instruction[i]).second, "duplicate SPIR-V interface ID");
                 break;
             case spv::OpExecutionMode:
                 Require(count >= 3 && module.modes.emplace(instruction[2], std::vector<std::uint32_t>(instruction.begin() + 3, instruction.end())).second, "duplicate or malformed execution mode");
+                executionModeTargets.insert(instruction[1]);
                 if (instruction[2] == spv::ExecutionModeOriginUpperLeft) upperLeft = true;
                 break;
             case spv::OpExecutionModeId:
@@ -235,6 +239,7 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
         cursor += count;
     }
     Require(entries == 1 && memoryModels == 1, "SPIR-V must contain one entry point and memory model");
+    Require(entryPoint != 0 && std::all_of(executionModeTargets.begin(), executionModeTargets.end(), [&](auto target) { return target == entryPoint; }), "execution mode refers to a different entry point");
     Require(!fragment || upperLeft, "fragment coordinates must use an upper-left origin");
     const auto mode = [&](std::uint32_t name, std::vector<std::uint32_t> operands) {
         const auto it = module.modes.find(name);
@@ -345,6 +350,9 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
 void ValidateShaders(std::span<const CompiledShader> shaders, const State& state) {
     using Stage = ShaderRecompiler::ShaderStage;
     const bool tessellation = state.stages.path == ShaderPath::Tessellation;
+    const bool mesh = state.stages.path == ShaderPath::Geometry;
+    Require(state.stages.path == ShaderPath::Vertex || tessellation || mesh, "unsupported graphics shader path");
+    Require(state.stages.mesh.has_value() == mesh && state.stages.tessellation.has_value() == tessellation, "graphics stage configuration disagrees with its path");
     Require(shaders.size() == (tessellation ? 4u : 2u), "incorrect graphics stage count");
     const std::array<Stage, 4> tessStages{Stage::Local, Stage::TessellationControl, Stage::TessellationEvaluation, Stage::Fragment};
     Module previous;
