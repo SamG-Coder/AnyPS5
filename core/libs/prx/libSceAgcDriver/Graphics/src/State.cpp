@@ -155,7 +155,12 @@ State DecodeState(const QueueState& queue) {
     Require(read(cx, 0x2f9) == 0x2du, "nonstandard pixel center or vertex quantization is unsupported");
     Require(read(cx, 0x313) == 0x6000u, "conservative rasterization is unsupported");
     Require(read(cx, 0x30e) == 0xffffffffu && read(cx, 0x30f) == 0xffffffffu, "sample masks are unsupported");
-    Require(read(cx, 0x206) == 0x3fu, "only homogeneous positions with all viewport transforms enabled are supported");
+    const auto viewportControl = read(cx, 0x206);
+    if (viewportControl != 0x43fu) {
+        std::ostringstream message;
+        message << "AGC graphics: PA_CL_VTE_CNTL=0x" << std::hex << viewportControl << ": expected 0x43f for homogeneous positions and all viewport transforms; pre-divided coordinates, reciprocal W or disabled transforms are unsupported";
+        throw std::runtime_error(message.str());
+    }
     Require(read(cx, 0x204) == 0x80000u, "only standard zero-to-one depth clipping is supported");
     const auto raster = read(cx, 0x205);
     Require((raster & ~0x7u) == 0 || (raster & ~0x7u) == 0x240u, "polygon mode, depth bias, provoking vertex or nonstandard rasterization is unsupported");
