@@ -16,6 +16,14 @@ A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.c
 
 Now: `ShaderRecompiler::Recompile: InstructionTranslator::Translate not implementedgi`.
 
+## Build
+
+The relinker uses only the C++20 standard library and should build with any conforming compiler.
+
+[libc.prx](core/libs/prx/libc) implementations contain compiler-specific code. Linux builds work with GCC; on Windows, MinGW-w64 GCC 15.2.0 (`x86_64-ucrt-posix-seh`) is currently required.
+
+The project targets maximum compiler portability. Support for additional compilers will be addressed after the first successful game launch.
+
 ## Disclaimer
 
 This project is intended for interoperability, research, preservation, and compatibility purposes. It does not include, distribute, or require copyrighted software, firmware, cryptographic keys, or proprietary libraries. Users are responsible for ensuring that any binaries used with this project are obtained and used in accordance with applicable laws and their respective license terms.
