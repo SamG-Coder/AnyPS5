@@ -39,7 +39,13 @@ function(add_shader_recompiler target runtimeTarget)
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/CompareInstructions.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/ControlFlowInstructions.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/ConvertInstructions.cpp
-        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/MemoryResourceHelpers.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/ScalarBufferInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/BufferInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/FlatInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/ImageInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/SharedMemoryInstructions.cpp
+        ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/MemoryInstructions/MemoryInstructionDispatch.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/AttributeInstructions.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/src/DispatchInstructions.cpp
         ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Optimization/src/SsaBuilder.cpp
