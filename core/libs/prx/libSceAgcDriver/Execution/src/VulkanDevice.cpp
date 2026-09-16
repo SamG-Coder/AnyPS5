@@ -57,6 +57,7 @@ struct VulkanDevice::State {
     bool tessellationShader = false;
     bool meshShader = false;
     bool depthClipControl = false;
+    bool depthRangeUnrestricted = false;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 
     template<typename TFunction>
@@ -277,6 +278,8 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     meshFeatures.meshShader = state->meshShader;
     std::vector<const char*> deviceExtensions;
     if (window != nullptr) deviceExtensions.assign(presentationExtensions.begin(), presentationExtensions.end());
+    state->depthRangeUnrestricted = hasExtension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
+    if (state->depthRangeUnrestricted) deviceExtensions.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     VkPhysicalDeviceDepthClipControlFeaturesEXT depthClipFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
     if (hasExtension(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME)) {
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &depthClipFeatures};
@@ -538,7 +541,8 @@ void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::Index
         state->tessellationShader,
         state->meshShader,
         state->meshLimits,
-        state->depthClipControl
+        state->depthClipControl,
+        state->depthRangeUnrestricted
     };
     Graphics::DrawIndexed(context, graphics, draw, shaders);
 }

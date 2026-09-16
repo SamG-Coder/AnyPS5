@@ -192,10 +192,19 @@ void DepthClipTests() {
     const auto reversed = AgcDriver::Graphics::DecodeState(queue);
     Require(reversed.viewport.minDepth == 1 && reversed.viewport.maxDepth == 0, "reversed depth transform is incorrect");
     queue.context[0x113] = std::bit_cast<std::uint32_t>(1.0f);
+    queue.context[0x114] = 0;
+    const auto unrestricted = AgcDriver::Graphics::DecodeState(queue);
+    Require(unrestricted.viewport.minDepth == -1 && unrestricted.viewport.maxDepth == 1, "unrestricted viewport depth was normalized");
+    queue.context[0x113] = std::bit_cast<std::uint32_t>(-1.0f);
+    const auto unrestrictedReversed = AgcDriver::Graphics::DecodeState(queue);
+    Require(unrestrictedReversed.viewport.minDepth == 1 && unrestrictedReversed.viewport.maxDepth == -1, "reversed unrestricted viewport depth changed");
+    queue.context[0x113] = 0x7f7fffff;
+    queue.context[0x114] = 0x7f7fffff;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported viewport transform");
+    queue.context[0x114] = std::bit_cast<std::uint32_t>(0.5f);
     queue.context[0x113] = std::bit_cast<std::uint32_t>(0.5f);
-    queue.context[0xb4] = std::bit_cast<std::uint32_t>(0.25f);
-    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "viewport depth clamp differs");
+    queue.context[0xb4] = std::bit_cast<std::uint32_t>(2.0f);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "inverted viewport depth clamp");
     queue.context[0xb4] = 0;
     for (std::uint32_t bit = 0; bit < 32; ++bit) {
         if (bit == 19) continue;

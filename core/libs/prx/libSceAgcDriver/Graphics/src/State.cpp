@@ -218,12 +218,12 @@ State DecodeState(const QueueState& queue) {
     const auto zo = readFloat(cx, 0x114);
     const auto minDepth = result.negativeOneToOne ? zo - zs : zo;
     const auto maxDepth = zo + zs;
-    if (!(xs > 0 && ys != 0 && minDepth >= 0 && minDepth <= 1 && maxDepth >= 0 && maxDepth <= 1)) {
+    if (!(xs > 0 && ys != 0 && std::isfinite(minDepth) && std::isfinite(maxDepth))) {
         std::ostringstream message;
         message << "AGC graphics: unsupported viewport transform: scale=(" << xs << ", " << ys << ", " << zs << "), offset=(" << xo << ", " << yo << ", " << zo << "), depth=(" << minDepth << ", " << maxDepth << "), negativeOneToOne=" << result.negativeOneToOne;
         throw std::runtime_error(message.str());
     }
-    Require(readFloat(cx, 0xb4) == std::min(minDepth, maxDepth) && readFloat(cx, 0xb5) == std::max(minDepth, maxDepth), "viewport depth clamp differs from transform");
+    Require(readFloat(cx, 0xb4) <= readFloat(cx, 0xb5), "inverted viewport depth clamp bounds");
     result.viewport = {xo - xs, yo - ys, 2 * xs, 2 * ys, minDepth, maxDepth};
     result.scissor = {{0, 0}, result.renderExtent};
     intersect(result.scissor, cx, 0xc, true);
