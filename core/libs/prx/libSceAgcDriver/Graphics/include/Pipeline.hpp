@@ -7,7 +7,7 @@ namespace AgcDriver::Graphics {
 
 class Pipeline {
 public:
-    Pipeline(const Context& context, const State& state, const RenderTarget& target, const ShaderResources& resources, std::span<const CompiledShader> shaders);
+    Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders);
     ~Pipeline();
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;

@@ -5,8 +5,12 @@
 
 namespace AgcDriver::Graphics {
 
-Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) : context(context), _modules(shaders.size()) {
+Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders) : context(context), _modules(shaders.size()) {
+    Require((target != nullptr) == state.hasColorTarget, "render target does not match decoded color state");
+    Require(state.renderExtent.width != 0 && state.renderExtent.height != 0 && state.renderExtent.width <= context.limits.maxFramebufferWidth && state.renderExtent.height <= context.limits.maxFramebufferHeight, "framebuffer extent exceeds device limits");
+    Require(state.hasColorTarget || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
     ValidateShaders(shaders, state);
+    Require(!state.negativeOneToOne || context.depthClipControl, "negative-one-to-one depth clipping requires VK_EXT_depth_clip_control with depthClipControl enabled");
     if (state.stages.tessellation) {
         Require(context.tessellationShader, "device does not support tessellation shaders");
         Require(state.stages.tessellation->inputControlPoints <= context.limits.maxTessellationPatchSize && state.stages.tessellation->outputControlPoints <= context.limits.maxTessellationPatchSize, "tessellation patch exceeds device limits");
@@ -58,27 +62,30 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         VkAttachmentReference reference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &reference;
+        subpass.colorAttachmentCount = state.hasColorTarget ? 1 : 0;
+        subpass.pColorAttachments = state.hasColorTarget ? &reference : nullptr;
         VkRenderPassCreateInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        passInfo.attachmentCount = 1;
-        passInfo.pAttachments = &color;
+        passInfo.attachmentCount = state.hasColorTarget ? 1 : 0;
+        passInfo.pAttachments = state.hasColorTarget ? &color : nullptr;
         passInfo.subpassCount = 1;
         passInfo.pSubpasses = &subpass;
         Check(context.Function<PFN_vkCreateRenderPass>("vkCreateRenderPass")(context.device, &passInfo, nullptr, &renderPass), "vkCreateRenderPass");
-        const auto view = target.View();
+        const auto view = target ? target->View() : VK_NULL_HANDLE;
         VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = 1;
-        framebufferInfo.pAttachments = &view;
-        framebufferInfo.width = state.color.extent.width;
-        framebufferInfo.height = state.color.extent.height;
+        framebufferInfo.attachmentCount = state.hasColorTarget ? 1 : 0;
+        framebufferInfo.pAttachments = state.hasColorTarget ? &view : nullptr;
+        framebufferInfo.width = state.renderExtent.width;
+        framebufferInfo.height = state.renderExtent.height;
         framebufferInfo.layers = 1;
         Check(context.Function<PFN_vkCreateFramebuffer>("vkCreateFramebuffer")(context.device, &framebufferInfo, nullptr, &framebuffer), "vkCreateFramebuffer");
         VkPipelineVertexInputStateCreateInfo input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         assembly.topology = state.topology;
         VkPipelineViewportStateCreateInfo viewports{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        VkPipelineViewportDepthClipControlCreateInfoEXT depthClip{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_DEPTH_CLIP_CONTROL_CREATE_INFO_EXT};
+        depthClip.negativeOneToOne = state.negativeOneToOne;
+        if (state.negativeOneToOne) viewports.pNext = &depthClip;
         viewports.viewportCount = 1;
         viewports.pViewports = &state.viewport;
         viewports.scissorCount = 1;
@@ -91,8 +98,8 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         VkPipelineMultisampleStateCreateInfo samples{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         samples.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        blend.attachmentCount = 1;
-        blend.pAttachments = &state.blend;
+        blend.attachmentCount = state.hasColorTarget ? 1 : 0;
+        blend.pAttachments = state.hasColorTarget ? &state.blend : nullptr;
         std::copy(state.blendConstants.begin(), state.blendConstants.end(), blend.blendConstants);
         VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());

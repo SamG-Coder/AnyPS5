@@ -56,6 +56,7 @@ struct VulkanDevice::State {
     std::vector<std::string_view> spirvExtensions;
     bool tessellationShader = false;
     bool meshShader = false;
+    bool depthClipControl = false;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 
     template<typename TFunction>
@@ -276,6 +277,13 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     meshFeatures.meshShader = state->meshShader;
     std::vector<const char*> deviceExtensions;
     if (window != nullptr) deviceExtensions.assign(presentationExtensions.begin(), presentationExtensions.end());
+    VkPhysicalDeviceDepthClipControlFeaturesEXT depthClipFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
+    if (hasExtension(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &depthClipFeatures};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+        state->depthClipControl = depthClipFeatures.depthClipControl == VK_TRUE;
+        if (state->depthClipControl) deviceExtensions.push_back(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME);
+    }
     if (state->meshShader) {
         deviceExtensions.insert(deviceExtensions.end(), meshExtensions.begin(), meshExtensions.end());
         state->capabilities.push_back(5283);
@@ -312,6 +320,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (state->meshShader) {
         meshFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
         deviceInfo.pNext = &meshFeatures;
+    }
+    if (state->depthClipControl) {
+        depthClipFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
+        deviceInfo.pNext = &depthClipFeatures;
     }
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
     state->DeviceFunction<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(state->device, family, 0, &state->queue);
@@ -525,7 +537,8 @@ void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::Index
         state->properties.limits,
         state->tessellationShader,
         state->meshShader,
-        state->meshLimits
+        state->meshLimits,
+        state->depthClipControl
     };
     Graphics::DrawIndexed(context, graphics, draw, shaders);
 }

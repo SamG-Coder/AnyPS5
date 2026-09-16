@@ -162,6 +162,48 @@ void ShaderStageTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void DisabledColorTests() {
+    auto queue = makeState();
+    queue.context[0x8e] = 0;
+    for (const auto offset : {0x31cu, 0x31bu, 0x31du, 0x3b0u, 0x3b8u, 0x390u, 0x318u, 0x1e0u}) queue.context.erase(offset);
+    const auto state = AgcDriver::Graphics::DecodeState(queue);
+    Require(!state.hasColorTarget && state.color.address == 0 && state.color.bytes == 0, "disabled color writes accessed a color surface");
+    Require(state.renderExtent.width == 64 && state.renderExtent.height == 4, "attachment-free framebuffer lost screen scissor extent");
+    queue.context[0xd] = 0;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "empty framebuffer extent");
+    queue = makeState();
+    queue.context[0x8e] = 3;
+    const auto partial = AgcDriver::Graphics::DecodeState(queue);
+    Require(partial.hasColorTarget && partial.blend.colorWriteMask == 3, "partial color write mask changed");
+    queue.context.erase(0x31c);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+}
+
+void DepthClipTests() {
+    auto queue = makeState();
+    const auto direct = AgcDriver::Graphics::DecodeState(queue);
+    Require(!direct.negativeOneToOne && direct.viewport.minDepth == 0 && direct.viewport.maxDepth == 1, "zero-to-one depth transform changed");
+    queue.context[0x204] = 0;
+    queue.context[0x113] = std::bit_cast<std::uint32_t>(0.5f);
+    queue.context[0x114] = std::bit_cast<std::uint32_t>(0.5f);
+    const auto symmetric = AgcDriver::Graphics::DecodeState(queue);
+    Require(symmetric.negativeOneToOne && symmetric.viewport.minDepth == 0 && symmetric.viewport.maxDepth == 1, "negative-one-to-one depth transform is incorrect");
+    queue.context[0x113] = std::bit_cast<std::uint32_t>(-0.5f);
+    const auto reversed = AgcDriver::Graphics::DecodeState(queue);
+    Require(reversed.viewport.minDepth == 1 && reversed.viewport.maxDepth == 0, "reversed depth transform is incorrect");
+    queue.context[0x113] = std::bit_cast<std::uint32_t>(1.0f);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported viewport transform");
+    queue.context[0x113] = std::bit_cast<std::uint32_t>(0.5f);
+    queue.context[0xb4] = std::bit_cast<std::uint32_t>(0.25f);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "viewport depth clamp differs");
+    queue.context[0xb4] = 0;
+    for (std::uint32_t bit = 0; bit < 32; ++bit) {
+        if (bit == 19) continue;
+        queue.context[0x204] = 1u << bit;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "PA_CL_CLIP_CNTL");
+    }
+}
+
 void InitialContextTests() {
     const auto configured = makeState();
     AgcDriver::QueueState queue;
@@ -213,6 +255,8 @@ void resourceTests() {
 int main() {
     try {
         stateTests();
+        DepthClipTests();
+        DisabledColorTests();
         ShaderStageTests();
         InitialContextTests();
         resourceTests();

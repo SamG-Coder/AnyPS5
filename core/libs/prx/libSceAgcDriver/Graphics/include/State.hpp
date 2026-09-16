@@ -36,8 +36,11 @@ struct ColorTarget {
 struct State {
     ShaderStages stages;
     ColorTarget color;
+    bool hasColorTarget;
+    VkExtent2D renderExtent;
     VkPrimitiveTopology topology;
     VkViewport viewport;
+    bool negativeOneToOne;
     VkRect2D scissor;
     VkCullModeFlags cullMode;
     VkFrontFace frontFace;

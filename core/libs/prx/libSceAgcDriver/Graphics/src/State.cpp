@@ -161,70 +161,91 @@ State DecodeState(const QueueState& queue) {
         message << "AGC graphics: PA_CL_VTE_CNTL=0x" << std::hex << viewportControl << ": expected 0x43f for homogeneous positions and all viewport transforms; pre-divided coordinates, reciprocal W or disabled transforms are unsupported";
         throw std::runtime_error(message.str());
     }
-    Require(read(cx, 0x204) == 0x80000u, "only standard zero-to-one depth clipping is supported");
+    zero(cx, 0x204, ~0x80000u, "unsupported PA_CL_CLIP_CNTL flags");
+    result.negativeOneToOne = (read(cx, 0x204) & 0x80000u) == 0;
     const auto raster = read(cx, 0x205);
     Require((raster & ~0x7u) == 0 || (raster & ~0x7u) == 0x240u, "polygon mode, depth bias, provoking vertex or nonstandard rasterization is unsupported");
     result.cullMode = ((raster & 1u) != 0 ? VK_CULL_MODE_FRONT_BIT : 0u) | ((raster & 2u) != 0 ? VK_CULL_MODE_BACK_BIT : 0u);
     result.frontFace = (raster & 4u) != 0 ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
     const auto targetMask = read(cx, 0x8e);
     const auto shaderMask = read(cx, 0x8f);
-    Require(targetMask != 0 && (targetMask & ~0xfu) == 0 && (shaderMask & ~0xfu) == 0, "only color target zero is supported");
-    Require(shaderMask == 0xfu, "partial shader color exports are unsupported");
+    if ((targetMask & ~0xfu) != 0 || (shaderMask & ~0xfu) != 0) {
+        std::ostringstream message;
+        message << "AGC graphics: only color target zero is supported: CB_TARGET_MASK=0x" << std::hex << targetMask << ", CB_SHADER_MASK=0x" << shaderMask;
+        throw std::runtime_error(message.str());
+    }
+    result.hasColorTarget = targetMask != 0;
+    Require(!result.hasColorTarget || shaderMask == 0xfu, "partial shader color exports are unsupported");
     Require(read(cx, 0x202) == 0xcc0010u, "only normal color rendering with copy ROP is supported");
     zero(cx, 0x1c4, ~0u, "depth or sample-mask export");
     const auto exportFormat = read(cx, 0x1c5);
     Require(exportFormat == 4 || exportFormat == 9, "only FP16_ABGR or 32_ABGR color export is supported");
     Require(read(cx, 0x1c3) == 4, "additional position exports are unsupported");
-    const auto info = read(cx, 0x31c);
-    const auto number = (info >> 8u) & 7u;
-    const auto swap = (info >> 11u) & 3u;
-    Require(((info >> 2u) & 0x1fu) == 10 && (number == 0 || number == 6) && swap <= 1, "unsupported color format or component order");
-    Require((info & ~0x00029f7cu) == 0, "color compression, DCC, endian conversion, nonstandard rounding or color optimization is unsupported");
-    Require((info & 0x8000u) != 0, "unclamped normalized color is unsupported");
-    zero(cx, 0x31b, ~0u, "color mip or array view");
-    zero(cx, 0x31d, ~0u, "color samples, fragments or destination alpha override");
-    const auto attrib2 = read(cx, 0x3b0);
-    Require((attrib2 >> 28u) == 0, "mipmapped render targets are unsupported");
-    const auto attrib3 = read(cx, 0x3b8);
-    Require((attrib3 & ~0x44000000u) == 0x09000000u, "only linear, non-array 2D color surfaces with resource level one are supported");
-    result.color.extent = {((attrib2 >> 14u) & 0x3fffu) + 1u, (attrib2 & 0x3fffu) + 1u};
-    Require(result.color.extent.width % 64u == 0, "linear surface pitch cannot be inferred for widths not aligned to 256 bytes");
-    const auto high = read(cx, 0x390);
-    Require((high & ~0xffu) == 0, "invalid color address extension");
-    result.color.address = (static_cast<std::uint64_t>(high) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x318)) << 8u);
-    const auto bytes = static_cast<std::uint64_t>(result.color.extent.width) * result.color.extent.height * 4u;
-    Require(bytes <= std::numeric_limits<std::size_t>::max(), "color surface size overflow");
-    result.color.bytes = static_cast<std::size_t>(bytes);
-    GuestMemory::CheckRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, 256, true);
-    result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
+    if (result.hasColorTarget) {
+        const auto info = read(cx, 0x31c);
+        const auto number = (info >> 8u) & 7u;
+        const auto swap = (info >> 11u) & 3u;
+        Require(((info >> 2u) & 0x1fu) == 10 && (number == 0 || number == 6) && swap <= 1, "unsupported color format or component order");
+        Require((info & ~0x00029f7cu) == 0, "color compression, DCC, endian conversion, nonstandard rounding or color optimization is unsupported");
+        Require((info & 0x8000u) != 0, "unclamped normalized color is unsupported");
+        zero(cx, 0x31b, ~0u, "color mip or array view");
+        zero(cx, 0x31d, ~0u, "color samples, fragments or destination alpha override");
+        const auto attrib2 = read(cx, 0x3b0);
+        Require((attrib2 >> 28u) == 0, "mipmapped render targets are unsupported");
+        const auto attrib3 = read(cx, 0x3b8);
+        Require((attrib3 & ~0x44000000u) == 0x09000000u, "only linear, non-array 2D color surfaces with resource level one are supported");
+        result.color.extent = {((attrib2 >> 14u) & 0x3fffu) + 1u, (attrib2 & 0x3fffu) + 1u};
+        Require(result.color.extent.width % 64u == 0, "linear surface pitch cannot be inferred for widths not aligned to 256 bytes");
+        const auto high = read(cx, 0x390);
+        Require((high & ~0xffu) == 0, "invalid color address extension");
+        result.color.address = (static_cast<std::uint64_t>(high) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x318)) << 8u);
+        const auto bytes = static_cast<std::uint64_t>(result.color.extent.width) * result.color.extent.height * 4u;
+        Require(bytes <= std::numeric_limits<std::size_t>::max(), "color surface size overflow");
+        result.color.bytes = static_cast<std::size_t>(bytes);
+        GuestMemory::CheckRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, 256, true);
+        result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
+        result.renderExtent = result.color.extent;
+    } else {
+        const auto screenBottomRight = read(cx, 0xd);
+        result.renderExtent = {screenBottomRight & 0xffffu, screenBottomRight >> 16u};
+        Require(result.renderExtent.width != 0 && result.renderExtent.height != 0, "empty framebuffer extent for a draw without color writes");
+    }
     const auto xs = readFloat(cx, 0x10f);
     const auto xo = readFloat(cx, 0x110);
     const auto ys = readFloat(cx, 0x111);
     const auto yo = readFloat(cx, 0x112);
     const auto zs = readFloat(cx, 0x113);
     const auto zo = readFloat(cx, 0x114);
-    Require(xs > 0 && ys != 0 && zo >= 0 && zo <= 1 && zo + zs >= 0 && zo + zs <= 1, "unsupported viewport transform");
-    Require(readFloat(cx, 0xb4) == std::min(zo, zo + zs) && readFloat(cx, 0xb5) == std::max(zo, zo + zs), "viewport depth clamp differs from transform");
-    result.viewport = {xo - xs, yo - ys, 2 * xs, 2 * ys, zo, zo + zs};
-    result.scissor = {{0, 0}, result.color.extent};
+    const auto minDepth = result.negativeOneToOne ? zo - zs : zo;
+    const auto maxDepth = zo + zs;
+    if (!(xs > 0 && ys != 0 && minDepth >= 0 && minDepth <= 1 && maxDepth >= 0 && maxDepth <= 1)) {
+        std::ostringstream message;
+        message << "AGC graphics: unsupported viewport transform: scale=(" << xs << ", " << ys << ", " << zs << "), offset=(" << xo << ", " << yo << ", " << zo << "), depth=(" << minDepth << ", " << maxDepth << "), negativeOneToOne=" << result.negativeOneToOne;
+        throw std::runtime_error(message.str());
+    }
+    Require(readFloat(cx, 0xb4) == std::min(minDepth, maxDepth) && readFloat(cx, 0xb5) == std::max(minDepth, maxDepth), "viewport depth clamp differs from transform");
+    result.viewport = {xo - xs, yo - ys, 2 * xs, 2 * ys, minDepth, maxDepth};
+    result.scissor = {{0, 0}, result.renderExtent};
     intersect(result.scissor, cx, 0xc, true);
     intersect(result.scissor, cx, 0x81, false);
     intersect(result.scissor, cx, 0x90, false);
     if ((read(cx, 0x292) & 2u) != 0) intersect(result.scissor, cx, 0x94, false);
-    const auto blend = read(cx, 0x1e0);
-    Require((blend & 0x0000e000u) == 0, "reserved blend control bits");
-    result.blend.colorWriteMask = targetMask;
-    result.blend.blendEnable = (blend >> 30u) & 1u;
-    if (result.blend.blendEnable) {
-        Require((info & 0x10000u) == 0, "blend bypass conflicts with enabled blending");
-        result.blend.srcColorBlendFactor = blendFactor(blend & 0x1fu);
-        result.blend.dstColorBlendFactor = blendFactor((blend >> 8u) & 0x1fu);
-        result.blend.colorBlendOp = blendOp((blend >> 5u) & 7u);
-        const auto alpha = (blend & 0x20000000u) != 0 ? blend >> 16u : blend;
-        result.blend.srcAlphaBlendFactor = blendFactor(alpha & 0x1fu);
-        result.blend.dstAlphaBlendFactor = blendFactor((alpha >> 8u) & 0x1fu);
-        result.blend.alphaBlendOp = blendOp((alpha >> 5u) & 7u);
-        for (std::uint32_t i = 0; i < 4; ++i) result.blendConstants[i] = readFloat(cx, 0x105 + i);
+    if (result.hasColorTarget) {
+        const auto blend = read(cx, 0x1e0);
+        Require((blend & 0x0000e000u) == 0, "reserved blend control bits");
+        result.blend.colorWriteMask = targetMask;
+        result.blend.blendEnable = (blend >> 30u) & 1u;
+        if (result.blend.blendEnable) {
+            Require((read(cx, 0x31c) & 0x10000u) == 0, "blend bypass conflicts with enabled blending");
+            result.blend.srcColorBlendFactor = blendFactor(blend & 0x1fu);
+            result.blend.dstColorBlendFactor = blendFactor((blend >> 8u) & 0x1fu);
+            result.blend.colorBlendOp = blendOp((blend >> 5u) & 7u);
+            const auto alpha = (blend & 0x20000000u) != 0 ? blend >> 16u : blend;
+            result.blend.srcAlphaBlendFactor = blendFactor(alpha & 0x1fu);
+            result.blend.dstAlphaBlendFactor = blendFactor((alpha >> 8u) & 0x1fu);
+            result.blend.alphaBlendOp = blendOp((alpha >> 5u) & 7u);
+            for (std::uint32_t i = 0; i < 4; ++i) result.blendConstants[i] = readFloat(cx, 0x105 + i);
+        }
     }
     return result;
 }

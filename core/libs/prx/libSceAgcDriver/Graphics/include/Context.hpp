@@ -32,6 +32,7 @@ struct Context {
     bool tessellationShader = false;
     bool meshShader = false;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+    bool depthClipControl = false;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {
