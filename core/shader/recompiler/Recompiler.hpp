@@ -22,11 +22,6 @@ enum class ShaderStage {
     Mesh
 };
 
-struct RegisterValue {
-    std::uint32_t offsetDwords;
-    std::uint32_t value;
-};
-
 struct MemoryRegion {
     std::uint64_t guestAddress;
     std::span<const std::byte> bytes;
@@ -40,13 +35,42 @@ struct ShaderBinary {
     std::span<const std::byte> header;
 };
 
+struct ShaderComputeStageInfo {
+    std::array<std::uint32_t, 3> numThreads;
+    std::uint32_t ldsSizeDwords;
+    std::array<bool, 3> groupIdEnable;
+    bool tgSizeEnable;
+    std::uint32_t threadIdComponentCount;
+};
+
+struct ShaderPixelStageInfo {
+    std::uint32_t interpolatorCount;
+    std::array<std::uint32_t, 32> interpolatorSettings;
+    bool wave32;
+    std::uint32_t perspectiveCenterVgpr;
+    bool hasPerspectiveCenterVgpr;
+    bool posX;
+    bool posY;
+    bool posZ;
+    bool posW;
+    bool frontFace;
+    bool ancillary;
+    bool sampleShading;
+    bool noPerspective;
+    bool pixelKillEnable;
+    bool depthExportEnable;
+    bool sampleMaskExportEnable;
+    bool earlyZ;
+    bool executeOnNoop;
+    std::array<std::uint8_t, 8> targetOutputMode;
+};
+
 struct GuestContext {
     std::uint32_t waveSize;
     std::uint32_t userDataBaseRegister;
     std::span<const std::uint32_t> userData;
-    std::span<const RegisterValue> shaderRegisters;
-    std::span<const RegisterValue> contextRegisters;
-    std::span<const RegisterValue> userConfigRegisters;
+    std::optional<ShaderComputeStageInfo> compute;
+    std::optional<ShaderPixelStageInfo> pixel;
     std::span<const MemoryRegion> memory;
 };
 

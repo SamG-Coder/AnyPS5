@@ -66,7 +66,10 @@ void validateTranslateOptions(const TranslateOptions& options) {
     case ShaderStageKind::Fetch:
         break;
     }
-    throw std::runtime_error("shader translation has an unsupported stage");
+    throw std::runtime_error(
+        "shader translation has an unsupported stage: options.stage=" +
+        std::to_string(static_cast<int>(options.stage))
+    );
 }
 
 const ShaderWorkgroupInputInfo* shaderWorkgroupInput(ShaderStageKind stage, const ShaderStageInputInfo& inputInfo) {

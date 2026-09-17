@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include <bit>
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -51,15 +53,6 @@ std::uint32_t readRegister(const Registers& registers, std::uint32_t offset) {
     const auto it = registers.find(offset);
     require(it != registers.end(), "required shader register has not been written");
     return it->second;
-}
-
-std::vector<ShaderRecompiler::RegisterValue> registerValues(const Registers& registers) {
-    std::vector<ShaderRecompiler::RegisterValue> result;
-    result.reserve(registers.size());
-    for (auto [offset, value] : registers) {
-        result.push_back({offset, value});
-    }
-    return result;
 }
 
 class Driver {
@@ -308,9 +301,7 @@ private:
         for (std::uint32_t i = 0; i < userCount; ++i) {
             userData.push_back(readRegister(queue.shader, 0x240 + i));
         }
-        auto shaderRegisters = registerValues(queue.shader);
-        auto contextRegisters = registerValues(queue.context);
-        auto userConfigRegisters = registerValues(queue.userConfig);
+        const auto compute = Graphics::DecodeComputeStageInfo(queue.shader);
         const std::array<ShaderRecompiler::MemoryRegion, 2> memory{{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}};
         if (device == nullptr) {
             device = std::make_shared<VulkanDevice>();
@@ -318,7 +309,7 @@ private:
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
         const ShaderRecompiler::RecompileRequest request{
             {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
-            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0x240, userData, shaderRegisters, contextRegisters, userConfigRegisters, memory},
+            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0x240, userData, compute, std::nullopt, memory},
             device->Target(),
             {0, 0, 0, 128}
         };
@@ -405,9 +396,7 @@ private:
         }
         append(0x008, 1, Stage::Fragment, 0x00b, 0x00c, Role::Fragment);
         programs.back().firstUserSgpr = 0;
-        const auto shaderRegisters = registerValues(queue.shader);
-        const auto contextRegisters = registerValues(queue.context);
-        const auto userConfigRegisters = registerValues(queue.userConfig);
+        const auto pixel = Graphics::DecodePixelStageInfo(queue.context);
         std::vector<ShaderRecompiler::MemoryRegion> memory;
         std::vector<ShaderRecompiler::LinkedProgram> linked;
         for (std::size_t i = 0; i < programs.size(); ++i) {
@@ -430,7 +419,7 @@ private:
             const auto waveSize = program.binary.stage == Stage::Fragment ? graphics.stages.fragmentWaveSize : graphics.stages.vertexWaveSize;
             const ShaderRecompiler::RecompileRequest request{
                 program.binary,
-                {waveSize, program.userDataBase, program.userData, shaderRegisters, contextRegisters, userConfigRegisters, memory},
+                {waveSize, program.userDataBase, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, memory},
                 device->Target(),
                 {descriptorSet, 0, offset, pushStride},
                 ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}

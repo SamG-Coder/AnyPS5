@@ -12,6 +12,7 @@
 #include "Optimization/include/Optimization/SsaBuilder.hpp"
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
+#include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -20,7 +21,32 @@ namespace ShaderRecompiler {
 
 namespace {
 
+ShaderStageKind toShaderStageKind(ShaderStage stage) {
+    switch (stage) {
+    case ShaderStage::Compute:
+        return ShaderStageKind::Compute;
+    case ShaderStage::Vertex:
+        return ShaderStageKind::Vertex;
+    case ShaderStage::TessellationControl:
+        return ShaderStageKind::TessellationControl;
+    case ShaderStage::TessellationEvaluation:
+        return ShaderStageKind::TessellationEvaluation;
+    case ShaderStage::Fragment:
+        return ShaderStageKind::Pixel;
+    case ShaderStage::Local:
+        return ShaderStageKind::Local;
+    case ShaderStage::Mesh:
+        return ShaderStageKind::Mesh;
+    case ShaderStage::Geometry:
+        break;
+    }
+    throw std::runtime_error("ShaderRecompiler::Recompile: unsupported shader stage");
+}
+
 RecompileResult RecompileImpl(const RecompileRequest& request) {
+    const auto stageKind = toShaderStageKind(request.shader.stage);
+    const auto inputInfo = BuildShaderStageInputInfo(stageKind, request.context);
+
     const RdnaInstructionDecoder decoder;
     const auto decoded = decoder.Decode(request.shader.code);
 
@@ -31,10 +57,12 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     structurizer.Structurize(cfg);
 
     TranslateOptions translateOptions {};
+    translateOptions.stage = stageKind;
     translateOptions.waveSize = request.context.waveSize;
     translateOptions.userDataBaseRegister = request.context.userDataBaseRegister;
     translateOptions.userDataCount = static_cast<std::uint32_t>(request.context.userData.size());
     translateOptions.embeddedFetch = nullptr;
+    translateOptions.inputInfo = inputInfo;
 
     const InstructionTranslator translator;
     auto program = translator.Translate(decoded, cfg, translateOptions);
