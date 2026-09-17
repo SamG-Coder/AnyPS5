@@ -1,8 +1,8 @@
 # About
 
-Converter for native execution of PlayStation 5 ELF binaries on Linux and Windows through binary format conversion and ABI compatibility. The relinker implementation uses only the C++20 standard library and performs deterministic transformation of executable binary.
+Tool for automatic executables porting to Linux and Windows.
 
-Implementations of system prx libraries suitable for dynamic linking: [core/libs/prx](core/libs/prx)
+Includes a [relinker](core/relinker) that converts executable to the target system's native format and implementations of [system prx libraries](core/libs/prx) suitable for dynamic linking. No emulation or separate runtime process.
 
 Releases will be published after the first full successful launch of at least one game.
 
@@ -12,7 +12,8 @@ Execution reaches `_start`, stack unwinding and exception handling tables are bu
 Audio output and video output initialization pass.
 Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
 
-A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.cpp) passes GPU readback checks and presents a frame through the [libSceAgcDriver](core/libs/prx/libSceAgcDriver). The first application draw passes driver state validation and reaches shader recompilation. Application shader execution remains unverified without [recompiler](core/shader/recompiler/Recompiler.cpp).
+A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.cpp) passes GPU readback checks and presents a frame through the [libSceAgcDriver](core/libs/prx/libSceAgcDriver). The first application draw passes driver state validation and reaches shader recompilation.
+Application shader execution remains unverified without completed [recompiler](core/shader/recompiler/Recompiler.cpp).
 
 Now: `ShaderRecompiler::Recompile: SsaBuilder::Rewrite not implemented`.
 
