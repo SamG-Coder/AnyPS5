@@ -3,6 +3,7 @@
 
 #include "IntermediateRepresentation/IrProgram.hpp"
 #include "IntermediateRepresentation/GuestRegister.hpp"
+#include <cstring>
 #include <initializer_list>
 
 namespace ShaderRecompiler {
@@ -81,7 +82,9 @@ public:
 
     template<typename TFlags> requires(sizeof(TFlags) <= sizeof(std::uint64_t) && std::is_trivially_copyable_v<TFlags>)
     [[nodiscard]] IrValue& Emit(IrOpcode opcode, IrType type, std::initializer_list<IrValue*> arguments, TFlags flags) {
-        throw std::runtime_error("IrBuilder::Emit not implemented");
+        std::uint64_t rawFlags = 0;
+        std::memcpy(&rawFlags, &flags, sizeof(flags));
+        return Emit(opcode, type, arguments, rawFlags);
     }
 
 private:

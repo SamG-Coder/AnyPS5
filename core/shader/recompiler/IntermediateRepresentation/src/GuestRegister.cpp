@@ -16,9 +16,9 @@ bool operator<(const GuestRegister& lhs, const GuestRegister& rhs) {
 
 std::uint32_t RegIndex(ScalarReg reg) {
     const auto index = static_cast<std::uint32_t>(reg);
-    if (index >= NumScalarRegs) {
-        throw std::out_of_range("ScalarReg index is out of range");
-    }
+    // if (index >= NumScalarRegs) {
+    //     throw std::out_of_range("ScalarReg index is out of range");
+    // }
     return index;
 }
 

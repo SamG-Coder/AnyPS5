@@ -6,6 +6,7 @@
 #include "IntermediateRepresentation/GuestRegister.hpp"
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <stdexcept>
 #include <type_traits>
 #include <vector>
@@ -47,12 +48,15 @@ public:
 
     template<typename TValue> requires(sizeof(TValue) <= sizeof(std::uint64_t) && std::is_trivially_copyable_v<TValue>)
     [[nodiscard]] TValue Flags() const {
-        throw std::runtime_error("IrValue::Flags not implemented");
+        TValue result{};
+        std::memcpy(&result, &flags, sizeof(result));
+        return result;
     }
 
     template<typename TValue> requires(sizeof(TValue) <= sizeof(std::uint64_t) && std::is_trivially_copyable_v<TValue>)
     void SetFlags(TValue value) {
-        throw std::runtime_error("IrValue::SetFlags not implemented");
+        flags = 0;
+        std::memcpy(&flags, &value, sizeof(value));
     }
 
     [[nodiscard]] bool IsEmpty() const;
@@ -105,24 +109,28 @@ private:
 template<IrType TValueType>
 class IrTypedValue {
 public:
-    IrTypedValue() {
-        throw std::runtime_error("IrTypedValue not implemented");
-    }
+    IrTypedValue() = default;
 
-    explicit IrTypedValue(IrValue& value) {
-        throw std::runtime_error("IrTypedValue not implemented");
+    explicit IrTypedValue(IrValue& value) : value(&value) {
+        if (!AreTypesCompatible(value.Type(), TValueType)) {
+            throw std::invalid_argument("IrTypedValue constructed from an incompatible IrValue type");
+        }
     }
 
     template<IrType TOtherType> requires((static_cast<std::uint32_t>(TValueType) & static_cast<std::uint32_t>(TOtherType)) != 0u)
-    IrTypedValue(const IrTypedValue<TOtherType>& value) {
-        throw std::runtime_error("IrTypedValue not implemented");
+    IrTypedValue(const IrTypedValue<TOtherType>& other) : value(other.value) {
     }
 
     [[nodiscard]] IrValue& Value() const {
-        throw std::runtime_error("IrTypedValue::Value not implemented");
+        if (value == nullptr) {
+            throw std::runtime_error("IrTypedValue::Value called on an empty typed value");
+        }
+        return *value;
     }
 
 private:
+    template<IrType> friend class IrTypedValue;
+
     IrValue* value = nullptr;
 };
 
