@@ -18,6 +18,7 @@ MemoryInfo scalarMemoryInfoFromInstruction(const RdnaInstruction& inst, bool raw
     memory.kind = raw ? ResourceKind::ScalarAddress : ResourceKind::ScalarBuffer;
     memory.offset = inst.memoryOffset;
     memory.dataDwords = inst.dataDwordCount;
+    memory.componentCount = inst.dataDwordCount;
     if (!raw) {
         memory.resource = inst.source0.reg / 4u;
     }
