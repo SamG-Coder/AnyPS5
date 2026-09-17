@@ -12,10 +12,10 @@ class ConstantFolder {
 public:
     void Fold(IrProgram& program) const;
 
-    void Fold(std::span<IrBlock* const> blocks) const;
+    void Fold(IrProgram& program, std::span<IrBlock* const> blocks) const;
 
 private:
-    [[nodiscard]] bool tryFoldValue(IrValue& value) const;
+    [[nodiscard]] bool tryFoldValue(IrProgram& program, IrValue& value) const;
 };
 
 }

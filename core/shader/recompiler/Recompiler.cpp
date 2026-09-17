@@ -47,13 +47,13 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     const auto stageKind = toShaderStageKind(request.shader.stage);
     const auto inputInfo = BuildShaderStageInputInfo(stageKind, request.context);
 
-    const RdnaInstructionDecoder decoder;
+    constexpr RdnaInstructionDecoder decoder;
     const auto decoded = decoder.Decode(request.shader.code);
 
-    const GraphBuilder graphBuilder;
+    constexpr GraphBuilder graphBuilder;
     auto cfg = graphBuilder.Build(decoded);
 
-    const Structurizer structurizer;
+    constexpr Structurizer structurizer;
     structurizer.Structurize(cfg);
 
     TranslateOptions translateOptions {};
@@ -64,31 +64,31 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     translateOptions.embeddedFetch = nullptr;
     translateOptions.inputInfo = inputInfo;
 
-    const InstructionTranslator translator;
+    constexpr InstructionTranslator translator;
     auto program = translator.Translate(decoded, cfg, translateOptions);
 
-    const SsaBuilder ssaBuilder;
+    constexpr SsaBuilder ssaBuilder;
     ssaBuilder.Rewrite(program);
 
-    const ConstantFolder constantFolder;
+    constexpr ConstantFolder constantFolder;
     constantFolder.Fold(program);
 
-    const DeadCodeEliminator deadCodeEliminator;
+    constexpr DeadCodeEliminator deadCodeEliminator;
     deadCodeEliminator.Eliminate(program);
 
-    const ReadLaneEliminator readLaneEliminator;
-    readLaneEliminator.Eliminate(program, translateOptions.waveSize);
+    constexpr ReadLaneEliminator readLaneEliminator;
+    const auto readLaneStats = readLaneEliminator.Eliminate(program, translateOptions.waveSize);
 
-    const SrtWalker srtWalker;
+    constexpr SrtWalker srtWalker;
     srtWalker.BuildPlan(program);
 
-    const ResourceTracker resourceTracker;
+    constexpr ResourceTracker resourceTracker;
     resourceTracker.Track(program);
 
-    const ShaderInfoCollector shaderInfoCollector;
+    constexpr ShaderInfoCollector shaderInfoCollector;
     shaderInfoCollector.Collect(program);
 
-    const BindingAllocator bindingAllocator;
+    constexpr BindingAllocator bindingAllocator;
     const auto bindings = bindingAllocator.Allocate(program, request.layout.pushConstantOffsetBytes);
 
     SpirvTargetOptions targetOptions {};
@@ -96,7 +96,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     targetOptions.spirvVersion = request.target.spirvVersion;
     targetOptions.subgroupSize = request.target.subgroupSize;
 
-    const SpirvEmitter spirvEmitter;
+    constexpr SpirvEmitter spirvEmitter;
     const auto spirv = spirvEmitter.Emit(program, bindings, targetOptions);
 
     RecompileResult result;
