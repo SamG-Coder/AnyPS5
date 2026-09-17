@@ -309,7 +309,7 @@ private:
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
         const ShaderRecompiler::RecompileRequest request{
             {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
-            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0x240, userData, compute, std::nullopt, memory},
+            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0x240, userData, compute, std::nullopt, std::nullopt, memory},
             device->Target(),
             {0, 0, 0, 128}
         };
@@ -419,7 +419,7 @@ private:
             const auto waveSize = program.binary.stage == Stage::Fragment ? graphics.stages.fragmentWaveSize : graphics.stages.vertexWaveSize;
             const ShaderRecompiler::RecompileRequest request{
                 program.binary,
-                {waveSize, program.userDataBase, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, memory},
+                {waveSize, program.userDataBase, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, program.binary.stage == Stage::Fragment ? std::nullopt : std::optional(Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData)), memory},
                 device->Target(),
                 {descriptorSet, 0, offset, pushStride},
                 ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}

@@ -1,4 +1,7 @@
 #include "Translation/ShaderInputInfoBuilder.hpp"
+#include "IntermediateRepresentation/IrMetadata.hpp"
+#include <array>
+#include <cstdint>
 #include <stdexcept>
 
 namespace ShaderRecompiler {
@@ -7,6 +10,60 @@ namespace {
 
 thread_local ShaderPixelInputInfo pixelStorage;
 thread_local ShaderComputeInputInfo computeStorage;
+thread_local ShaderVertexInputInfo vertexStorage;
+
+IrShaderStage _toIrShaderStage(ShaderStageKind stage) {
+    switch (stage) {
+    case ShaderStageKind::Vertex: return IrShaderStage::Vertex;
+    case ShaderStageKind::Local: return IrShaderStage::Local;
+    case ShaderStageKind::TessellationControl: return IrShaderStage::TessellationControl;
+    case ShaderStageKind::TessellationEvaluation: return IrShaderStage::TessellationEvaluation;
+    case ShaderStageKind::Mesh: return IrShaderStage::Mesh;
+    default: throw std::runtime_error("ShaderInputInfoBuilder: unexpected vertex-family stage");
+    }
+}
+
+void _detectVertexBuffers(ShaderVertexInputInfo& info) {
+    info.buffersNum = 0;
+    for (int ri = 0; ri < info.resourcesNum; ++ri) {
+        const auto& r = info.resources[ri];
+        const std::uint16_t stride = static_cast<std::uint16_t>((r.fields[1] >> 16u) & 0x3fffu);
+        const std::uint64_t base = (static_cast<std::uint64_t>(r.fields[0]) | (static_cast<std::uint64_t>(r.fields[1]) << 32u)) & 0xffffffffffffull;
+        const std::uint32_t numRecords = r.fields[2];
+        bool merged = false;
+        for (int bi = 0; bi < info.buffersNum; ++bi) {
+            auto& b = info.buffers[bi];
+            if (b.stride != stride || b.fetchIndex != static_cast<std::uint32_t>(info.resourcesDst[ri].fetchIndex)) continue;
+            const auto low = base < b.addr ? base : b.addr;
+            const auto offset1 = base - low;
+            const auto offset2 = b.addr - low;
+            if (offset1 >= stride || offset2 >= stride) continue;
+            if (b.numRecords != numRecords) throw std::runtime_error("ShaderInputInfoBuilder: merged vertex buffers disagree on record count");
+            b.addr = low;
+            if (b.attrNum >= ShaderVertexInputBuffer::MaxAttributes) throw std::runtime_error("ShaderInputInfoBuilder: vertex buffer attribute count exceeds the supported domain");
+            b.attrIndices[b.attrNum++] = ri;
+            merged = true;
+            break;
+        }
+        if (merged) continue;
+        if (info.buffersNum >= ShaderVertexInputInfo::MaxResources) throw std::runtime_error("ShaderInputInfoBuilder: vertex buffer count exceeds the supported domain");
+        auto& b = info.buffers[info.buffersNum++];
+        b.addr = base;
+        b.stride = stride;
+        b.numRecords = numRecords;
+        b.fetchIndex = static_cast<std::uint32_t>(info.resourcesDst[ri].fetchIndex);
+        b.attrNum = 1;
+        b.attrIndices[0] = ri;
+    }
+    for (int bi = 0; bi < info.buffersNum; ++bi) {
+        auto& b = info.buffers[bi];
+        for (int ri = 0; ri < b.attrNum; ++ri) {
+            const auto& r = info.resources[b.attrIndices[ri]];
+            const std::uint64_t base = (static_cast<std::uint64_t>(r.fields[0]) | (static_cast<std::uint64_t>(r.fields[1]) << 32u)) & 0xffffffffffffull;
+            b.attrOffsets[ri] = static_cast<std::uint32_t>(base - b.addr);
+        }
+    }
+}
 
 }
 
@@ -54,8 +111,30 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
     case ShaderStageKind::Local:
     case ShaderStageKind::TessellationControl:
     case ShaderStageKind::TessellationEvaluation:
-    case ShaderStageKind::Mesh:
-        throw std::runtime_error("ShaderInputInfoBuilder: vertex/tessellation/mesh input info is not implemented, embedded fetch metadata source is unavailable");
+    case ShaderStageKind::Mesh: {
+        if (!context.vertex.has_value()) {
+            throw std::runtime_error("ShaderInputInfoBuilder: GuestContext.vertex is not set");
+        }
+        const auto& vertex = *context.vertex;
+        vertexStorage = ShaderVertexInputInfo{};
+        vertexStorage.logicalStage = _toIrShaderStage(stage);
+        vertexStorage.fetchEmbedded = vertex.fetchEmbedded;
+        vertexStorage.fetchExternal = false;
+        vertexStorage.fetchAttribReg = static_cast<int>(vertex.fetchAttribReg);
+        vertexStorage.fetchBufferReg = static_cast<int>(vertex.fetchBufferReg);
+        vertexStorage.resourcesNum = static_cast<int>(vertex.resourcesNum);
+        for (std::uint32_t i = 0; i < vertex.resourcesNum; ++i) {
+            vertexStorage.resources[i].fields = vertex.resources[i].fields;
+            vertexStorage.resourcesDst[i].registerStart = vertex.resourcesDst[i].registerStart;
+            vertexStorage.resourcesDst[i].registersNum = vertex.resourcesDst[i].registersNum;
+            vertexStorage.resourcesDst[i].attrId = vertex.resourcesDst[i].attrId;
+            vertexStorage.resourcesDst[i].fetchIndex = vertex.resourcesDst[i].fetchIndex;
+        }
+        _detectVertexBuffers(vertexStorage);
+        ShaderStageInputInfo result;
+        result.vertex = &vertexStorage;
+        return result;
+    }
     case ShaderStageKind::Unknown:
     case ShaderStageKind::Fetch:
         throw std::runtime_error("ShaderInputInfoBuilder: unexpected stage");

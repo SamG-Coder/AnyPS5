@@ -3,11 +3,14 @@
 
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "Recompiler.hpp"
+#include <cstdint>
+#include <span>
 
 namespace AgcDriver::Graphics {
 
 ShaderRecompiler::ShaderPixelStageInfo DecodePixelStageInfo(const Registers& context);
 ShaderRecompiler::ShaderComputeStageInfo DecodeComputeStageInfo(const Registers& shader);
+ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const std::byte> header, std::uint64_t headerAddress, std::span<const std::uint32_t> userData);
 
 }
 

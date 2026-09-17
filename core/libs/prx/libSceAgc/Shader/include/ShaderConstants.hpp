@@ -72,6 +72,23 @@ enum class PrimitiveType : std::uint32_t {
 constexpr std::uint32_t VGT_SHADER_STAGES_GS_BIT = 0x20u;
 constexpr std::uint32_t VGT_SHADER_STAGES_NGG_BIT = 0x04u;
 
+enum class AgcDirectResourceType : std::uint32_t {
+    GdsCounterRange = 0,
+    ShaderResourceTable = 1,
+    SubPtrFetchShader = 2,
+    PtrSoBufferTable = 3,
+    PtrInternalGlobalTable = 4,
+    PtrExtendedUserData = 5,
+    GsFlags = 6,
+    GdsMemoryRange = 7,
+    PtrVertexBufferTable = 8,
+    StereoXOffset = 9,
+    PtrVertexAttribDescTable = 10,
+};
+
+constexpr std::uint32_t AGC_DIRECT_RESOURCE_TYPE_COUNT = 11u;
+constexpr std::uint16_t AGC_ILLEGAL_DIRECT_OFFSET = 0xffffu;
+
 }
 
 #endif

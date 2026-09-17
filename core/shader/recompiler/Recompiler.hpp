@@ -65,12 +65,34 @@ struct ShaderPixelStageInfo {
     std::array<std::uint8_t, 8> targetOutputMode;
 };
 
+struct ShaderVertexBufferResource {
+    std::array<std::uint32_t, 4> fields;
+};
+
+struct ShaderVertexResourceDestination {
+    std::int32_t registerStart;
+    std::int32_t registersNum;
+    std::int32_t attrId;
+    std::uint32_t fetchIndex;
+};
+
+struct ShaderVertexStageInfo {
+    static constexpr std::uint32_t MaxResources = 32;
+    std::array<ShaderVertexBufferResource, MaxResources> resources;
+    std::array<ShaderVertexResourceDestination, MaxResources> resourcesDst;
+    std::uint32_t resourcesNum;
+    std::uint32_t fetchAttribReg;
+    std::uint32_t fetchBufferReg;
+    bool fetchEmbedded;
+};
+
 struct GuestContext {
     std::uint32_t waveSize;
     std::uint32_t userDataBaseRegister;
     std::span<const std::uint32_t> userData;
     std::optional<ShaderComputeStageInfo> compute;
     std::optional<ShaderPixelStageInfo> pixel;
+    std::optional<ShaderVertexStageInfo> vertex;
     std::span<const MemoryRegion> memory;
 };
 
