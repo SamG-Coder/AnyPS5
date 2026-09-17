@@ -11,6 +11,31 @@ namespace ShaderRecompiler {
 
 struct ShaderBufferResource {
     std::array<std::uint32_t, 4> fields{};
+
+    void UpdateAddress48(std::uint64_t gpuAddr) {
+        fields[0] = static_cast<std::uint32_t>(gpuAddr);
+        fields[1] = (fields[1] & 0xffff0000u) | (static_cast<std::uint32_t>(gpuAddr >> 32u) & 0x0000ffffu);
+    }
+
+    [[nodiscard]] std::uint16_t Stride() const { return (fields[1] >> 16u) & 0x3FFFu; }
+    [[nodiscard]] bool SwizzleEnabled() const { return ((fields[1] >> 31u) & 0x1u) == 1u; }
+    [[nodiscard]] std::uint32_t NumRecords() const { return fields[2]; }
+    [[nodiscard]] std::uint64_t GetSize() const { return Stride() == 0 ? NumRecords() : static_cast<std::uint64_t>(Stride()) * NumRecords(); }
+    [[nodiscard]] std::uint8_t DstSelX() const { return (fields[3] >> 0u) & 0x7u; }
+    [[nodiscard]] std::uint8_t DstSelY() const { return (fields[3] >> 3u) & 0x7u; }
+    [[nodiscard]] std::uint8_t DstSelZ() const { return (fields[3] >> 6u) & 0x7u; }
+    [[nodiscard]] std::uint8_t DstSelW() const { return (fields[3] >> 9u) & 0x7u; }
+    [[nodiscard]] std::uint32_t DstSelXY() const { return (fields[3] >> 0u) & 0x3Fu; }
+    [[nodiscard]] std::uint32_t DstSelXYZ() const { return (fields[3] >> 0u) & 0x1FFu; }
+    [[nodiscard]] std::uint32_t DstSelXYZW() const { return (fields[3] >> 0u) & 0xFFFu; }
+    [[nodiscard]] bool AddTid() const { return ((fields[3] >> 23u) & 0x1u) == 1u; }
+    [[nodiscard]] std::uint8_t IndexStride() const { return (fields[3] >> 21u) & 0x3u; }
+    [[nodiscard]] std::uint32_t PackedStride() const { return Stride() | (static_cast<std::uint32_t>(SwizzleEnabled()) << 14u) | (static_cast<std::uint32_t>(IndexStride()) << 16u) | (static_cast<std::uint32_t>(AddTid()) << 20u); }
+    [[nodiscard]] std::uint64_t Base48() const { return (fields[0] | (static_cast<std::uint64_t>(fields[1]) << 32u)) & 0xFFFFFFFFFFFFull; }
+    [[nodiscard]] std::uint8_t RawFormat() const { return (fields[3] >> 12u) & 0x7Fu; }
+    [[nodiscard]] IrBufferFormat Format() const { return static_cast<IrBufferFormat>(RawFormat()); }
+    [[nodiscard]] std::uint8_t OutOfBounds() const { return (fields[3] >> 28u) & 0x3u; }
+    [[nodiscard]] std::uint8_t Type() const { return (fields[3] >> 30u) & 0x3u; }
 };
 
 struct ShaderColorComponentMapping {
