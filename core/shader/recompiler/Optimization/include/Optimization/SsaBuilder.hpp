@@ -10,12 +10,7 @@ namespace ShaderRecompiler {
 class SsaBuilder {
 public:
     void Rewrite(IrProgram& program) const;
-
-    void Rewrite(std::span<IrBlock* const> blocks) const;
-
-private:
-    void insertPhiNodes(IrProgram& program) const;
-    void renameVariables(IrProgram& program) const;
+    void Rewrite(IrProgram& program, std::span<IrBlock* const> blocks) const;
 };
 
 }
