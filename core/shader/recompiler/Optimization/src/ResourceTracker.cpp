@@ -20,6 +20,26 @@ constexpr std::uint32_t samplerDword3ReservedMask = 0x3ffff000u;
     throw std::runtime_error(message);
 }
 
+std::string describeValueChain(const IrValue* value, std::uint32_t depth) {
+    value = value->Resolve();
+    if (value->HasImmediate()) {
+        return "Immediate";
+    }
+    std::string text = std::string(IrOpcodeName(value->Opcode()));
+    if (depth == 0u || value->ArgumentCount() == 0u) {
+        return text;
+    }
+    text += "(";
+    for (std::uint32_t index = 0; index < value->ArgumentCount(); index++) {
+        if (index != 0u) {
+            text += ", ";
+        }
+        text += describeValueChain(value->Argument(index), depth - 1u);
+    }
+    text += ")";
+    return text;
+}
+
 std::uint32_t possibleU32Bits(const IrValue* value) {
     value = value->Resolve();
     if (value->HasImmediate()) {
@@ -407,13 +427,13 @@ private:
             for (; badDword < descriptor.dwordCount; badDword++) {
                 const IrValue* value2 = descriptor.dwords[badDword]->Resolve();
                 if (value2->Opcode() == IrOpcode::ReadConstBuffer) {
-                    fail(std::string(IrOpcodeName(expected)) + " dword " + std::to_string(badDword) + " is not a valid runtime value");
+                    fail(std::string(IrOpcodeName(expected)) + " dword " + std::to_string(badDword) + " is not a valid runtime value; chain: " + describeValueChain(descriptor.dwords[badDword], 8u));
                 }
             }
             badDword = 0;
         }
         if (!ValidateSource(descriptor, badDword)) {
-            fail(std::string(IrOpcodeName(expected)) + " dword " + std::to_string(badDword) + " is not a valid runtime value");
+            fail(std::string(IrOpcodeName(expected)) + " dword " + std::to_string(badDword) + " is not a valid runtime value; chain: " + describeValueChain(descriptor.dwords[badDword], 8u));
         }
         source = InternSource(descriptor);
     }

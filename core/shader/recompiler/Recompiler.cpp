@@ -2,6 +2,7 @@
 #include "ControlFlow/include/ControlFlow/GraphBuilder.hpp"
 #include "ControlFlow/include/ControlFlow/Structurizer.hpp"
 #include "RdnaDecoder/include/RdnaDecoder/RdnaInstructionDecoder.hpp"
+#include "IntermediateRepresentation/include/IntermediateRepresentation/IrProgram.hpp"
 #include "Optimization/include/Optimization/BindingAllocator.hpp"
 #include "Optimization/include/Optimization/ConstantFolder.hpp"
 #include "Optimization/include/Optimization/DeadCodeEliminator.hpp"
@@ -71,19 +72,29 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     ssaBuilder.Rewrite(program);
 
     constexpr ConstantFolder constantFolder;
-    constantFolder.Fold(program);
-
     constexpr DeadCodeEliminator deadCodeEliminator;
+
+    constantFolder.Fold(program);
+    ResolveControlFlowIdentities(program);
+    deadCodeEliminator.RemoveIdentities(program);
     deadCodeEliminator.Eliminate(program);
 
     constexpr ReadLaneEliminator readLaneEliminator;
     const auto readLaneStats = readLaneEliminator.Eliminate(program, translateOptions.waveSize);
+    if (readLaneStats.rewrittenReads != 0u) {
+        constantFolder.Fold(program);
+        ResolveControlFlowIdentities(program);
+        deadCodeEliminator.RemoveIdentities(program);
+        deadCodeEliminator.Eliminate(program);
+    }
 
     constexpr SrtWalker srtWalker;
     srtWalker.BuildPlan(program);
+    deadCodeEliminator.Eliminate(program);
 
     constexpr ResourceTracker resourceTracker;
     resourceTracker.Track(program);
+    deadCodeEliminator.Eliminate(program);
 
     constexpr ShaderInfoCollector shaderInfoCollector;
     shaderInfoCollector.Collect(program);
