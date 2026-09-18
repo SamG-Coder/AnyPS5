@@ -106,7 +106,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     deadCodeEliminator.Eliminate(program);
 
     constexpr ShaderInfoCollector shaderInfoCollector;
-    shaderInfoCollector.Collect(program);
+    shaderInfoCollector.Collect(program, inputInfo);
 
     constexpr BindingAllocator bindingAllocator;
     const auto bindings = bindingAllocator.Allocate(program, request.layout.pushConstantOffsetBytes);
@@ -132,8 +132,8 @@ RecompileResult Recompile(const RecompileRequest& request) {
         return RecompileImpl(request);
     } catch (const std::exception& e) {
         constexpr auto requestSerializer = RequestSerializer{};
-        const auto input = requestSerializer.Serialize(request);
-        throw std::runtime_error(std::string("ShaderRecompiler::Recompile: ") + std::string(input) + e.what());
+        const auto inputInfo = "\nRecompileRequest:\n" + requestSerializer.Serialize(request);
+        throw std::runtime_error(std::string("ShaderRecompiler::Recompile: ") + e.what() + inputInfo);
     } catch (...) {
         throw std::runtime_error("ShaderRecompiler::Recompile: unknown exception");
     }
