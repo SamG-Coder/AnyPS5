@@ -78,7 +78,8 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Optimization/src/SrtWalker/SrtWalker.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvModule.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvAnalysis.cpp
-            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvAluEmitter.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvAlu/SpirvAluEmitterMath.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvAlu/SpirvAluEmitterRegisters.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvFlowEmitter.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvImageEmitter.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemoryEmitter.cpp
@@ -93,9 +94,11 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Translation/include
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Optimization/include
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/include
+            ${PROJECT_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
     )
 
     target_compile_features(${target} PUBLIC cxx_std_20)
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_EXTENSIONS OFF)
     target_link_libraries(${target} PRIVATE ${runtimeTarget})
+
 endfunction()
