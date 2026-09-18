@@ -20,12 +20,24 @@ constexpr std::uint32_t samplerDword3ReservedMask = 0x3ffff000u;
     throw std::runtime_error(message);
 }
 
+std::string formatHex32(std::uint32_t value) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string hex(8u, '0');
+    for (std::uint32_t index = 0; index < 8u; index++) {
+        hex[7u - index] = digits[(value >> (index * 4u)) & 0xfu];
+    }
+    return hex;
+}
+
 std::string describeValueChain(const IrValue* value, std::uint32_t depth) {
     value = value->Resolve();
     if (value->HasImmediate()) {
         return "Immediate";
     }
     std::string text = std::string(IrOpcodeName(value->Opcode()));
+    if (value->Opcode() == IrOpcode::LoadAddressU32 || value->Opcode() == IrOpcode::ReadConstBuffer) {
+        text += "@pc=0x" + formatHex32(value->Flags<MemoryFlags>().pc);
+    }
     if (depth == 0u || value->ArgumentCount() == 0u) {
         return text;
     }
