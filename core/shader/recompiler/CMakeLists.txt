@@ -2,6 +2,24 @@ function(add_shader_recompiler target runtimeTarget)
     if(NOT TARGET "${runtimeTarget}")
         message(FATAL_ERROR "Shader recompiler requires an existing runtime target: ${runtimeTarget}")
     endif()
+
+    if(NOT TARGET glslang)
+        set(BUILD_SHARED_LIBS OFF)
+        set(BUILD_EXTERNAL OFF)
+        set(GLSLANG_TESTS OFF)
+        set(GLSLANG_ENABLE_INSTALL OFF)
+        set(ENABLE_GLSLANG_BINARIES OFF)
+        set(ENABLE_SPIRV ON)
+        set(ENABLE_SPVREMAPPER OFF)
+        set(ENABLE_OPT OFF)
+
+        add_subdirectory(
+                "${PROJECT_SOURCE_DIR}/3rdparty/glslang"
+                "${CMAKE_BINARY_DIR}/3rdparty/glslang"
+                EXCLUDE_FROM_ALL
+        )
+    endif()
+
     add_library(${target} STATIC EXCLUDE_FROM_ALL
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Recompiler.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/RdnaDecoder/src/RdnaOpcode.cpp
@@ -85,7 +103,9 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemoryEmitter.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvModuleEmitter.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvEmitter.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tests/DummyShaders.cpp
     )
+
     target_include_directories(${target} PUBLIC
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/RdnaDecoder/include
@@ -95,10 +115,19 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/Optimization/include
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/include
             ${PROJECT_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
+            ${PROJECT_SOURCE_DIR}/3rdparty/glslang
     )
 
     target_compile_features(${target} PUBLIC cxx_std_20)
-    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_EXTENSIONS OFF)
-    target_link_libraries(${target} PRIVATE ${runtimeTarget})
 
+    set_target_properties(${target} PROPERTIES
+            POSITION_INDEPENDENT_CODE ON
+            CXX_EXTENSIONS OFF
+    )
+
+    target_link_libraries(${target} PRIVATE
+            ${runtimeTarget}
+            glslang
+            SPIRV
+    )
 endfunction()

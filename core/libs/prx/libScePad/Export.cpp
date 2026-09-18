@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
+#include <chrono>
+#include <thread>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libScePad/Pad.hpp"
@@ -93,6 +95,7 @@ int APS5_VABI scePadRead_nid_postfix(int handle, PadData* data, int num) {
 int APS5_VABI scePadReadState(int handle, PadData* data) {
  (void)handle;
  (void)data;
+ std::this_thread::sleep_for(std::chrono::seconds(10));
  NotImplemented_nid_no_patch(__func__);
  return 0;
 }

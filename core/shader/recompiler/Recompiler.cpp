@@ -14,6 +14,7 @@
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
+#include "tests/DummyShaders.hpp"
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -128,6 +129,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
 }
 
 RecompileResult Recompile(const RecompileRequest& request) {
+    // return RecompileDummy(request);
     try {
         return RecompileImpl(request);
     } catch (const std::exception& e) {
