@@ -15,7 +15,7 @@ Reaches the `main` function with render loop (deep call chain, ~64KB stack frame
 A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.cpp) passes GPU readback checks and presents a frame through the [libSceAgcDriver](core/libs/prx/libSceAgcDriver). The first application draw passes driver state validation and reaches shader recompilation.
 Application shader execution remains unverified without completed [recompiler](core/shader/recompiler/Recompiler.cpp).
 
-Now: `ShaderRecompiler::Recompile: SsaBuilder::Rewrite not implemented`.
+Now: `ShaderRecompiler::Recompile: SpirvEmitter::Emit not implemented`.
 
 ## Build
 

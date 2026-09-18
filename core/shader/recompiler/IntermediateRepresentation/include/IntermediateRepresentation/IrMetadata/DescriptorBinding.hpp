@@ -4,7 +4,6 @@
 #include <array>
 #include <cstdint>
 #include <limits>
-#include <stdexcept>
 #include <vector>
 
 namespace ShaderRecompiler {
@@ -32,10 +31,10 @@ struct PushData {
     std::array<std::uint32_t, DwordCount> dwords {};
 
     [[nodiscard]] static bool CanFit(std::uint32_t start, std::uint32_t size) {
-        throw std::runtime_error("CanFit not implemented");
+        return size != 0u && start <= DwordCount && size <= DwordCount - start;
     }
     [[nodiscard]] static std::uint32_t StartFor(std::uint32_t cursor, std::uint32_t size) {
-        throw std::runtime_error("StartFor not implemented");
+        return CanFit(cursor, size) ? cursor : NoStart;
     }
 };
 
@@ -54,13 +53,15 @@ struct IrBindingLayout {
     std::vector<IrDescriptorBinding> descriptors;
 
     [[nodiscard]] std::uint32_t ShaderDataDwords() const {
-        throw std::runtime_error("ShaderDataDwords not implemented");
+        return memoryOffsetDword + (memoryOffsetCount + 3u) / 4u;
     }
     [[nodiscard]] bool UsesPushData() const {
-        throw std::runtime_error("UsesPushData not implemented");
+        return pushDataStartDword != PushData::NoStart;
     }
     void AdvancePushData(std::uint32_t& cursor) const {
-        throw std::runtime_error("AdvancePushData not implemented");
+        if (UsesPushData()) {
+            cursor = pushDataStartDword + ShaderDataDwords();
+        }
     }
 
     bool operator==(const IrBindingLayout& other) const = default;
