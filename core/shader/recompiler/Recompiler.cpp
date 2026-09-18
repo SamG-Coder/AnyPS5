@@ -17,6 +17,7 @@
 #include <exception>
 #include <stdexcept>
 #include <string>
+#include <ControlFlow/RequestSerializer.hpp>
 
 namespace ShaderRecompiler {
 
@@ -122,7 +123,9 @@ RecompileResult Recompile(const RecompileRequest& request) {
     try {
         return RecompileImpl(request);
     } catch (const std::exception& e) {
-        throw std::runtime_error(std::string("ShaderRecompiler::Recompile: ") + e.what());
+        constexpr auto requestSerializer = RequestSerializer{};
+        const auto input = requestSerializer.Serialize(request);
+        throw std::runtime_error(std::string("ShaderRecompiler::Recompile: ") + std::string(input) + e.what());
     } catch (...) {
         throw std::runtime_error("ShaderRecompiler::Recompile: unknown exception");
     }

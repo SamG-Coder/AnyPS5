@@ -16,6 +16,7 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ControlFlow/src/ControlFlowGraph.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ControlFlow/src/GraphBuilder.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ControlFlow/src/Structurizer.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ControlFlow/src/RequestSerializer.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrType.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/GuestRegister.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/IntermediateRepresentation/src/IrOpcode.cpp
