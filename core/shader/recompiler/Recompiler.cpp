@@ -67,6 +67,14 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     translateOptions.inputInfo = inputInfo;
 
     constexpr InstructionTranslator translator;
+
+    EmbeddedFetchPlan embeddedFetch;
+    if ((stageKind == ShaderStageKind::Vertex || stageKind == ShaderStageKind::Local) && inputInfo.vertex != nullptr && inputInfo.vertex->fetchEmbedded) {
+        constexpr EmbeddedVertexFetchAnalyzer embeddedFetchAnalyzer;
+        embeddedFetch = embeddedFetchAnalyzer.Analyze(decoded, inputInfo.vertex->fetchAttribReg, inputInfo.vertex->fetchBufferReg, request.context.userDataBaseRegister, static_cast<std::uint32_t>(request.context.userData.size()), request.context.waveSize);
+    }
+    translateOptions.embeddedFetch = embeddedFetch.loads.empty() ? nullptr : &embeddedFetch;
+
     auto program = translator.Translate(decoded, cfg, translateOptions);
 
     constexpr SsaBuilder ssaBuilder;
