@@ -3,7 +3,6 @@
 
 #include "RdnaDecoder/RdnaInstruction.hpp"
 #include <cstdint>
-#include <stdexcept>
 
 namespace ShaderRecompiler {
 
@@ -47,9 +46,7 @@ struct MemoryInfo {
     bool offen = false;
     bool planningOnly = false;
 
-    bool operator==(const MemoryInfo& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const MemoryInfo& other) const = default;
 };
 
 enum class ExportTargetKind { Unknown, Null, Position, Primitive, Parameter, Mrt, MrtZ };
@@ -63,9 +60,7 @@ struct ExportInfo {
     bool compr = false;
     bool vm = false;
 
-    bool operator==(const ExportInfo& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const ExportInfo& other) const = default;
 };
 
 }

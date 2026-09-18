@@ -5,7 +5,6 @@
 #include "IntermediateRepresentation/IrMetadata/StageIO.hpp"
 #include <array>
 #include <cstdint>
-#include <stdexcept>
 #include <vector>
 
 namespace ShaderRecompiler {
@@ -30,9 +29,7 @@ struct ShaderInfo {
     bool hasBitwiseXor = false;
     bool usesDma = false;
 
-    bool operator==(const ShaderInfo& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const ShaderInfo& other) const = default;
 };
 
 }

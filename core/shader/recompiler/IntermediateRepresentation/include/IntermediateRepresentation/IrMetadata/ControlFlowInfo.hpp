@@ -6,7 +6,6 @@
 #include <array>
 #include <cstdint>
 #include <optional>
-#include <stdexcept>
 #include <vector>
 
 namespace ShaderRecompiler {
@@ -28,27 +27,21 @@ struct DescriptorSource {
         std::uint32_t selectorOffset = 0;
         std::uint32_t keyArg = 0;
 
-        bool operator==(const IndirectImage& other) const {
-            throw std::runtime_error("operator== not implemented");
-        }
+        bool operator==(const IndirectImage& other) const = default;
     };
 
     std::array<IrValue*, 8> dwords {};
     std::uint32_t dwordCount = 0;
     std::optional<IndirectImage> indirectImage;
 
-    bool operator==(const DescriptorSource& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const DescriptorSource& other) const = default;
 };
 
 struct SrtRead {
     IrValue* value = nullptr;
     std::uint32_t flatOffset = 0;
 
-    bool operator==(const SrtRead& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const SrtRead& other) const = default;
 };
 
 struct ResourceBlock {

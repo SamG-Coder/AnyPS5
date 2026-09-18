@@ -10,7 +10,6 @@
 #include <array>
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
 namespace ShaderRecompiler {
@@ -19,9 +18,7 @@ struct DescriptorValue {
     std::array<std::uint32_t, 8> dwords = {};
     std::uint32_t dwordCount = 0;
 
-    bool operator==(const DescriptorValue& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const DescriptorValue& other) const = default;
 };
 
 enum class UniformFillKind { None, Buffer, Image };
@@ -33,9 +30,7 @@ struct UniformFill {
     std::uint32_t words = 0;
     std::uint32_t value = 0;
 
-    bool operator==(const UniformFill& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const UniformFill& other) const = default;
 };
 
 struct ResourceSnapshot {

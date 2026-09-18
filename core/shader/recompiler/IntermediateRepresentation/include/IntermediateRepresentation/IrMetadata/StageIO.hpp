@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <limits>
-#include <stdexcept>
 #include <string>
 
 namespace ShaderRecompiler {
@@ -65,9 +64,7 @@ struct StageInput {
     std::string debugName;
     bool perVertex = false;
 
-    bool operator==(const StageInput& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const StageInput& other) const = default;
 };
 
 struct StageOutput {
@@ -76,9 +73,7 @@ struct StageOutput {
     std::uint32_t location = 0;
     std::string debugName;
 
-    bool operator==(const StageOutput& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const StageOutput& other) const = default;
 };
 
 }

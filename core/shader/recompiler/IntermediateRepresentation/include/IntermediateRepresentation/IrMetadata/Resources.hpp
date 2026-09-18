@@ -6,7 +6,6 @@
 #include "RdnaDecoder/RdnaInstruction.hpp"
 #include <cstdint>
 #include <limits>
-#include <stdexcept>
 #include <vector>
 
 namespace ShaderRecompiler {
@@ -27,9 +26,7 @@ struct BufferResource {
     bool formatted = false;
     bool scalar = false;
 
-    bool operator==(const BufferResource& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const BufferResource& other) const = default;
 };
 
 enum class ImageMipMode { None, DynamicStorage };
@@ -57,9 +54,7 @@ struct ImageResource {
     std::uint32_t indirectSearchIterations = 0;
     std::vector<std::uint32_t> indirectResources;
 
-    bool operator==(const ImageResource& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const ImageResource& other) const = default;
 };
 
 struct SamplerResource {
@@ -68,9 +63,7 @@ struct SamplerResource {
     bool forcePointFiltering = false;
     bool depthCompare = false;
 
-    bool operator==(const SamplerResource& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const SamplerResource& other) const = default;
 };
 
 struct SampledResourcePair {
@@ -78,9 +71,7 @@ struct SampledResourcePair {
     std::uint32_t sampler = 0;
     std::uint32_t firstUsePc = 0;
 
-    bool operator==(const SampledResourcePair& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const SampledResourcePair& other) const = default;
 };
 
 }

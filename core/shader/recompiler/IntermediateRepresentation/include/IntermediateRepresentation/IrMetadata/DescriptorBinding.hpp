@@ -43,9 +43,7 @@ struct IrDescriptorBinding {
     DescriptorBindingKind kind = DescriptorBindingKind::Buffers;
     std::vector<std::uint32_t> resources;
 
-    bool operator==(const IrDescriptorBinding& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const IrDescriptorBinding& other) const = default;
 };
 
 struct IrBindingLayout {
@@ -65,9 +63,7 @@ struct IrBindingLayout {
         throw std::runtime_error("AdvancePushData not implemented");
     }
 
-    bool operator==(const IrBindingLayout& other) const {
-        throw std::runtime_error("operator== not implemented");
-    }
+    bool operator==(const IrBindingLayout& other) const = default;
 };
 
 }
