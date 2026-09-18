@@ -129,7 +129,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
 }
 
 RecompileResult Recompile(const RecompileRequest& request) {
-    // return RecompileDummy(request);
+    return RecompileDummy(request);
     try {
         return RecompileImpl(request);
     } catch (const std::exception& e) {

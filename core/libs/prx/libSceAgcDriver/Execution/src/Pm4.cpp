@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libc/include/General.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -31,6 +32,7 @@ Registers& registersFor(QueueState& queue, std::uint32_t opcode) {
 }
 
 void writeRegister(QueueState& queue, std::uint32_t opcode, std::uint32_t offset, std::uint32_t value) {
+    if ((opcode == 0x69 || opcode == 0x9f) && (offset == 0x8e || offset == 0x8f || offset == 0x318 || offset == 0x31b || offset == 0x31c || offset == 0x31d || offset == 0x390 || offset == 0x3b0 || offset == 0x3b8)) APS5_LOG_OUT("CONTEXT WRITE opcode=0x%x offset=0x%x value=0x%x", opcode, offset, value);
     registersFor(queue, opcode).insert_or_assign(offset, value);
     if ((opcode == 0x64 || opcode == 0x79 || opcode == 0x7a) && offset == 0x243) queue.indexType = value & 3u;
 }
@@ -257,6 +259,7 @@ IndexedDraw ResolveDraw(std::span<const std::uint32_t> packet, const QueueState&
     const auto bytes = static_cast<std::uint64_t>(packet[3]) * indexSize;
     require(bytes <= std::numeric_limits<std::size_t>::max(), "index range size overflow");
     GuestMemory::CheckRange(reinterpret_cast<const void*>(address), static_cast<std::size_t>(bytes), indexSize);
+    APS5_LOG_OUT("ResolveDraw context targetMask=0x%x shaderMask=0x%x indexCount=%u indexType=%u instances=%u", queue.context.contains(0x8e) ? queue.context.at(0x8e) : 0u, queue.context.contains(0x8f) ? queue.context.at(0x8f) : 0u, packet[3], queue.indexType, queue.instanceCount);
     return {address, packet[3], indexSize, queue.instanceCount, packet[4]};
 }
 
@@ -273,6 +276,7 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
                     queue.markers.pop_back();
                     return;
                 case 0x1a:
+                    APS5_LOG_OUT("CONTEXT_STATE operation=%u targetMaskBefore=0x%x shaderMaskBefore=0x%x", packet[1], queue.context.contains(0x8e) ? queue.context.at(0x8e) : 0u, queue.context.contains(0x8f) ? queue.context.at(0x8f) : 0u);
                     switch (packet[1]) {
                         case 0: queue.ClearContext(); break;
                         case 1: case 3:
@@ -286,13 +290,16 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
                             queue.savedContext.reset();
                             break;
                     }
+                    APS5_LOG_OUT("CONTEXT_STATE done operation=%u targetMaskAfter=0x%x shaderMaskAfter=0x%x", packet[1], queue.context.contains(0x8e) ? queue.context.at(0x8e) : 0u, queue.context.contains(0x8f) ? queue.context.at(0x8f) : 0u);
                     return;
                 default: throw std::runtime_error("custom packet requires driver execution");
             }
         case 0x11:
             ((packet[0] & 2u) == 0 ? queue.drawIndirectBase : queue.dispatchIndirectBase) = address(packet[2], packet[3]);
             return;
-        case 0x12: queue.ClearContext(); return;
+        case 0x12:
+            APS5_LOG_OUT("CLEAR_STATE targetMaskBefore=0x%x shaderMaskBefore=0x%x", queue.context.contains(0x8e) ? queue.context.at(0x8e) : 0u, queue.context.contains(0x8f) ? queue.context.at(0x8f) : 0u);
+            queue.ClearContext(); return;
         case 0x13: queue.indexBufferSize = packet[1]; return;
         case 0x26: queue.indexBase = address(packet[1], packet[2]); return;
         case 0x2a: queue.indexType = packet[1]; return;

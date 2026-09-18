@@ -240,8 +240,12 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
         code.Emit({0x8d, 0x48, 1});
         code.Rip({0x48, 0x8d, 0x3d}, resolvedPaths[index]);
         code.Emit({0xf3, 0xa4});
-        writeString(loading);
-        writeString(resolvedPaths[index]);
+
+        if (dependencyDiagnostics) {
+            writeString(loading);
+            writeString(resolvedPaths[index]);
+        }
+
         code.Rip({0x48, 0x8d, 0x0d}, resolvedPaths[index]);
         code.Emit({0x31, 0xd2, 0x41, 0xb8, 0, 0x11, 0, 0});
         call("LoadLibraryExA");
@@ -258,7 +262,10 @@ WindowsEntryStub WindowsEntryStubBuilder::Build(const std::uint32_t dataRva, con
         raise(0xc0000135u);
         code.PatchBranch(loadSucceeded, code.GetRva());
         code.Rip({0x48, 0x89, 0x05}, CheckedRva(handles + index * 8));
-        writeString(loaded);
+
+        if (dependencyDiagnostics) {
+            writeString(loaded);
+        }
     }
 
     std::vector<std::size_t> unresolvedBranches;
