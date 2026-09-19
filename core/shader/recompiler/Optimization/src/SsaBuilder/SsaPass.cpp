@@ -87,7 +87,7 @@ IrValue* Pass::Read(Variable variable, IrBlock* root) {
 void Pass::Seal(IrBlock* block) {
     if (const auto found = _incompletePhis.find(block); found != _incompletePhis.end()) {
         for (auto& [variable, phi] : found->second) {
-            AddPhiOperands(variable, *phi, block);
+            const auto& irVal = AddPhiOperands(variable, *phi, block);
         }
     }
     block->SsaSeal();
@@ -119,7 +119,7 @@ IrValue* Pass::TryRemoveTrivialPhi(IrValue& phi, Variable variable) {
     phi.ReplaceUsesWith(same, true);
     for (IrValue* user : users) {
         if (user->IsPhi()) {
-            TryRemoveTrivialPhi(*user, variable);
+            const auto& irVal = TryRemoveTrivialPhi(*user, variable);
         }
     }
     return same;

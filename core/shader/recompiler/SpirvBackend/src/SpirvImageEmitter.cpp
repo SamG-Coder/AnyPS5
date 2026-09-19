@@ -13,7 +13,7 @@
 namespace ShaderRecompiler {
 namespace {
 
-struct ImageAccess {
+struct ImageEmitAccess {
     const IrValue& inst;
     const MemoryInfo& mem;
     const ImageResource& image;
@@ -76,7 +76,7 @@ std::uint32_t F32BitsToU32(SpirvValueEmitContext& ctx, std::uint32_t value) {
     return Unary(ctx.state, spv::OpBitcast, TypeU32(ctx.state), value);
 }
 
-std::uint32_t AddressU32(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t component) {
+std::uint32_t AddressU32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t component) {
     const auto layout = GetRdnaImageAddressComponentLayout(access.mem.imageSampleFlags, component);
     const auto packed = layout.bitOffset / 32u;
     if (packed >= access.address.ArgumentCount()) {
@@ -92,7 +92,7 @@ std::uint32_t AddressU32(SpirvValueEmitContext& ctx, const ImageAccess& access, 
     return value;
 }
 
-std::uint32_t AddressF32(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t component) {
+std::uint32_t AddressF32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t component) {
     const auto value = AddressU32(ctx, access, component);
     return GetRdnaImageAddressComponentLayout(access.mem.imageSampleFlags, component).bitWidth == 16u ? EmitF16BitsToF32(ctx.state, value) : Unary(ctx.state, spv::OpBitcast, TypeF32(ctx.state), value);
 }
@@ -138,7 +138,7 @@ std::uint32_t CubeLayer(SpirvEmitterState& state, std::uint32_t value) {
     return result;
 }
 
-std::uint32_t CoordF32(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t first, std::uint32_t components) {
+std::uint32_t CoordF32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t first, std::uint32_t components) {
     if (first == NoImageComponent || access.mem.imageAddressComponents < first + components) {
         ctx.Fail(access.inst, "has an image address with too few coordinate components");
     }
@@ -165,7 +165,7 @@ std::uint32_t CoordF32(SpirvValueEmitContext& ctx, const ImageAccess& access, st
     return result;
 }
 
-std::uint32_t CoordU32(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+std::uint32_t CoordU32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     const auto components = RdnaImageDimensionInfoFor(access.image.dimension).coordinateComponents;
     if (access.mem.imageAddressComponents < components) {
         ctx.Fail(access.inst, "has an image address with too few coordinate components");
@@ -185,7 +185,7 @@ std::uint32_t CoordU32(SpirvValueEmitContext& ctx, const ImageAccess& access) {
     return result;
 }
 
-std::uint32_t LodU32(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+std::uint32_t LodU32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     if (!access.mem.imageHasMip) {
         return ConstantU32(ctx.state, 0);
     }
@@ -196,7 +196,7 @@ std::uint32_t LodU32(SpirvValueEmitContext& ctx, const ImageAccess& access) {
     return AddressU32(ctx, access, component);
 }
 
-std::uint32_t DrefValueF32(SpirvValueEmitContext& ctx, const ImageAccess& access, const ImageSampleLayout& layout) {
+std::uint32_t DrefValueF32(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const ImageSampleLayout& layout) {
     if (layout.dref == NoImageComponent || access.mem.imageAddressComponents <= layout.dref) {
         ctx.Fail(access.inst, "has no depth reference in the image address");
     }
@@ -224,7 +224,7 @@ std::uint32_t SampledComponentZero(SpirvEmitterState& state, IrTextureNumericCla
     throw std::runtime_error("invalid sampled image numeric class");
 }
 
-std::uint32_t ResultVector(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t value, IrTextureNumericClass numericClass, bool dref, bool gather) {
+std::uint32_t ResultVector(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t value, IrTextureNumericClass numericClass, bool dref, bool gather) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
     auto valueClass = numericClass;
@@ -283,7 +283,7 @@ std::uint32_t ResultVector(SpirvValueEmitContext& ctx, const ImageAccess& access
     return result;
 }
 
-std::uint32_t QueryDimensions(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+std::uint32_t QueryDimensions(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     const auto dimension = access.image.dimension;
     const auto& info = RdnaImageDimensionInfoFor(dimension);
@@ -313,7 +313,7 @@ std::uint32_t QueryDimensions(SpirvValueEmitContext& ctx, const ImageAccess& acc
     return vector;
 }
 
-std::uint32_t PackedOffset(SpirvValueEmitContext& ctx, const ImageAccess& access, const ImageSampleLayout& layout) {
+std::uint32_t PackedOffset(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const ImageSampleLayout& layout) {
     auto& state = ctx.state;
     if (layout.offset == NoImageComponent || access.mem.imageAddressComponents <= layout.offset) {
         ctx.Fail(access.inst, "has no texel offset in the image address");
@@ -337,7 +337,7 @@ std::uint32_t PackedOffset(SpirvValueEmitContext& ctx, const ImageAccess& access
     return result;
 }
 
-std::uint32_t HorizontalOffsets(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+std::uint32_t HorizontalOffsets(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     const auto components = RdnaImageDimensionInfoFor(access.image.dimension).spatialComponents;
     if (components != 1u && components != 2u) {
@@ -379,7 +379,7 @@ SpirvBufferFormatInfo ImageConversionFormat(const ImageResource& image) {
     return info;
 }
 
-std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t texel) {
+std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
     auto& state = ctx.state;
     const auto info = ImageConversionFormat(access.image);
     if (info.format == IrBufferFormat::Invalid) {
@@ -412,7 +412,7 @@ std::uint32_t UnpackImageTexel(SpirvValueEmitContext& ctx, const ImageAccess& ac
     return result;
 }
 
-std::uint32_t UnpackImageGather(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t gathered) {
+std::uint32_t UnpackImageGather(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t gathered) {
     auto& state = ctx.state;
     const auto info = ImageConversionFormat(access.image);
     if (info.format == IrBufferFormat::Invalid) {
@@ -437,7 +437,7 @@ std::uint32_t UnpackImageGather(SpirvValueEmitContext& ctx, const ImageAccess& a
     return result;
 }
 
-std::uint32_t EmitOneDimensionalGatherLz(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t coord) {
+std::uint32_t EmitOneDimensionalGatherLz(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t coord) {
     auto& state = ctx.state;
     const auto numericClass = access.image.numericClass;
     state.module.EmitCapability(spv::CapabilityImageQuery);
@@ -465,7 +465,7 @@ std::uint32_t EmitOneDimensionalGatherLz(SpirvValueEmitContext& ctx, const Image
     return result;
 }
 
-std::uint32_t PackImageTexel(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t texel) {
+std::uint32_t PackImageTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t texel) {
     auto& state = ctx.state;
     const auto info = ImageConversionFormat(access.image);
     if (info.format == IrBufferFormat::Invalid) {
@@ -487,7 +487,7 @@ std::uint32_t PackImageTexel(SpirvValueEmitContext& ctx, const ImageAccess& acce
     return result;
 }
 
-std::uint32_t StoreTexel(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t data, bool integer) {
+std::uint32_t StoreTexel(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t data, bool integer) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
     const auto swizzle = access.image.shaderSwizzle;
@@ -539,12 +539,12 @@ const ImageResource& ImageResourceOf(const SpirvEmitterState& state, const Memor
     return state.program.Resources().info.images.at(mem.resource);
 }
 
-void EmitQueryDimensionsOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitQueryDimensionsOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     ctx.state.module.EmitCapability(spv::CapabilityImageQuery);
     ctx.Define(access.inst, QueryDimensions(ctx, access));
 }
 
-void EmitQueryLodOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitQueryLodOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     state.module.EmitCapability(spv::CapabilityImageQuery);
     const auto sampled = MakeSampledImage(state, access.mem.resource, access.mem.sampler);
@@ -562,7 +562,7 @@ void EmitQueryLodOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
     ctx.Define(access.inst, result);
 }
 
-void EmitReadOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitReadOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     const auto& dimensionInfo = RdnaImageDimensionInfoFor(access.image.dimension);
     const auto numericClass = access.image.numericClass;
@@ -583,18 +583,18 @@ void EmitReadOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
     }));
 }
 
-void EmitWriteOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitWriteOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     const bool uintImage = access.image.numericClass == IrTextureNumericClass::Uint;
     EmitIfCondition(state, ctx.Arg(access.inst, 3), [&]() {
-        const auto mipLod = access.image.mipMode == IrImageMipMode::DynamicStorage ? LodU32(ctx, access) : 0u;
+        const auto mipLod = access.image.mipMode == ImageMipMode::DynamicStorage ? LodU32(ctx, access) : 0u;
         const auto coord = CoordU32(ctx, access);
         const auto texel = StoreTexel(ctx, access, ctx.Arg(access.inst, 2), uintImage);
         EmitStorageImageWrite(state, access.mem.resource, mipLod, coord, texel);
     });
 }
 
-void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     auto& state = ctx.state;
     const auto atomicOpcode = ImageAtomicOpcode(access.inst.Opcode());
     ctx.Define(access.inst, EmitValueOrZeroIfCondition(state, ctx.Arg(access.inst, 3), [&]() {
@@ -608,7 +608,7 @@ void EmitAtomicOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
     }));
 }
 
-SampleSetup MakeSampleSetup(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+SampleSetup MakeSampleSetup(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     const auto& dimensionInfo = RdnaImageDimensionInfoFor(access.image.dimension);
     const auto layout = Layout(access.mem, access.image.dimension);
     const bool dref = HasFlag(access.mem, RdnaImageSampleFlagCompare);
@@ -619,7 +619,7 @@ SampleSetup MakeSampleSetup(SpirvValueEmitContext& ctx, const ImageAccess& acces
     return {dimensionInfo, layout, access.image.numericClass, dref, coord};
 }
 
-void EmitGatherOp(SpirvValueEmitContext& ctx, const ImageAccess& access, const SampleSetup& setup) {
+void EmitGatherOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const SampleSetup& setup) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
     const auto dimension = access.image.dimension;
@@ -662,7 +662,7 @@ void EmitGatherOp(SpirvValueEmitContext& ctx, const ImageAccess& access, const S
     ctx.Define(access.inst, ResultVector(ctx, access, UnpackImageGather(ctx, access, sample), resultNumericClass, false, true));
 }
 
-std::uint32_t EmitIndirectImageSelector(SpirvValueEmitContext& ctx, const ImageAccess& access, std::uint32_t key) {
+std::uint32_t EmitIndirectImageSelector(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, std::uint32_t key) {
     auto& state = ctx.state;
     const auto& image = access.image;
     const auto loadMapping = [&](std::uint32_t index) {
@@ -695,7 +695,7 @@ std::uint32_t EmitIndirectImageSelector(SpirvValueEmitContext& ctx, const ImageA
     return selected;
 }
 
-void EmitSampleOp(SpirvValueEmitContext& ctx, const ImageAccess& access, const SampleSetup& setup) {
+void EmitSampleOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access, const SampleSetup& setup) {
     auto& state = ctx.state;
     const auto& mem = access.mem;
     const auto& image = access.image;
@@ -786,7 +786,7 @@ void EmitSampleOp(SpirvValueEmitContext& ctx, const ImageAccess& access, const S
     ctx.Define(access.inst, ResultVector(ctx, access, result, setup.numericClass, setup.dref, false));
 }
 
-void EmitSamplingOp(SpirvValueEmitContext& ctx, const ImageAccess& access) {
+void EmitSamplingOp(SpirvValueEmitContext& ctx, const ImageEmitAccess& access) {
     const auto setup = MakeSampleSetup(ctx, access);
     if (access.inst.Opcode() == IrOpcode::ImageGatherRaw) {
         EmitGatherOp(ctx, access, setup);
@@ -815,7 +815,7 @@ void EmitImage(SpirvValueEmitContext& ctx, const IrValue& inst) {
     if (address == nullptr) {
         ctx.Fail(inst, "has no image address");
     }
-    const ImageAccess access{inst, mem, image, *address};
+    const ImageEmitAccess access{inst, mem, image, *address};
     switch (irOpcode) {
         case IrOpcode::ImageQueryDimensions:
             EmitQueryDimensionsOp(ctx, access);
