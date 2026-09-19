@@ -93,8 +93,9 @@ int APS5_VABI scePadRead_nid_postfix(int handle, PadData* data, int num) {
 }
 
 int APS5_VABI scePadReadState(int handle, PadData* data) {
- (void)handle;
- (void)data;
+ if (handle != 1) APS5_INVALID_ARG_EX;
+ if (data == nullptr) APS5_INVALID_ARG_EX;
+
  std::this_thread::sleep_for(std::chrono::seconds(10));
  NotImplemented_nid_no_patch(__func__);
  return 0;
