@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libc/include/General.hpp"
 #include <SDL_loadso.h>
 #include <SDL_error.h>
 #include <array>
@@ -79,7 +80,9 @@ struct VulkanDevice::State {
     }
 
     void Upload(std::span<const std::byte> pixels) {
+        APS5_LOG_OUT("Upload pixels=%zu uploadSize=%llu buffer=%p memory=%p mapping=%p", pixels.size(), static_cast<unsigned long long>(uploadSize), reinterpret_cast<void*>(uploadBuffer), reinterpret_cast<void*>(uploadMemory), uploadMapping);
         if (uploadSize < pixels.size()) {
+            APS5_LOG_OUT("Upload reallocating oldSize=%llu newSize=%zu", static_cast<unsigned long long>(uploadSize), pixels.size());
             if (uploadMapping) DeviceFunction<PFN_vkUnmapMemory>("vkUnmapMemory")(device, uploadMemory);
             uploadMapping = nullptr;
             if (uploadBuffer) DeviceFunction<PFN_vkDestroyBuffer>("vkDestroyBuffer")(device, uploadBuffer, nullptr);
@@ -103,6 +106,7 @@ struct VulkanDevice::State {
                 }
             }
             require(memoryType < memoryProperties.memoryTypeCount, "coherent host upload memory is unavailable");
+            APS5_LOG_OUT("Upload requirements size=%llu alignment=%llu typeBits=0x%x memoryType=%u", static_cast<unsigned long long>(requirements.size), static_cast<unsigned long long>(requirements.alignment), requirements.memoryTypeBits, memoryType);
             VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
             allocation.allocationSize = requirements.size;
             allocation.memoryTypeIndex = memoryType;
@@ -110,8 +114,10 @@ struct VulkanDevice::State {
             check(DeviceFunction<PFN_vkBindBufferMemory>("vkBindBufferMemory")(device, uploadBuffer, uploadMemory, 0), "vkBindBufferMemory display upload");
             check(DeviceFunction<PFN_vkMapMemory>("vkMapMemory")(device, uploadMemory, 0, pixels.size(), 0, &uploadMapping), "vkMapMemory display upload");
             uploadSize = pixels.size();
+            APS5_LOG_OUT("Upload allocation complete buffer=%p memory=%p mapping=%p size=%llu", reinterpret_cast<void*>(uploadBuffer), reinterpret_cast<void*>(uploadMemory), uploadMapping, static_cast<unsigned long long>(uploadSize));
         }
         std::memcpy(uploadMapping, pixels.data(), pixels.size());
+        APS5_LOG_OUT("Upload memcpy complete bytes=%zu", pixels.size());
     }
 
     ~State() {
@@ -149,6 +155,7 @@ struct VulkanDevice::State {
 };
 
 VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_unique<State>()) {
+    APS5_LOG_OUT("VulkanDevice constructor window=%p", static_cast<const void*>(window));
 #ifdef _WIN32
     state->library = SDL_LoadObject("vulkan-1.dll");
 #else
@@ -157,6 +164,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (state->library == nullptr) {
         throw std::runtime_error(std::string("Vulkan loader: ") + SDL_GetError());
     }
+    APS5_LOG_OUT("Vulkan loader loaded library=%p", state->library);
     state->instanceProc = reinterpret_cast<PFN_vkGetInstanceProcAddr>(SDL_LoadFunction(state->library, "vkGetInstanceProcAddr"));
     if (state->instanceProc == nullptr) {
         throw std::runtime_error("Vulkan loader: vkGetInstanceProcAddr missing");
@@ -168,6 +176,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     create.pApplicationInfo = &application;
     std::vector<const char*> instanceExtensions;
     if (window != nullptr) {
+        APS5_LOG_OUT("Presentation window context=%p extent=%ux%u extensions=%zu", window->context, window->width, window->height, window->extensions.size());
         require(window->context && window->createSurface && window->width && window->height, "invalid window descriptor");
         instanceExtensions.assign(window->extensions.begin(), window->extensions.end());
         instanceExtensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
@@ -187,15 +196,18 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         create.ppEnabledExtensionNames = instanceExtensions.data();
     }
     check(state->InstanceFunction<PFN_vkCreateInstance>("vkCreateInstance")(&create, nullptr, &state->instance), "vkCreateInstance");
+    APS5_LOG_OUT("Vulkan instance created instance=%p", reinterpret_cast<void*>(state->instance));
     if (window != nullptr) {
         state->surface = window->createSurface(window->context, state->instance);
         require(state->surface != VK_NULL_HANDLE, "window returned a null surface");
         state->window = window->context;
+        APS5_LOG_OUT("Vulkan surface created surface=%p window=%p", reinterpret_cast<void*>(state->surface), state->window);
     }
     state->deviceProc = state->InstanceFunction<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
     const auto enumerate = state->InstanceFunction<PFN_vkEnumeratePhysicalDevices>("vkEnumeratePhysicalDevices");
     std::uint32_t count = 0;
     check(enumerate(state->instance, &count, nullptr), "vkEnumeratePhysicalDevices");
+    APS5_LOG_OUT("Physical device count=%u", count);
     std::vector<VkPhysicalDevice> devices(count);
     check(enumerate(state->instance, &count, devices.data()), "vkEnumeratePhysicalDevices");
     devices.resize(count);
@@ -205,6 +217,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     for (auto physical : devices) {
         VkPhysicalDeviceProperties properties{};
         state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties")(physical, &properties);
+        APS5_LOG_OUT("Physical device candidate=%p name=%s api=0x%x", reinterpret_cast<void*>(physical), properties.deviceName, properties.apiVersion);
         if (properties.apiVersion < VK_API_VERSION_1_1) {
             continue;
         }
@@ -252,11 +265,13 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     if (selected == VK_NULL_HANDLE) {
         throw std::runtime_error(window ? "Vulkan: no presentation device with graphics, compute, present_id, present_wait and swapchain_maintenance1" : "Vulkan: no Vulkan 1.1 graphics and compute queue");
     }
+    APS5_LOG_OUT("Physical device selected physical=%p queueFamily=%u", reinterpret_cast<void*>(selected), family);
     VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     properties.pNext = &state->subgroup;
     state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties2>("vkGetPhysicalDeviceProperties2")(selected, &properties);
     state->properties = properties.properties;
     state->physical = selected;
+    APS5_LOG_OUT("Selected GPU name=%s vendor=0x%x device=0x%x subgroup=%u", state->properties.deviceName, state->properties.vendorID, state->properties.deviceID, state->subgroup.subgroupSize);
     state->InstanceFunction<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties")(selected, &state->memoryProperties);
     std::uint32_t extensionCount = 0;
     const auto enumerateDeviceExtensions = state->InstanceFunction<PFN_vkEnumerateDeviceExtensionProperties>("vkEnumerateDeviceExtensionProperties");
@@ -292,6 +307,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         state->capabilities.push_back(5283);
         state->spirvExtensions.push_back("SPV_EXT_mesh_shader");
     }
+    APS5_LOG_OUT("Vulkan features tessellationAvailable=%u mesh=%u depthClip=%u depthRangeUnrestricted=%u", static_cast<unsigned>(state->tessellationShader), static_cast<unsigned>(state->meshShader), static_cast<unsigned>(state->depthClipControl), static_cast<unsigned>(state->depthRangeUnrestricted));
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queueInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     queueInfo.queueFamilyIndex = family;
@@ -330,6 +346,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     }
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
     state->DeviceFunction<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(state->device, family, 0, &state->queue);
+    APS5_LOG_OUT("Vulkan device ready device=%p queue=%p family=%u", reinterpret_cast<void*>(state->device), reinterpret_cast<void*>(state->queue), family);
     VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = family;
@@ -338,6 +355,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         VkSurfaceCapabilitiesKHR surface{};
         check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
         state->extent = {window->width, window->height};
+        APS5_LOG_OUT("Surface capabilities requested=%ux%u min=%ux%u max=%ux%u minImages=%u maxImages=%u usage=0x%x", window->width, window->height, surface.minImageExtent.width, surface.minImageExtent.height, surface.maxImageExtent.width, surface.maxImageExtent.height, surface.minImageCount, surface.maxImageCount, surface.supportedUsageFlags);
         require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == window->width && surface.currentExtent.height == window->height), "window extent differs from requested output");
         require(window->width >= surface.minImageExtent.width && window->width <= surface.maxImageExtent.width && window->height >= surface.minImageExtent.height && window->height <= surface.maxImageExtent.height, "unsupported output extent");
         require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0, "surface does not support transfer destination images");
@@ -368,6 +386,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         check(getImages(state->device, state->swapchain, &imageCount, nullptr), "vkGetSwapchainImagesKHR");
         state->images.resize(imageCount);
         check(getImages(state->device, state->swapchain, &imageCount, state->images.data()), "vkGetSwapchainImagesKHR");
+        APS5_LOG_OUT("Swapchain created swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, imageCount);
         VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         for (auto* destination : {&state->acquireFence, &state->renderFence, &state->presentFence}) {
             check(state->DeviceFunction<PFN_vkCreateFence>("vkCreateFence")(state->device, &fence, nullptr, destination), "vkCreateFence");
@@ -379,13 +398,16 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocation.commandBufferCount = 1;
         check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &state->clearCommands), "vkAllocateCommandBuffers");
+        APS5_LOG_OUT("Presentation resources ready acquireFence=%p renderFence=%p presentFence=%p semaphore=%p commands=%p", reinterpret_cast<void*>(state->acquireFence), reinterpret_cast<void*>(state->renderFence), reinterpret_cast<void*>(state->presentFence), reinterpret_cast<void*>(state->rendered), reinterpret_cast<void*>(state->clearCommands));
     }
 }
 
 VulkanDevice::~VulkanDevice() = default;
 
 void VulkanDevice::WaitIdle() {
+    APS5_LOG_CHARS_OUT("VulkanDevice::WaitIdle begin");
     check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
+    APS5_LOG_CHARS_OUT("VulkanDevice::WaitIdle complete");
 }
 
 void* VulkanDevice::Window() const {
@@ -393,6 +415,7 @@ void* VulkanDevice::Window() const {
 }
 
 void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
+    APS5_LOG_OUT("Resize requested=%ux%u current=%ux%u presentQueued=%u", width, height, state->extent.width, state->extent.height, static_cast<unsigned>(state->presentQueued));
     require(state->swapchain != VK_NULL_HANDLE && !state->presentQueued, "cannot resize an unavailable or pending swapchain");
     if (state->extent.width == width && state->extent.height == height) return;
     WaitIdle();
@@ -424,37 +447,46 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     check(getImages(state->device, replacement, &count, nullptr), "vkGetSwapchainImagesKHR resize");
     state->images.resize(count);
     check(getImages(state->device, replacement, &count, state->images.data()), "vkGetSwapchainImagesKHR resize");
+    APS5_LOG_OUT("Resize complete swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count);
 }
 
 std::uint64_t VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t height, bool opaque) {
+    APS5_LOG_OUT("PresentClear width=%u height=%u opaque=%u", width, height, static_cast<unsigned>(opaque));
     return present(width, height, opaque, {});
 }
 
 std::uint64_t VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t height, std::span<const std::byte> pixels) {
+    APS5_LOG_OUT("PresentPixels width=%u height=%u pixels=%zu expected=%llu", width, height, pixels.size(), static_cast<unsigned long long>(width) * height * 4u);
     require(width != 0 && height != 0 && width <= 16384 && height <= 16384, "invalid display image extent");
     require(pixels.size() == static_cast<std::uint64_t>(width) * height * 4, "invalid display pixel buffer size");
     return present(width, height, true, pixels);
 }
 
 std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
+    APS5_LOG_OUT("present begin width=%u height=%u opaque=%u pixels=%zu swapchain=%p extent=%ux%u queued=%u id=%llu", width, height, static_cast<unsigned>(opaque), pixels.size(), reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, static_cast<unsigned>(state->presentQueued), static_cast<unsigned long long>(state->presentId));
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(width == state->extent.width && height == state->extent.height, "output resize is not implemented");
     require(!state->presentQueued, "previous presentation has not completed");
     require(state->presentId != std::numeric_limits<std::uint64_t>::max(), "presentation ID overflow");
     if (!pixels.empty()) state->Upload(pixels);
+    APS5_LOG_OUT("present source=%s bytes=%zu", pixels.empty() ? "clear" : "pixels", pixels.size());
     auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
     auto reset = state->DeviceFunction<PFN_vkResetFences>("vkResetFences");
     const std::array<VkFence, 3> fences{state->acquireFence, state->renderFence, state->presentFence};
     check(reset(state->device, static_cast<std::uint32_t>(fences.size()), fences.data()), "vkResetFences");
+    APS5_LOG_CHARS_OUT("present fences reset");
     std::uint32_t index = 0;
     check(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR");
+    APS5_LOG_OUT("vkAcquireNextImageKHR index=%u imageCount=%zu", index, state->images.size());
     check(wait(state->device, 1, &state->acquireFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences acquire");
+    APS5_LOG_OUT("Acquire fence complete index=%u", index);
     require(index < state->images.size(), "acquired image index is out of range");
     auto commands = state->clearCommands;
     check(state->DeviceFunction<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(commands, 0), "vkResetCommandBuffer");
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(state->DeviceFunction<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer");
+    APS5_LOG_OUT("Presentation command buffer begin commands=%p image=%p", reinterpret_cast<void*>(commands), reinterpret_cast<void*>(state->images[index]));
     VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -466,10 +498,12 @@ std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, b
     auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     if (pixels.empty()) {
+        APS5_LOG_OUT("Recording swapchain clear opaque=%u image=%p", static_cast<unsigned>(opaque), reinterpret_cast<void*>(barrier.image));
         VkClearColorValue clear{};
         clear.float32[3] = opaque ? 1.0f : 0.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
     } else {
+        APS5_LOG_OUT("Recording swapchain upload width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
         VkBufferImageCopy copy{};
         copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.imageExtent = {width, height, 1};
@@ -481,13 +515,16 @@ std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, b
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     check(state->DeviceFunction<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
+    APS5_LOG_CHARS_OUT("Presentation command buffer recorded");
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &commands;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &state->rendered;
     check(state->DeviceFunction<PFN_vkQueueSubmit>("vkQueueSubmit")(state->queue, 1, &submit, state->renderFence), "vkQueueSubmit clear");
+    APS5_LOG_CHARS_OUT("Presentation vkQueueSubmit OK");
     check(wait(state->device, 1, &state->renderFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences clear");
+    APS5_LOG_CHARS_OUT("Presentation render fence complete");
     ++state->presentId;
     VkSwapchainPresentFenceInfoEXT completion{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
     completion.swapchainCount = 1;
@@ -503,17 +540,24 @@ std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, b
     present.swapchainCount = 1;
     present.pSwapchains = &state->swapchain;
     present.pImageIndices = &index;
+    APS5_LOG_OUT("vkQueuePresentKHR begin id=%llu imageIndex=%u", static_cast<unsigned long long>(state->presentId), index);
     const auto result = state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present);
+    APS5_LOG_OUT("vkQueuePresentKHR result=%d id=%llu imageIndex=%u", static_cast<int>(result), static_cast<unsigned long long>(state->presentId), index);
     state->presentQueued = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR || result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT;
+    APS5_LOG_OUT("present queued=%u id=%llu", static_cast<unsigned>(state->presentQueued), static_cast<unsigned long long>(state->presentId));
     check(result, "vkQueuePresentKHR");
     return state->presentId;
 }
 
 void VulkanDevice::WaitPresented(std::uint64_t id) {
+    APS5_LOG_OUT("WaitPresented begin requestedId=%llu currentId=%llu queued=%u", static_cast<unsigned long long>(id), static_cast<unsigned long long>(state->presentId), static_cast<unsigned>(state->presentQueued));
     require(state->presentQueued && id == state->presentId, "invalid presentation wait");
     check(state->DeviceFunction<PFN_vkWaitForPresentKHR>("vkWaitForPresentKHR")(state->device, state->swapchain, id, 5'000'000'000ULL), "vkWaitForPresentKHR");
+    APS5_LOG_OUT("vkWaitForPresentKHR complete id=%llu", static_cast<unsigned long long>(id));
     check(state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences")(state->device, 1, &state->presentFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences presentation resources");
+    APS5_LOG_OUT("Present fence complete id=%llu", static_cast<unsigned long long>(id));
     state->presentQueued = false;
+    APS5_LOG_OUT("WaitPresented complete id=%llu", static_cast<unsigned long long>(id));
 }
 
 ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
@@ -528,6 +572,7 @@ ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
 }
 
 void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders) {
+    APS5_LOG_OUT("VulkanDevice::DrawIndexed indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
     const Graphics::Context context{
         state->device,
         state->physical,
@@ -545,9 +590,11 @@ void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::Index
         state->depthRangeUnrestricted
     };
     Graphics::DrawIndexed(context, graphics, draw, shaders);
+    APS5_LOG_CHARS_OUT("VulkanDevice::DrawIndexed complete");
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z) {
+    APS5_LOG_OUT("Dispatch groups=%ux%ux%u spirvWords=%zu bindings=%zu pushConstants=%zu", x, y, z, shader.spirv.size(), shader.bindings.size(), shader.pushConstants.size());
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
     }
@@ -617,12 +664,14 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         submission.commandBufferCount = 1;
         submission.pCommandBuffers = &commands;
         check(submit(state->queue, 1, &submission, fence), "vkQueueSubmit");
+        APS5_LOG_OUT("Dispatch submitted groups=%ux%ux%u", x, y, z);
         const auto result = wait(state->device, 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
         if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) {
             const auto idle = state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device);
             check(idle, "vkDeviceWaitIdle after fence failure");
         }
         check(result, "vkWaitForFences");
+        APS5_LOG_OUT("Dispatch complete groups=%ux%ux%u", x, y, z);
     } catch (...) {
         cleanup();
         throw;
