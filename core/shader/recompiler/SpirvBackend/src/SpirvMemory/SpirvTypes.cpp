@@ -1,12 +1,35 @@
-#include "SpirvBackend/SpirvMemoryEmitter.hpp"
-#include <SpirvBackend/SpirvEmitterInstructions.hpp>
-#include <SpirvBackend/SpirvEmitterState.hpp>
-#include <SpirvBackend/SpirvMemory/SpirvConstants.hpp>
-#include <SpirvBackend/SpirvMemory/SpirvTypes.hpp>
+#include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
 #include <spirv/unified1/spirv.hpp>
+#include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler
 {
+namespace {
+
+[[noreturn]] void FailEmit(const std::string& reason) {
+    throw std::runtime_error("SPIR-V module emission failed: " + reason);
+}
+
+std::uint32_t StorageBufferType(SpirvEmitterState& state) {
+    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeU32(state));
+    return state.module.DecoratedType(spv::OpTypeStruct,
+        {{spv::OpDecorate, {spv::DecorationBlock}},
+         {spv::OpMemberDecorate, {0, spv::DecorationOffset, 0}}},
+        array);
+}
+
+std::uint32_t StorageBufferU64Type(SpirvEmitterState& state) {
+    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeScalarU64(state));
+    return state.module.DecoratedType(spv::OpTypeStruct,
+        {{spv::OpDecorate, {spv::DecorationBlock}},
+         {spv::OpMemberDecorate, {0, spv::DecorationOffset, 0}}},
+        array);
+}
+
+}
+
 
 std::uint32_t TypeVoid(SpirvEmitterState& state) {
     return state.module.Type(spv::OpTypeVoid);

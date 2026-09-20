@@ -6,11 +6,6 @@
 
 namespace ShaderRecompiler {
 
-struct DppTargetLane {
-    std::uint32_t lane;
-    std::uint32_t valid;
-};
-
 std::uint32_t EmitSubgroupLocalInvocationId(SpirvEmitterState& state);
 DppTargetLane EmitDppQuadPermTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t control);
 DppTargetLane EmitDppRowShiftTargetLane(SpirvEmitterState& state, std::uint32_t subid, std::uint32_t amount, bool left);

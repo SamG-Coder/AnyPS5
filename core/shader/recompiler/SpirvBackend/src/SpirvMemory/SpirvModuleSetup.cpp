@@ -1,9 +1,58 @@
-#include "SpirvBackend/SpirvMemoryEmitter.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvModuleSetup.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
+#include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include <spirv/unified1/spirv.hpp>
-#include <SpirvBackend/SpirvEmitterHelpers.hpp>
+#include <algorithm>
+#include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler
 {
+namespace {
+
+[[noreturn]] void FailEmit(const std::string& reason) {
+    throw std::runtime_error("SPIR-V module emission failed: " + reason);
+}
+
+IrShaderStage StageOf(const SpirvEmitterState& state) {
+    return state.program.Resources().stage;
+}
+
+const ShaderVertexInputInfo& VertexInfo(const SpirvEmitterState& state) {
+    if (state.inputInfo.vertex == nullptr) {
+        FailEmit("vertex input info is missing");
+    }
+    return *state.inputInfo.vertex;
+}
+
+const ShaderPixelInputInfo& PixelInfo(const SpirvEmitterState& state) {
+    if (state.inputInfo.pixel == nullptr) {
+        FailEmit("pixel input info is missing");
+    }
+    return *state.inputInfo.pixel;
+}
+
+const ShaderWorkgroupInputInfo* ShaderWorkgroupInput(const SpirvEmitterState& state) {
+    switch (state.program.Resources().stage) {
+    case IrShaderStage::Compute:
+        if (state.inputInfo.compute == nullptr) {
+            FailEmit("compute input info is missing");
+        }
+        return state.inputInfo.compute;
+    case IrShaderStage::Mesh:
+        if (state.inputInfo.vertex == nullptr) {
+            FailEmit("vertex input info is missing");
+        }
+        return &state.inputInfo.vertex->mesh;
+    default:
+        return nullptr;
+    }
+}
+
+}
+
 
 void EmitModuleHeader(SpirvModule& module, const IrProgram& program, const BindingAllocationResult& bindings) {
     CheckBindings(program, bindings);

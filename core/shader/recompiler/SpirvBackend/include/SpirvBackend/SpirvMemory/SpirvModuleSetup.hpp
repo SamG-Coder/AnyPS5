@@ -4,6 +4,7 @@
 #include "SpirvBackend/SpirvEmitterState.hpp"
 #include "SpirvBackend/SpirvModule.hpp"
 #include "IntermediateRepresentation/IrProgram.hpp"
+#include "Optimization/BindingAllocator.hpp"
 #include <cstdint>
 
 namespace ShaderRecompiler {

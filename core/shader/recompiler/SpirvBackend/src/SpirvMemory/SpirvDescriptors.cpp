@@ -1,9 +1,36 @@
-#include <SpirvBackend/SpirvEmitterHelpers.hpp>
+#include "SpirvBackend/SpirvMemory/SpirvDescriptors.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
+#include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include <spirv/unified1/spirv.hpp>
-#include "SpirvBackend/SpirvMemoryEmitter.hpp"
+#include <algorithm>
+#include <stdexcept>
+#include <string>
 
 namespace ShaderRecompiler
 {
+namespace {
+
+[[noreturn]] void FailEmit(const std::string& reason) {
+    throw std::runtime_error("SPIR-V module emission failed: " + reason);
+}
+
+IrShaderStage StageOf(const SpirvEmitterState& state) {
+    return state.program.Resources().stage;
+}
+
+constexpr RdnaImageDimensionInfo ImageDimensions[] = {
+    {RdnaImageDimension::Dim1D, spv::Dim1D, 1, 1, 0, 0},
+    {RdnaImageDimension::Dim2D, spv::Dim2D, 2, 2, 0, 0},
+    {RdnaImageDimension::Dim3D, spv::Dim3D, 3, 3, 0, 0},
+    //{RdnaImageDimension::DimCube, spv::DimCube, 3, 2, 0, 0},
+    {RdnaImageDimension::Dim1DArray, spv::Dim1D, 2, 1, 1, 0},
+    {RdnaImageDimension::Dim2DArray, spv::Dim2D, 3, 2, 1, 0},
+    {RdnaImageDimension::Dim2DMsaa, spv::Dim2D, 2, 2, 0, 1},
+    {RdnaImageDimension::Dim2DMsaaArray, spv::Dim2D, 3, 2, 1, 1},
+};
+
+}
 
 [[noreturn]] void ExitDescriptorBindingFailure(const SpirvEmitterState& state, DescriptorBindingKind kind, std::uint32_t resource, const char* reason) {
     throw std::runtime_error("shader binding resolution failed during SPIR-V emit: hash=" + std::to_string(state.program.Resources().shaderHash) + " stage=" + std::to_string(static_cast<std::uint32_t>(StageOf(state))) + " resource=" + std::to_string(resource) + " binding_kind=" + std::to_string(static_cast<std::uint32_t>(kind)) + " reason=" + reason);

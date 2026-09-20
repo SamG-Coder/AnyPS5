@@ -7,15 +7,6 @@
 
 namespace ShaderRecompiler {
 
-struct MemoryResourceAccess {
-    ResourceKind kind;
-    std::uint32_t objectPointer;
-    std::uint32_t length;
-    std::uint32_t byteOffset;
-    std::uint32_t indexOffset;
-    bool addIndexOffset;
-};
-
 std::uint32_t EmitBinaryU32(SpirvEmitterState& state, std::uint32_t opcode, std::uint32_t lhs, std::uint32_t rhs);
 std::uint32_t EmitShaderDataDwordLoad(SpirvEmitterState& state, std::uint32_t dwordIndex);
 std::uint32_t StorageBufferPackedStride(const SpirvEmitterState& state, const MemoryInfo& mem);

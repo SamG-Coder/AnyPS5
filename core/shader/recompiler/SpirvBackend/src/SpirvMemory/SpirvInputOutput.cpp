@@ -1,13 +1,15 @@
 #include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvSubgroup.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvBufferAccess.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
+#include <SpirvBackend/SpirvEmitterInstructions.hpp>
 #include <spirv/unified1/spirv.hpp>
 #include <stdexcept>
 #include <string>
 #include <array>
 #include <span>
 #include <algorithm>
-#include <SpirvBackend/SpirvMemory/SpirvConstants.hpp>
 
 namespace ShaderRecompiler
 {
