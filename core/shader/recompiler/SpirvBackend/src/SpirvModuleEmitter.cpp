@@ -905,7 +905,7 @@ void DefineGetBdaPointer(SpirvEmitterState& state) {
     if (!state.program.Info().usesDma) {
         return;
     }
-    throw std::runtime_error("DefineGetBdaPointer requires a BDA cache page-bits constant that does not exist anywhere in this codebase; it must be added (e.g. to ShaderInfo or SpirvTargetOptions) before this function can be implemented without inventing a fallback value");
+    throw std::runtime_error("DefineGetBdaPointer is not implemented: the bdaCachePageBits value is not wired into SpirvEmitterState, and the bda_pagetable and fault_buffer descriptor bindings have no defined entry layout or fault-reporting protocol, so this function cannot be emitted without inventing that layout");
 }
 
 void EmitLabel(SpirvEmitterState& state, std::uint32_t label) {
