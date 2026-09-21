@@ -113,6 +113,8 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvModuleSetup.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvSubgroup.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvTypes.cpp
+            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvEmitterHelpers.cpp
+
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/tests/DummyShaders.cpp
     )
 
