@@ -5,15 +5,10 @@
 #include <array>
 #include <cstdint>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 namespace ShaderRecompiler {
 namespace {
-
-[[noreturn]] void ThrowNotImplemented(const char* functionName) {
-    throw std::runtime_error(std::string("ShaderRecompiler::") + functionName + " not implemented");
-}
 
 std::uint32_t AndCondition(SpirvEmitterState& state, std::uint32_t lhs, std::uint32_t rhs) {
     return Binary(state, spv::OpLogicalAnd, TypeBool(state), lhs, rhs);
@@ -519,10 +514,9 @@ void StoreFormattedInBounds(SpirvValueEmitContext& ctx, const MemoryInfo& mem, c
     }
 }
 
-std::uint32_t LoadWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t components) {
+std::uint32_t LoadWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t components) {
     auto& state = ctx.state;
     return EmitValueOrDefaultIfCondition(state, ActiveArgument(ctx, inst), TypeU32Composite(state, components), ConstantU32CompositeZero(state, components), [&]() {
-        const auto& mem = ctx.Memory(inst);
         const auto resource = PrepareMemoryResourceAccess(state, mem);
         const auto info = MemoryFormatInfo(state, mem);
         if (info.type != SpirvFormatComponentType::Unknown) {
@@ -543,10 +537,9 @@ std::uint32_t LoadWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, st
     });
 }
 
-void StoreWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t components) {
+void StoreWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t components) {
     auto& state = ctx.state;
     EmitIfCondition(state, ActiveArgument(ctx, inst), [&]() {
-        const auto& mem = ctx.Memory(inst);
         const auto resource = PrepareMemoryResourceAccess(state, mem);
         const auto composite = ctx.Arg(inst, inst.ArgumentCount() - 2u);
         const auto info = MemoryFormatInfo(state, mem);
@@ -569,10 +562,9 @@ void StoreWideBuffer(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint3
     });
 }
 
-std::uint32_t LoadWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t components) {
+std::uint32_t LoadWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t components) {
     auto& state = ctx.state;
     return EmitValueOrDefaultIfCondition(state, ActiveArgument(ctx, inst), TypeU32Composite(state, components), ConstantU32CompositeZero(state, components), [&]() {
-        const auto& mem = ctx.Memory(inst);
         const auto resource = PrepareMemoryResourceAccess(state, mem);
         const auto base = ByteAddress(ctx, inst, mem);
         std::array<std::uint32_t, 4> values{};
@@ -588,10 +580,9 @@ std::uint32_t LoadWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, st
     });
 }
 
-void StoreWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t components) {
+void StoreWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t components) {
     auto& state = ctx.state;
     EmitIfCondition(state, ActiveArgument(ctx, inst), [&]() {
-        const auto& mem = ctx.Memory(inst);
         const auto resource = PrepareMemoryResourceAccess(state, mem);
         const auto base = ByteAddress(ctx, inst, mem);
         for (std::uint32_t component = 0; component < components; component++) {
@@ -603,6 +594,256 @@ void StoreWideShared(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint3
             });
         }
     });
+}
+
+const MemoryInfo& BufferMemory(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    const auto& mem = ctx.Memory(inst);
+    if (mem.kind != ResourceKind::Buffer) {
+        ctx.Fail(inst, "must access a buffer resource");
+    }
+    return mem;
+}
+
+const MemoryInfo& SharedMemory(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    const auto& mem = ctx.Memory(inst);
+    if (mem.kind != ResourceKind::Lds && mem.kind != ResourceKind::Gds) {
+        ctx.Fail(inst, "must access LDS or GDS");
+    }
+    return mem;
+}
+
+void LoadAddress(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t bits) {
+    const auto& mem = ctx.Memory(inst);
+    if (bits == 32u && mem.planningOnly) {
+        return;
+    }
+    switch (mem.kind) {
+    case ResourceKind::Scratch:
+        ctx.Define(inst, bits == 32u ? LoadWord(ctx, inst, mem) : LoadSubword(ctx, inst, mem, bits));
+        return;
+    case ResourceKind::ScalarAddress:
+    case ResourceKind::Flat:
+    case ResourceKind::Global:
+        ctx.Define(inst, LoadBda(ctx, inst, mem, bits));
+        return;
+    default:
+        ctx.Fail(inst, "must read a scratch or physical address resource");
+    }
+}
+
+void StoreAddress(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t bits) {
+    const auto& mem = ctx.Memory(inst);
+    if (mem.kind != ResourceKind::Scratch) {
+        ctx.Fail(inst, "must write a scratch resource because physical address stores have no emitter");
+    }
+    if (bits == 32u) {
+        StoreWord(ctx, inst, mem);
+    } else {
+        StoreSubword(ctx, inst, mem, bits);
+    }
+}
+
+struct PreparedMemoryElement {
+    MemoryResourceAccess resource;
+    std::uint32_t index = 0;
+};
+
+PreparedMemoryElement PrepareMemoryElement(SpirvValueEmitContext& ctx, const MemoryInfo& mem, std::uint32_t rawIndex) {
+    const auto resource = PrepareMemoryResourceAccess(ctx.state, mem);
+    return {resource, EmitMemoryElementIndex(ctx.state, resource, rawIndex)};
+}
+
+std::uint32_t SpirvAtomicOpcode(IrOpcode opcode) {
+    switch (opcode) {
+    case IrOpcode::BufferAtomicCmpSwap32:
+        return spv::OpAtomicCompareExchange;
+    case IrOpcode::BufferAtomicSwap32:
+    case IrOpcode::BufferAtomicSwap64:
+    case IrOpcode::SharedAtomicSwap32:
+        return spv::OpAtomicExchange;
+    case IrOpcode::BufferAtomicIAdd32:
+    case IrOpcode::SharedAtomicIAdd32:
+        return spv::OpAtomicIAdd;
+    case IrOpcode::BufferAtomicISub32:
+    case IrOpcode::SharedAtomicISub32:
+        return spv::OpAtomicISub;
+    case IrOpcode::BufferAtomicSMin32:
+    case IrOpcode::SharedAtomicSMin32:
+        return spv::OpAtomicSMin;
+    case IrOpcode::BufferAtomicUMin32:
+    case IrOpcode::SharedAtomicUMin32:
+        return spv::OpAtomicUMin;
+    case IrOpcode::BufferAtomicSMax32:
+    case IrOpcode::SharedAtomicSMax32:
+        return spv::OpAtomicSMax;
+    case IrOpcode::BufferAtomicUMax32:
+    case IrOpcode::SharedAtomicUMax32:
+        return spv::OpAtomicUMax;
+    case IrOpcode::BufferAtomicAnd32:
+    case IrOpcode::SharedAtomicAnd32:
+        return spv::OpAtomicAnd;
+    case IrOpcode::BufferAtomicOr32:
+    case IrOpcode::BufferAtomicOr64:
+    case IrOpcode::SharedAtomicOr32:
+        return spv::OpAtomicOr;
+    case IrOpcode::BufferAtomicXor32:
+    case IrOpcode::SharedAtomicXor32:
+        return spv::OpAtomicXor;
+    default:
+        throw std::runtime_error("SpirvAtomicOpcode: opcode has no SPIR-V atomic instruction");
+    }
+}
+
+std::uint32_t EmitAtomicOperation(SpirvValueEmitContext& ctx, const IrValue& inst, std::uint32_t pointer, std::uint32_t scope) {
+    auto& state = ctx.state;
+    const auto old = state.module.AllocateId();
+    if (inst.Opcode() == IrOpcode::BufferAtomicCmpSwap32) {
+        const auto desired = ctx.Arg(inst, inst.ArgumentCount() - 3u);
+        const auto comparator = ctx.Arg(inst, inst.ArgumentCount() - 2u);
+        state.module.AddFunction(spv::OpAtomicCompareExchange, TypeU32(state), old, pointer, ConstantU32(state, scope), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), desired, comparator);
+    } else {
+        const auto value = ctx.Arg(inst, inst.ArgumentCount() - 2u);
+        state.module.AddFunction(SpirvAtomicOpcode(inst.Opcode()), TypeU32(state), old, pointer, ConstantU32(state, scope), ConstantU32(state, spv::MemorySemanticsMaskNone), value);
+    }
+    return old;
+}
+
+template<typename TOperation>
+std::uint32_t EmitAtomicAccess(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, TOperation&& operation) {
+    auto& state = ctx.state;
+    return EmitValueOrZeroIfCondition(state, ActiveArgument(ctx, inst), [&]() {
+        const auto access = PrepareMemoryElement(ctx, mem, DwordIndex(ctx, inst, mem));
+        return EmitValueOrZeroIfCondition(state, EmitMemoryElementInBounds(state, access.resource, access.index), [&]() {
+            return operation(EmitMemoryElementPointer(state, access.resource, access.index));
+        });
+    });
+}
+
+template<typename TReplacement>
+std::uint32_t EmitAtomicUpdate(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, TReplacement&& replacement) {
+    const auto value = ctx.Arg(inst, inst.ArgumentCount() - 2u);
+    return EmitAtomicAccess(ctx, inst, mem, [&](std::uint32_t pointer) {
+        return AtomicUpdate(ctx.state, pointer, mem.kind, [&](std::uint32_t old) {
+            return replacement(ctx.state, old, value);
+        });
+    });
+}
+
+std::uint32_t AtomicIncrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
+    const auto wrap = Binary(state, spv::OpUGreaterThanEqual, TypeBool(state), old, limit);
+    const auto next = Binary(state, spv::OpIAdd, TypeU32(state), old, ConstantU32(state, 1u));
+    return Select(state, TypeU32(state), wrap, ConstantU32(state, 0u), next);
+}
+
+std::uint32_t AtomicDecrement(SpirvEmitterState& state, std::uint32_t old, std::uint32_t limit) {
+    const auto zero = Binary(state, spv::OpIEqual, TypeBool(state), old, ConstantU32(state, 0u));
+    const auto above = Binary(state, spv::OpUGreaterThan, TypeBool(state), old, limit);
+    const auto wrap = Binary(state, spv::OpLogicalOr, TypeBool(state), zero, above);
+    const auto next = Binary(state, spv::OpISub, TypeU32(state), old, ConstantU32(state, 1u));
+    return Select(state, TypeU32(state), wrap, limit, next);
+}
+
+std::uint32_t Atomic32(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem) {
+    auto& state = ctx.state;
+    const bool lds = mem.kind == ResourceKind::Lds;
+    return EmitAtomicAccess(ctx, inst, mem, [&](std::uint32_t pointer) {
+        const std::uint32_t scope = lds ? spv::ScopeWorkgroup : spv::ScopeDevice;
+        const auto old = EmitAtomicOperation(ctx, inst, pointer, scope);
+        if (lds) {
+            const std::uint32_t semantics = spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsWorkgroupMemoryMask;
+            state.module.AddFunction(spv::OpMemoryBarrier, ConstantU32(state, scope), ConstantU32(state, semantics));
+        } else {
+            EmitDeviceAtomicMemoryBarrier(state);
+        }
+        return old;
+    });
+}
+
+std::uint32_t BufferAtomic64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    auto& state = ctx.state;
+    const auto& mem = BufferMemory(ctx, inst);
+    return EmitValueOrDefaultIfCondition(state, ActiveArgument(ctx, inst), TypeU64(state), ConstantU64(state, 0u), [&]() {
+        const auto resource = PrepareStorageBufferResourceAccess(state, mem, state.storageBufferU64Variable, TypeStorageBufferU64Pointer(state));
+        const auto byteAddress = Binary(state, spv::OpIAdd, TypeU32(state), ByteAddress(ctx, inst, mem), resource.byteOffset);
+        const auto index = Binary(state, spv::OpShiftRightLogical, TypeU32(state), byteAddress, ConstantU32(state, 3u));
+        return EmitValueOrDefaultIfCondition(state, EmitMemoryElementInBounds(state, resource, index), TypeU64(state), ConstantU64(state, 0u), [&]() {
+            const auto value = Unary(state, spv::OpBitcast, TypeScalarU64(state), ctx.Arg(inst, inst.ArgumentCount() - 2u));
+            const auto old = state.module.AllocateId();
+            state.module.AddFunction(SpirvAtomicOpcode(inst.Opcode()), TypeScalarU64(state), old, EmitStorageBufferElementPointer(state, resource, index, TypeStorageBufferU64ElementPointer(state)), ConstantU32(state, spv::ScopeDevice), ConstantU32(state, spv::MemorySemanticsMaskNone), value);
+            EmitDeviceAtomicMemoryBarrier(state);
+            return Unary(state, spv::OpBitcast, TypeU64(state), old);
+        });
+    });
+}
+
+std::uint32_t BufferFloatAtomic(SpirvValueEmitContext& ctx, const IrValue& inst, bool maxValue) {
+    return EmitAtomicUpdate(ctx, inst, BufferMemory(ctx, inst), [maxValue](SpirvEmitterState& state, std::uint32_t old, std::uint32_t value) {
+        return EmitFloatAtomicReplacement(state, old, value, maxValue);
+    });
+}
+
+void SharedFloatAtomic(SpirvValueEmitContext& ctx, const IrValue& inst, bool maxValue) {
+    auto& state = ctx.state;
+    if (ctx.scratchU32Variable == 0u) {
+        ctx.Fail(inst, "requires the scratch dword variable");
+    }
+    const auto& mem = SharedMemory(ctx, inst);
+    EmitIfCondition(state, ActiveArgument(ctx, inst), [&]() {
+        const auto access = PrepareMemoryElement(ctx, mem, DwordIndex(ctx, inst, mem));
+        EmitIfCondition(state, EmitMemoryElementInBounds(state, access.resource, access.index), [&]() {
+            state.module.AddFunction(spv::OpStore, ctx.scratchU32Variable, ctx.Arg(inst, 1));
+            const auto data = state.module.AllocateId();
+            state.module.AddFunction(spv::OpLoad, TypeU32(state), data, ctx.scratchU32Variable);
+            AtomicUpdate(state, EmitMemoryElementPointer(state, access.resource, access.index), mem.kind, [&](std::uint32_t old) {
+                const auto oldFloat = Unary(state, spv::OpBitcast, TypeF32(state), old);
+                const auto compareFloat = Unary(state, spv::OpBitcast, TypeF32(state), ctx.Arg(inst, 2));
+                const auto dataFloat = Unary(state, spv::OpBitcast, TypeF32(state), data);
+                const auto compare = Binary(state, maxValue ? spv::OpFOrdGreaterThan : spv::OpFOrdLessThan, TypeBool(state), maxValue ? oldFloat : compareFloat, maxValue ? compareFloat : oldFloat);
+                return Unary(state, spv::OpBitcast, TypeU32(state), Select(state, TypeF32(state), compare, dataFloat, oldFloat));
+            });
+        });
+    });
+}
+
+std::uint32_t AppendConsume(SpirvValueEmitContext& ctx, const IrValue& inst, bool append) {
+    auto& state = ctx.state;
+    if (ctx.half == 1u) {
+        if (ctx.otherHalf == nullptr) {
+            ctx.Fail(inst, "has no first lane half to read the result from");
+        }
+        return ctx.otherHalf->Def(&inst);
+    }
+    const auto& mem = SharedMemory(ctx, inst);
+    const bool wave64 = state.laneCount == 2u;
+    const auto m0 = ctx.Arg(inst, 0);
+    const auto base = Binary(state, spv::OpShiftRightLogical, TypeU32(state), m0, ConstantU32(state, 16u));
+    const auto size = Binary(state, spv::OpBitwiseAnd, TypeU32(state), m0, ConstantU32(state, 0xffffu));
+    const auto address = Binary(state, spv::OpIAdd, TypeU32(state), base, ConstantU32(state, mem.offset));
+    const auto rawIndex = Binary(state, spv::OpShiftRightLogical, TypeU32(state), address, ConstantU32(state, 2u));
+    const auto access = PrepareMemoryResourceAccess(state, mem);
+    const auto index = EmitMemoryElementIndex(state, access, rawIndex);
+    const auto exec = ctx.Arg(inst, 1);
+    const auto ballot = ctx.Ballot(inst.Argument(1));
+    const auto low = state.module.AllocateId();
+    const auto high = state.module.AllocateId();
+    state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), low, ballot, 0u);
+    state.module.AddFunction(spv::OpCompositeExtract, TypeU32(state), high, ballot, 1u);
+    const auto count = Binary(state, spv::OpIAdd, TypeU32(state), Unary(state, spv::OpBitCount, TypeU32(state), low), Unary(state, spv::OpBitCount, TypeU32(state), high));
+    const auto first = ctx.FirstLane(ballot);
+    const auto sourceLane = wave64 ? Binary(state, spv::OpBitwiseAnd, TypeU32(state), first, ConstantU32(state, 31u)) : first;
+    const auto isFirst = Binary(state, spv::OpIEqual, TypeBool(state), EmitSubgroupLocalInvocationId(state), sourceLane);
+    const auto storageBounds = EmitMemoryElementInBounds(state, access, index);
+    const auto m0Bounds = mem.kind == ResourceKind::Gds ? Binary(state, spv::OpINotEqual, TypeBool(state), size, ConstantU32(state, 0u)) : Binary(state, spv::OpULessThan, TypeBool(state), ConstantU32(state, mem.offset + 3u), size);
+    const auto lanesActive = wave64 ? Binary(state, spv::OpINotEqual, TypeBool(state), count, ConstantU32(state, 0u)) : exec;
+    const auto condition = AndCondition(state, isFirst, AndCondition(state, lanesActive, AndCondition(state, storageBounds, m0Bounds)));
+    const auto atomic = EmitValueOrZeroIfCondition(state, condition, [&]() {
+        const auto value = state.module.AllocateId();
+        state.module.AddFunction(append ? spv::OpAtomicIAdd : spv::OpAtomicISub, TypeU32(state), value, EmitMemoryElementPointer(state, access, index), ConstantU32(state, mem.kind == ResourceKind::Gds ? spv::ScopeDevice : spv::ScopeWorkgroup), ConstantU32(state, spv::MemorySemanticsMaskNone), count);
+        return value;
+    });
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpGroupNonUniformShuffle, TypeU32(state), result, ConstantU32(state, spv::ScopeSubgroup), atomic, sourceLane);
+    return result;
 }
 
 }
@@ -656,248 +897,254 @@ void EmitGetScratchResource(SpirvValueEmitContext& context) {
     EmitVoid(context);
 }
 
-void EmitLoadAddressU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadAddressU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    LoadAddress(ctx, inst, 8u);
 }
 
-void EmitLoadAddressU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadAddressU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    LoadAddress(ctx, inst, 16u);
 }
 
-void EmitLoadAddressU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadAddressU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    LoadAddress(ctx, inst, 32u);
 }
 
-void EmitStoreAddressU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreAddressU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreAddress(ctx, inst, 8u);
 }
 
-void EmitStoreAddressU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreAddressU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreAddress(ctx, inst, 16u);
 }
 
-void EmitStoreAddressU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreAddressU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreAddress(ctx, inst, 32u);
 }
 
-void EmitLoadBufferU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadSubword(ctx, inst, BufferMemory(ctx, inst), 8u));
 }
 
-void EmitLoadBufferU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadSubword(ctx, inst, BufferMemory(ctx, inst), 16u));
 }
 
-void EmitLoadBufferU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    const auto& mem = BufferMemory(ctx, inst);
+    ctx.Define(inst, mem.formatted ? FormattedLoad(ctx, inst, mem) : LoadWord(ctx, inst, mem));
 }
 
-void EmitLoadBufferU32x2(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU32x2(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideBuffer(ctx, inst, BufferMemory(ctx, inst), 2u));
 }
 
-void EmitLoadBufferU32x3(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU32x3(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideBuffer(ctx, inst, BufferMemory(ctx, inst), 3u));
 }
 
-void EmitLoadBufferU32x4(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadBufferU32x4(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideBuffer(ctx, inst, BufferMemory(ctx, inst), 4u));
 }
 
-void EmitStoreBufferU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreSubword(ctx, inst, BufferMemory(ctx, inst), 8u);
 }
 
-void EmitStoreBufferU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreSubword(ctx, inst, BufferMemory(ctx, inst), 16u);
 }
 
-void EmitStoreBufferU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    const auto& mem = BufferMemory(ctx, inst);
+    if (mem.formatted) {
+        FormattedStore(ctx, inst, mem);
+    } else {
+        StoreWord(ctx, inst, mem);
+    }
 }
 
-void EmitStoreBufferU32x2(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU32x2(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideBuffer(ctx, inst, BufferMemory(ctx, inst), 2u);
 }
 
-void EmitStoreBufferU32x3(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU32x3(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideBuffer(ctx, inst, BufferMemory(ctx, inst), 3u);
 }
 
-void EmitStoreBufferU32x4(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitStoreBufferU32x4(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideBuffer(ctx, inst, BufferMemory(ctx, inst), 4u);
 }
 
-std::uint32_t EmitBufferAtomicSwap32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicCmpSwap32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicCmpSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicSwap64(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicIAdd32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicIAdd32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicISub32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicISub32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicSMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicSMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicUMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicUMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicSMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicSMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicUMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicUMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicAnd32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicAnd32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicOr32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicOr32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicXor32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, BufferMemory(ctx, inst));
 }
 
-std::uint32_t EmitBufferAtomicOr64(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicSwap64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return BufferAtomic64(ctx, inst);
 }
 
-std::uint32_t EmitBufferAtomicXor32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicOr64(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return BufferAtomic64(ctx, inst);
 }
 
-std::uint32_t EmitBufferAtomicFMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicFMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return BufferFloatAtomic(ctx, inst, false);
 }
 
-std::uint32_t EmitBufferAtomicFMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitBufferAtomicFMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return BufferFloatAtomic(ctx, inst, true);
 }
 
-void EmitLoadSharedU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadSubword(ctx, inst, SharedMemory(ctx, inst), 8u));
 }
 
-void EmitLoadSharedU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadSubword(ctx, inst, SharedMemory(ctx, inst), 16u));
 }
 
-void EmitLoadSharedU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWord(ctx, inst, SharedMemory(ctx, inst)));
 }
 
-void EmitLoadSharedU32x2(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU32x2(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideShared(ctx, inst, SharedMemory(ctx, inst), 2u));
 }
 
-void EmitLoadSharedU32x3(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU32x3(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideShared(ctx, inst, SharedMemory(ctx, inst), 3u));
 }
 
-void EmitLoadSharedU32x4(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitLoadSharedU32x4(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    ctx.Define(inst, LoadWideShared(ctx, inst, SharedMemory(ctx, inst), 4u));
 }
 
-void EmitWriteSharedU8(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU8(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreSubword(ctx, inst, SharedMemory(ctx, inst), 8u);
 }
 
-void EmitWriteSharedU16(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU16(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreSubword(ctx, inst, SharedMemory(ctx, inst), 16u);
 }
 
-void EmitWriteSharedU32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWord(ctx, inst, SharedMemory(ctx, inst));
 }
 
-void EmitWriteSharedU32x2(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU32x2(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideShared(ctx, inst, SharedMemory(ctx, inst), 2u);
 }
 
-void EmitWriteSharedU32x3(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU32x3(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideShared(ctx, inst, SharedMemory(ctx, inst), 3u);
 }
 
-void EmitWriteSharedU32x4(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitWriteSharedU32x4(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    StoreWideShared(ctx, inst, SharedMemory(ctx, inst), 4u);
 }
 
-void EmitSharedAtomicFMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitSharedAtomicFMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    SharedFloatAtomic(ctx, inst, false);
 }
 
-void EmitSharedAtomicFMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+void EmitSharedAtomicFMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    SharedFloatAtomic(ctx, inst, true);
 }
 
-std::uint32_t EmitSharedAtomicSwap32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicSwap32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicIAdd32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicIAdd32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicISub32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicISub32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicInc32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicSMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicDec32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicUMin32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicSMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicSMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicUMin32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicUMax32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicSMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicAnd32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicUMax32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicOr32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicAnd32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicXor32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return Atomic32(ctx, inst, SharedMemory(ctx, inst));
 }
 
-std::uint32_t EmitSharedAtomicOr32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicInc32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return EmitAtomicUpdate(ctx, inst, SharedMemory(ctx, inst), AtomicIncrement);
 }
 
-std::uint32_t EmitSharedAtomicXor32(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitSharedAtomicDec32(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return EmitAtomicUpdate(ctx, inst, SharedMemory(ctx, inst), AtomicDecrement);
 }
 
-std::uint32_t EmitDataAppend(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitDataAppend(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return AppendConsume(ctx, inst, true);
 }
 
-std::uint32_t EmitDataConsume(SpirvValueEmitContext&, const IrValue&) {
-    ThrowNotImplemented(__func__);
+std::uint32_t EmitDataConsume(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    return AppendConsume(ctx, inst, false);
 }
 
 }
