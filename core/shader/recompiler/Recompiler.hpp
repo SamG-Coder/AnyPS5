@@ -122,6 +122,7 @@ struct SpirvTarget {
     std::uint32_t vulkanVersion;
     std::uint32_t spirvVersion;
     std::uint32_t subgroupSize;
+    std::uint32_t bdaCachePageBits;
     std::span<const std::uint32_t> supportedCapabilities;
     std::span<const std::string_view> supportedExtensions;
     std::array<std::uint32_t, 3> maxWorkgroupSize;

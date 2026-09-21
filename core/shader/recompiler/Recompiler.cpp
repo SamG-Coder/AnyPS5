@@ -136,9 +136,10 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     targetOptions.vulkanVersion = request.target.vulkanVersion;
     targetOptions.spirvVersion = request.target.spirvVersion;
     targetOptions.subgroupSize = request.target.subgroupSize;
+    targetOptions.bdaCachePageBits = request.target.bdaCachePageBits;
 
     constexpr SpirvEmitter spirvEmitter;
-    const auto spirv = spirvEmitter.Emit(program, bindings, targetOptions);
+    const auto spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
 
     RecompileResult result;
     result.spirv = spirv;

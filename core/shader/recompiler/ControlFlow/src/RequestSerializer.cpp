@@ -519,6 +519,7 @@ void writeSpirvTarget(Writer& writer, const SpirvTarget& target) {
     writer.WriteU32(target.vulkanVersion);
     writer.WriteU32(target.spirvVersion);
     writer.WriteU32(target.subgroupSize);
+    writer.WriteU32(target.bdaCachePageBits);
     writer.WriteU32Span(target.supportedCapabilities);
     writer.WriteU64(target.supportedExtensions.size());
     for (const std::string_view extension : target.supportedExtensions) {
@@ -544,6 +545,7 @@ SpirvTarget readSpirvTarget(Reader& reader, DeserializedRequest& result) {
     target.vulkanVersion = reader.ReadU32();
     target.spirvVersion = reader.ReadU32();
     target.subgroupSize = reader.ReadU32();
+    target.bdaCachePageBits = reader.ReadU32();
     result.supportedCapabilities = reader.ReadU32Vector();
     target.supportedCapabilities = result.supportedCapabilities;
     const auto extensionCount = reader.ReadU64();

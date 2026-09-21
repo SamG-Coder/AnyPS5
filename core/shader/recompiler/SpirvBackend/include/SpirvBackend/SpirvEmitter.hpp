@@ -13,6 +13,7 @@ struct SpirvTargetOptions {
     std::uint32_t vulkanVersion;
     std::uint32_t spirvVersion;
     std::uint32_t subgroupSize;
+    std::uint32_t bdaCachePageBits;
 };
 
 class SpirvEmitter {
