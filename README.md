@@ -21,7 +21,7 @@ Now: `ShaderRecompiler::Recompile: SpirvEmitter::Emit not implemented`.
 
 The relinker uses only the C++20 standard library and should build with any conforming compiler.
 
-[libc.prx](core/libs/prx/libc) implementations contain compiler-specific code. Linux builds work with GCC; on Windows, MinGW-w64 GCC 15.2.0 (`x86_64-ucrt-posix-seh`) is currently required.
+[libc.prx](core/libs/prx/libc) implementations contain compiler-specific code. Linux builds work with GCC; on Windows, MinGW-w64 GCC 15.2.0 (`winlibs-gcc15`, `x86_64-ucrt-posix-seh`) is currently required.
 
 The project targets maximum compiler portability. Support for additional compilers will be addressed after the first successful game launch.
 
