@@ -141,22 +141,79 @@ std::uint32_t EmitGlsl(SpirvEmitterState& state, TArguments... arguments) {
 
 template<typename TFunction>
 void EmitIfCondition(SpirvEmitterState& state, std::uint32_t condition, TFunction&& function) {
-    throw std::runtime_error("EmitIfCondition not implemented");
+    const auto thenLabel = state.module.AllocateId();
+    const auto mergeLabel = state.module.AllocateId();
+    state.module.AddFunction(spv::OpSelectionMerge, mergeLabel, spv::SelectionControlMaskNone);
+    state.module.AddFunction(spv::OpBranchConditional, condition, thenLabel, mergeLabel);
+    EmitLabel(state, thenLabel);
+    function();
+    state.module.AddFunction(spv::OpBranch, mergeLabel);
+    EmitLabel(state, mergeLabel);
 }
 
 template<typename TFunction>
 std::uint32_t EmitValueOrDefaultIfCondition(SpirvEmitterState& state, std::uint32_t condition, std::uint32_t type, std::uint32_t defaultValue, TFunction&& function) {
-    throw std::runtime_error("EmitValueOrDefaultIfCondition not implemented");
+    const auto thenLabel = state.module.AllocateId();
+    const auto thenExit = state.module.AllocateId();
+    const auto elseLabel = state.module.AllocateId();
+    const auto mergeLabel = state.module.AllocateId();
+    state.module.AddFunction(spv::OpSelectionMerge, mergeLabel, spv::SelectionControlMaskNone);
+    state.module.AddFunction(spv::OpBranchConditional, condition, thenLabel, elseLabel);
+    EmitLabel(state, thenLabel);
+    const auto thenValue = function();
+    state.module.AddFunction(spv::OpBranch, thenExit);
+    EmitLabel(state, thenExit);
+    state.module.AddFunction(spv::OpBranch, mergeLabel);
+    EmitLabel(state, elseLabel);
+    state.module.AddFunction(spv::OpBranch, mergeLabel);
+    EmitLabel(state, mergeLabel);
+    const auto value = state.module.AllocateId();
+    state.module.AddFunction(spv::OpPhi, type, value, thenValue, thenExit, defaultValue, elseLabel);
+    return value;
 }
 
 template<typename TFunction>
 std::uint32_t EmitValueOrZeroIfCondition(SpirvEmitterState& state, std::uint32_t condition, TFunction&& function) {
-    throw std::runtime_error("EmitValueOrZeroIfCondition not implemented");
+    return EmitValueOrDefaultIfCondition(state, condition, TypeU32(state), ConstantU32(state, 0u), std::forward<TFunction>(function));
 }
 
 template<typename TFunction>
 std::uint32_t AtomicUpdate(SpirvEmitterState& state, std::uint32_t pointer, ResourceKind kind, TFunction&& function) {
-    throw std::runtime_error("AtomicUpdate not implemented");
+    const auto scope = kind == ResourceKind::Lds ? spv::ScopeWorkgroup : spv::ScopeDevice;
+    const auto memory = [&]() {
+        switch (kind) {
+        case ResourceKind::Lds:
+            return spv::MemorySemanticsWorkgroupMemoryMask;
+        case ResourceKind::Image:
+            return spv::MemorySemanticsImageMemoryMask;
+        default:
+            return spv::MemorySemanticsUniformMemoryMask;
+        }
+    }();
+    const auto preheader = state.module.AllocateId();
+    const auto header = state.module.AllocateId();
+    const auto cont = state.module.AllocateId();
+    const auto merge = state.module.AllocateId();
+    const auto initial = state.module.AllocateId();
+    const auto observed = state.module.AllocateId();
+    const auto exchanged = state.module.AllocateId();
+    state.module.AddFunction(spv::OpBranch, preheader);
+    EmitLabel(state, preheader);
+    state.module.AddFunction(spv::OpAtomicLoad, TypeU32(state), initial, pointer, ConstantU32(state, scope), ConstantU32(state, spv::MemorySemanticsMaskNone));
+    state.module.AddFunction(spv::OpBranch, header);
+    EmitLabel(state, header);
+    state.module.AddFunction(spv::OpPhi, TypeU32(state), observed, initial, preheader, exchanged, cont);
+    const auto next = function(observed);
+    state.module.AddFunction(spv::OpAtomicCompareExchange, TypeU32(state), exchanged, pointer, ConstantU32(state, scope), ConstantU32(state, spv::MemorySemanticsMaskNone), ConstantU32(state, spv::MemorySemanticsMaskNone), next, observed);
+    const auto success = state.module.AllocateId();
+    state.module.AddFunction(spv::OpIEqual, TypeBool(state), success, exchanged, observed);
+    state.module.AddFunction(spv::OpLoopMerge, merge, cont, spv::LoopControlMaskNone);
+    state.module.AddFunction(spv::OpBranchConditional, success, merge, cont);
+    EmitLabel(state, cont);
+    state.module.AddFunction(spv::OpBranch, header);
+    EmitLabel(state, merge);
+    state.module.AddFunction(spv::OpMemoryBarrier, ConstantU32(state, scope), ConstantU32(state, spv::MemorySemanticsAcquireReleaseMask | memory));
+    return observed;
 }
 
 }

@@ -41,6 +41,13 @@ struct ShaderBufferResource {
 struct ShaderColorComponentMapping {
     static constexpr std::uint8_t Identity = 0xe4u;
     std::uint8_t packed = Identity;
+
+    [[nodiscard]] std::uint32_t Map(std::uint32_t component) const {
+        return (packed >> (component * 2u)) & 0x3u;
+    }
+    [[nodiscard]] bool IsIdentity() const {
+        return packed == Identity;
+    }
 };
 
 struct ShaderVertexInputBuffer {

@@ -1,6 +1,7 @@
 #include "SpirvBackend/SpirvModuleEmitter.hpp"
 #include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
+#include "SpirvBackend/SpirvFlowEmitter.hpp"
 #include <spirv/unified1/GLSL.std.450.h>
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
@@ -336,32 +337,276 @@ std::uint32_t ConvertPositionToClipSpace(SpirvEmitterState& state, std::uint32_t
 
 }
 
+namespace {
+
+std::uint32_t MeshArray(SpirvEmitterState& state, std::uint32_t storage, std::uint32_t type, std::uint32_t count) {
+    const auto array = state.module.Type(spv::OpTypeArray, type, ConstantU32(state, count));
+    return state.module.DefineGlobalVariable(TypePointer(state, storage, array), storage);
+}
+
+std::uint32_t MeshElement(SpirvEmitterState& state, std::uint32_t variable, std::uint32_t storage, std::uint32_t type, std::uint32_t index) {
+    const auto pointer = state.module.AllocateId();
+    state.module.AddFunction(spv::OpAccessChain, TypePointer(state, storage, type), pointer, variable, index);
+    return pointer;
+}
+
+std::uint32_t MeshLoad(SpirvEmitterState& state, std::uint32_t variable, std::uint32_t storage, std::uint32_t type, std::uint32_t index) {
+    const auto pointer = MeshElement(state, variable, storage, type, index);
+    const auto value = state.module.AllocateId();
+    state.module.AddFunction(spv::OpLoad, type, value, pointer);
+    return value;
+}
+
+std::uint32_t MeshOutputType(SpirvEmitterState& state, StageOutputKind kind) {
+    return kind == StageOutputKind::Layer ? TypeU32(state) : TypeF32Vector(state, 4u);
+}
+
+}
+
+namespace {
+
+std::uint32_t TessellationPointer(SpirvValueEmitContext& ctx, const IrValue& inst) {
+    auto& state = ctx.state;
+    const auto kind = static_cast<TessellationAttribute>(inst.Argument(0)->ImmediateU32());
+    const auto& tess = state.inputInfo.vertex->tess;
+    const auto variable = state.tessVariables.at(static_cast<std::uint32_t>(kind));
+    if (variable == 0u) {
+        throw std::runtime_error("tessellation attribute has no interface variable");
+    }
+    const bool input = kind == TessellationAttribute::ControlInput || kind == TessellationAttribute::EvaluationInput;
+    const auto storage = input ? spv::StorageClassInput : spv::StorageClassOutput;
+    const auto pointer = state.module.AllocateId();
+    if (kind == TessellationAttribute::Factor) {
+        if (!inst.Argument(1)->HasImmediate()) {
+            throw std::runtime_error("tessellation factor index must be immediate");
+        }
+        const auto index = inst.Argument(1)->ImmediateU32() / 4u;
+        const bool outer = index < 3u;
+        if (index >= 4u) {
+            throw std::runtime_error("tessellation factor index out of range");
+        }
+        state.module.AddFunction(spv::OpAccessChain, TypePointer(state, storage, TypeF32(state)), pointer, outer ? variable : state.tessInnerVariable, ConstantU32(state, outer ? index : index - 3u));
+        return pointer;
+    }
+    auto address = ctx.Arg(inst, 1);
+    if (kind == TessellationAttribute::PatchOutput) {
+        address = EmitBinaryU32(state, spv::OpISub, address, ConstantU32(state, state.tessPatchBase));
+    }
+    const bool local = kind == TessellationAttribute::LocalOutput || kind == TessellationAttribute::ControlInput;
+    const auto stride = local ? tess.lsStride : tess.hsStride;
+    const auto offset = kind == TessellationAttribute::PatchOutput ? address : EmitBinaryU32(state, spv::OpUMod, address, ConstantU32(state, stride));
+    const auto attribute = EmitBinaryU32(state, spv::OpShiftRightLogical, offset, ConstantU32(state, 4u));
+    const auto component = EmitBinaryU32(state, spv::OpBitwiseAnd, EmitBinaryU32(state, spv::OpShiftRightLogical, offset, ConstantU32(state, 2u)), ConstantU32(state, 3u));
+    const auto type = TypePointer(state, storage, TypeU32(state));
+    if (kind == TessellationAttribute::LocalOutput || kind == TessellationAttribute::PatchOutput) {
+        state.module.AddFunction(spv::OpAccessChain, type, pointer, variable, attribute, component);
+    } else {
+        const auto vertex = kind == TessellationAttribute::ControlOutput ? EmitLaneId(state) : EmitBinaryU32(state, spv::OpUDiv, address, ConstantU32(state, stride));
+        state.module.AddFunction(spv::OpAccessChain, type, pointer, variable, vertex, attribute, component);
+    }
+    return pointer;
+}
+
+}
+
 void DefineTessellationInterfaces(SpirvEmitterState& state) {
-    throw std::runtime_error("DefineTessellationInterfaces not implemented");
+    std::array<bool, 6> used {};
+    std::uint32_t patchBegin = std::numeric_limits<std::uint32_t>::max();
+    std::uint32_t patchEnd = 0u;
+    for (const IrBlock* block : state.program.BlockOrder()) {
+        for (const IrValue* inst : block->Instructions()) {
+            if (inst->Opcode() != IrOpcode::GetTessellationAttribute && inst->Opcode() != IrOpcode::SetTessellationAttribute) {
+                continue;
+            }
+            const auto kind = inst->Argument(0)->ImmediateU32();
+            used.at(kind) = true;
+            if (kind == static_cast<std::uint32_t>(TessellationAttribute::PatchOutput)) {
+                if (!inst->Argument(1)->HasImmediate()) {
+                    throw std::runtime_error("tessellation patch output offset must be immediate");
+                }
+                patchBegin = std::min(patchBegin, inst->Argument(1)->ImmediateU32());
+                patchEnd = std::max(patchEnd, inst->Argument(1)->ImmediateU32() + 4u);
+            }
+        }
+    }
+    if (std::none_of(used.begin(), used.end(), [](bool value) { return value; })) {
+        return;
+    }
+    const auto& tess = state.inputInfo.vertex->tess;
+    const auto array = [&](std::uint32_t type, std::uint32_t count) {
+        return state.module.Type(spv::OpTypeArray, type, ConstantU32(state, count));
+    };
+    for (std::uint32_t index = 0; index < used.size(); index++) {
+        if (!used[index]) {
+            continue;
+        }
+        const auto kind = static_cast<TessellationAttribute>(index);
+        const bool input = kind == TessellationAttribute::ControlInput || kind == TessellationAttribute::EvaluationInput;
+        const auto storage = input ? spv::StorageClassInput : spv::StorageClassOutput;
+        std::uint32_t type;
+        if (kind == TessellationAttribute::Factor) {
+            type = array(TypeF32(state), 4u);
+        } else if (kind == TessellationAttribute::PatchOutput) {
+            state.tessPatchBase = patchBegin;
+            type = array(TypeU32Vector(state, 4u), (patchEnd - patchBegin + 15u) / 16u);
+        } else {
+            const bool local = kind == TessellationAttribute::LocalOutput || kind == TessellationAttribute::ControlInput;
+            const auto stride = local ? tess.lsStride : tess.hsStride;
+            type = array(TypeU32Vector(state, 4u), (stride + 15u) / 16u);
+            if (kind != TessellationAttribute::LocalOutput) {
+                type = array(type, local ? tess.inputControlPoints : tess.outputControlPoints);
+            }
+        }
+        auto& variable = state.tessVariables.at(index);
+        variable = DefineInterfaceVariable(state, type, storage, "tess_attributes");
+        if (kind == TessellationAttribute::Factor) {
+            state.module.AddAnnotation(spv::OpDecorate, variable, spv::DecorationBuiltIn, spv::BuiltInTessLevelOuter);
+            state.tessInnerVariable = DefineInterfaceVariable(state, array(TypeF32(state), 2u), storage, "tess_inner");
+            state.module.AddAnnotation(spv::OpDecorate, state.tessInnerVariable, spv::DecorationBuiltIn, spv::BuiltInTessLevelInner);
+            state.module.AddAnnotation(spv::OpDecorate, state.tessInnerVariable, spv::DecorationPatch);
+        } else {
+            state.module.AddAnnotation(spv::OpDecorate, variable, spv::DecorationLocation, kind == TessellationAttribute::PatchOutput ? (tess.hsStride + 15u) / 16u : 0u);
+        }
+        if (kind == TessellationAttribute::Factor || kind == TessellationAttribute::PatchOutput) {
+            state.module.AddAnnotation(spv::OpDecorate, variable, spv::DecorationPatch);
+        }
+    }
 }
 
 void DefineTessellationExecutionModes(SpirvEmitterState& state) {
-    throw std::runtime_error("DefineTessellationExecutionModes not implemented");
+    const auto& tess = state.inputInfo.vertex->tess;
+    if (tess.domain != 1u || tess.partitioning != 2u || tess.outputTopology != 2u) {
+        throw std::runtime_error("unsupported tessellation domain, partitioning, or output topology");
+    }
+    state.module.EmitCapability(spv::CapabilityTessellation);
+    if (state.program.Resources().stage == IrShaderStage::TessellationControl) {
+        state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeOutputVertices, tess.outputControlPoints);
+    } else {
+        state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeTriangles);
+        state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeSpacingFractionalOdd);
+        state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeVertexOrderCw);
+    }
 }
 
 void DefineMeshOutputs(SpirvEmitterState& state) {
-    throw std::runtime_error("DefineMeshOutputs not implemented");
+    if (state.inputInfo.vertex == nullptr) {
+        throw std::runtime_error("vertex input info is missing for mesh output definition");
+    }
+    const auto& mesh = state.inputInfo.vertex->mesh;
+    for (auto& output : state.outputs) {
+        if (output.kind != StageOutputKind::Position && output.kind != StageOutputKind::Parameter && output.kind != StageOutputKind::Layer) {
+            throw std::runtime_error("unsupported mesh output kind");
+        }
+        const auto type = MeshOutputType(state, output.kind);
+        output.variableId = MeshArray(state, spv::StorageClassOutput, type, output.kind == StageOutputKind::Layer ? mesh.maxPrimitives : mesh.maxVertices);
+        const bool shared = output.kind == StageOutputKind::Layer;
+        output.meshDataVariable = MeshArray(state, shared ? spv::StorageClassWorkgroup : spv::StorageClassPrivate, type, shared ? mesh.maxVertices : state.laneCount);
+        state.interfaceVariables.push_back(output.variableId);
+        state.module.AddName(output.variableId, output.debugName);
+        if (output.kind == StageOutputKind::Parameter) {
+            state.module.AddAnnotation(spv::OpDecorate, output.variableId, spv::DecorationLocation, output.location);
+        } else {
+            state.module.AddAnnotation(spv::OpDecorate, output.variableId, spv::DecorationBuiltIn, output.kind == StageOutputKind::Layer ? spv::BuiltInLayer : spv::BuiltInPosition);
+        }
+        if (output.kind == StageOutputKind::Layer) {
+            state.module.AddAnnotation(spv::OpDecorate, output.variableId, spv::DecorationPerPrimitiveEXT);
+        }
+    }
+    state.meshAllocation = MeshArray(state, spv::StorageClassWorkgroup, TypeU32(state), 2u);
+    state.meshPrimitiveData = MeshArray(state, spv::StorageClassPrivate, TypeU32(state), state.laneCount);
+    state.meshPrimitives = MeshArray(state, spv::StorageClassOutput, TypeU32Vector(state, 3u), mesh.maxPrimitives);
+    state.meshCull = MeshArray(state, spv::StorageClassOutput, TypeBool(state), mesh.maxPrimitives);
+    state.interfaceVariables.push_back(state.meshPrimitives);
+    state.interfaceVariables.push_back(state.meshCull);
+    state.module.AddAnnotation(spv::OpDecorate, state.meshPrimitives, spv::DecorationBuiltIn, spv::BuiltInPrimitiveTriangleIndicesEXT);
+    state.module.AddAnnotation(spv::OpDecorate, state.meshCull, spv::DecorationBuiltIn, spv::BuiltInCullPrimitiveEXT);
+    state.module.AddAnnotation(spv::OpDecorate, state.meshCull, spv::DecorationPerPrimitiveEXT);
 }
 
 void EmitMeshEntryPoint(SpirvEmitterState& state) {
-    throw std::runtime_error("EmitMeshEntryPoint not implemented");
+    state.module.AddFunction(spv::OpFunction, TypeVoid(state), state.mainFunc, spv::FunctionControlMaskNone, TypeFunction(state));
+    EmitLabel(state, state.module.AllocateId());
+    state.module.AddFunction(spv::OpFunctionCall, TypeVoid(state), state.module.AllocateId(), state.meshGuestFunc);
+    state.module.AddFunction(spv::OpControlBarrier, ConstantU32(state, spv::ScopeWorkgroup), ConstantU32(state, spv::ScopeWorkgroup), ConstantU32(state, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsWorkgroupMemoryMask));
+    const auto vertices = MeshLoad(state, state.meshAllocation, spv::StorageClassWorkgroup, TypeU32(state), ConstantU32(state, 0u));
+    const auto primitives = MeshLoad(state, state.meshAllocation, spv::StorageClassWorkgroup, TypeU32(state), ConstantU32(state, 1u));
+    state.module.AddFunction(spv::OpSetMeshOutputsEXT, vertices, primitives);
+    for (std::uint32_t half = 0; half < state.laneCount; half++) {
+        state.laneHalf = half;
+        const auto index = EmitLocalInvocationIndex(state);
+        const auto isVertex = state.module.AllocateId();
+        state.module.AddFunction(spv::OpULessThan, TypeBool(state), isVertex, index, vertices);
+        EmitIfCondition(state, isVertex, [&]() {
+            for (const auto& output : state.outputs) {
+                if (output.kind == StageOutputKind::Layer) {
+                    continue;
+                }
+                const auto type = MeshOutputType(state, output.kind);
+                const auto value = MeshLoad(state, output.meshDataVariable, spv::StorageClassPrivate, type, ConstantU32(state, half));
+                const auto pointer = MeshElement(state, output.variableId, spv::StorageClassOutput, type, index);
+                state.module.AddFunction(spv::OpStore, pointer, value);
+            }
+        });
+        const auto isPrimitive = state.module.AllocateId();
+        state.module.AddFunction(spv::OpULessThan, TypeBool(state), isPrimitive, index, primitives);
+        EmitIfCondition(state, isPrimitive, [&]() {
+            const auto packed = MeshLoad(state, state.meshPrimitiveData, spv::StorageClassPrivate, TypeU32(state), ConstantU32(state, half));
+            std::array<std::uint32_t, 3> vertex {};
+            for (std::uint32_t component = 0; component < 3u; component++) {
+                vertex.at(component) = state.module.AllocateId();
+                state.module.AddFunction(spv::OpBitFieldUExtract, TypeU32(state), vertex.at(component), packed, ConstantU32(state, component * 10u), ConstantU32(state, 10u));
+            }
+            const auto triangle = state.module.AllocateId();
+            state.module.AddFunction(spv::OpCompositeConstruct, TypeU32Vector(state, 3u), triangle, vertex[0], vertex[1], vertex[2]);
+            const auto trianglePointer = MeshElement(state, state.meshPrimitives, spv::StorageClassOutput, TypeU32Vector(state, 3u), index);
+            state.module.AddFunction(spv::OpStore, trianglePointer, triangle);
+            const auto nullBit = EmitBinaryU32(state, spv::OpBitwiseAnd, packed, ConstantU32(state, 0x80000000u));
+            const auto culled = state.module.AllocateId();
+            state.module.AddFunction(spv::OpINotEqual, TypeBool(state), culled, nullBit, ConstantU32(state, 0u));
+            state.module.AddFunction(spv::OpStore, MeshElement(state, state.meshCull, spv::StorageClassOutput, TypeBool(state), index), culled);
+            for (const auto& output : state.outputs) {
+                if (output.kind != StageOutputKind::Layer) {
+                    continue;
+                }
+                const auto layer = MeshLoad(state, output.meshDataVariable, spv::StorageClassWorkgroup, TypeU32(state), vertex.at(state.inputInfo.vertex->mesh.provokingVertex));
+                const auto pointer = MeshElement(state, output.variableId, spv::StorageClassOutput, TypeU32(state), index);
+                state.module.AddFunction(spv::OpStore, pointer, layer);
+            }
+        });
+    }
+    state.laneHalf = 0;
+    state.module.AddFunction(spv::OpReturn);
+    state.module.AddFunction(spv::OpFunctionEnd);
 }
 
 void EmitMeshAllocate(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitMeshAllocate not implemented");
+    auto& state = ctx.state;
+    const auto first = state.module.AllocateId();
+    state.module.AddFunction(spv::OpIEqual, TypeBool(state), first, EmitLocalInvocationIndex(state), ConstantU32(state, 0u));
+    EmitIfCondition(state, first, [&]() {
+        const auto allocation = ctx.Arg(inst, 0);
+        for (std::uint32_t field = 0; field < 2u; field++) {
+            const auto value = state.module.AllocateId();
+            state.module.AddFunction(spv::OpBitFieldUExtract, TypeU32(state), value, allocation, ConstantU32(state, field * 12u), ConstantU32(state, field == 0u ? 10u : 11u));
+            const auto pointer = MeshElement(state, state.meshAllocation, spv::StorageClassWorkgroup, TypeU32(state), ConstantU32(state, field));
+            state.module.AddFunction(spv::OpStore, pointer, value);
+        }
+    });
 }
 
 std::uint32_t MeshOutputPointer(SpirvEmitterState& state, StageOutputKind kind, std::uint32_t index) {
-    throw std::runtime_error("MeshOutputPointer not implemented");
+    const auto output = std::find_if(state.outputs.begin(), state.outputs.end(), [=](const SpirvOutputBinding& binding) {
+        return binding.kind == kind && binding.index == index;
+    });
+    if (output == state.outputs.end()) {
+        throw std::runtime_error("mesh export has no output binding");
+    }
+    const bool shared = kind == StageOutputKind::Layer;
+    return MeshElement(state, output->meshDataVariable, shared ? spv::StorageClassWorkgroup : spv::StorageClassPrivate, MeshOutputType(state, kind), shared ? EmitLocalInvocationIndex(state) : ConstantU32(state, state.laneHalf));
 }
 
 std::uint32_t MeshPrimitivePointer(SpirvEmitterState& state) {
-    throw std::runtime_error("MeshPrimitivePointer not implemented");
+    return MeshElement(state, state.meshPrimitiveData, spv::StorageClassPrivate, TypeU32(state), ConstantU32(state, state.laneHalf));
 }
 
 std::uint32_t EmitAndConstant(SpirvEmitterState& state, std::uint32_t value, std::uint32_t mask) {
@@ -573,11 +818,94 @@ std::uint32_t EmitF16BitsToF32(SpirvEmitterState& state, std::uint32_t bits) {
 }
 
 void EmitProgram(SpirvEmitterState& state) {
-    throw std::runtime_error("EmitProgram not implemented");
+    const auto& program = state.program;
+    SpirvValueEmitContext ctx(state);
+    SpirvValueEmitContext high(state);
+    if (state.laneCount == 2u) {
+        ctx.otherHalf = &high;
+        high.otherHalf = &ctx;
+        high.half = 1u;
+    }
+    if (state.program.Resources().stage == IrShaderStage::Pixel && state.requirements.pixelValidMask) {
+        state.pixelValidMaskVariable = state.module.AllocateId();
+        state.module.AddName(state.pixelValidMaskVariable, "pixel_valid_mask_active");
+    }
+    for (const IrBlock* block : program.BlockOrder()) {
+        const auto label = state.module.AllocateId();
+        state.labels.emplace(block, label);
+    }
+    DefineGetBdaPointer(state);
+    for (const IrBlock* block : program.BlockOrder()) {
+        const bool needsScratch = std::any_of(block->Instructions().begin(), block->Instructions().end(), [](const IrValue* inst) {
+            return inst->Opcode() == IrOpcode::SwizzleU32 || inst->Opcode() == IrOpcode::SharedAtomicFMin32 || inst->Opcode() == IrOpcode::SharedAtomicFMax32;
+        });
+        if (needsScratch) {
+            ctx.scratchU32Variable = state.module.AllocateId();
+            if (state.laneCount == 2u) {
+                high.scratchU32Variable = state.module.AllocateId();
+            }
+            break;
+        }
+    }
+    state.module.AddFunction(spv::OpFunction, TypeVoid(state), state.meshGuestFunc != 0u ? state.meshGuestFunc : state.mainFunc, spv::FunctionControlMaskNone, TypeFunction(state));
+    EmitLabel(state, state.entryLabel);
+    if (state.requirements.functionLds) {
+        state.module.AddFunction(spv::OpVariable, TypeU32ArrayPointer(state, spv::StorageClassFunction, LdsDwordCount(state)), state.ldsVariable, spv::StorageClassFunction);
+    }
+    if (state.requirements.functionScratch) {
+        for (std::uint32_t half = 0; half < state.laneCount; half++) {
+            state.module.AddFunction(spv::OpVariable, TypeU32ArrayPointer(state, spv::StorageClassFunction, state.program.Info().scratchDwords), state.scratchVariable.at(half), spv::StorageClassFunction);
+        }
+    }
+    if (state.pixelValidMaskVariable != 0u) {
+        state.module.AddFunction(spv::OpVariable, TypePointer(state, spv::StorageClassFunction, TypeU32(state)), state.pixelValidMaskVariable, spv::StorageClassFunction);
+    }
+    for (std::uint32_t half = 0; half < state.laneCount; half++) {
+        auto& lane = half == 0u ? ctx : high;
+        if (lane.scratchU32Variable != 0u) {
+            state.module.AddFunction(spv::OpVariable, TypePointer(state, spv::StorageClassFunction, TypeU32(state)), lane.scratchU32Variable, spv::StorageClassFunction);
+        }
+    }
+    if (state.gdsVariable != 0u) {
+        state.gdsLength = state.module.AllocateId();
+        state.module.AddFunction(spv::OpArrayLength, TypeU32(state), state.gdsLength, state.gdsVariable, 0u);
+    }
+    if (state.pixelValidMaskVariable != 0u) {
+        state.module.AddFunction(spv::OpStore, state.pixelValidMaskVariable, ConstantU32(state, 1u));
+    }
+    EmitMemoryOffsets(state);
+    if (program.BlockOrder().empty()) {
+        if (state.pixelValidMaskVariable != 0u) {
+            const auto maskValue = state.module.AllocateId();
+            const auto active = state.module.AllocateId();
+            state.module.AddFunction(spv::OpLoad, TypeU32(state), maskValue, state.pixelValidMaskVariable);
+            state.module.AddFunction(spv::OpINotEqual, TypeBool(state), active, maskValue, ConstantU32(state, 0u));
+            const auto inactive = state.module.AllocateId();
+            const auto killLabel = state.module.AllocateId();
+            const auto mergeLabel = state.module.AllocateId();
+            state.module.AddFunction(spv::OpLogicalNot, TypeBool(state), inactive, active);
+            state.module.AddFunction(spv::OpSelectionMerge, mergeLabel, spv::SelectionControlMaskNone);
+            state.module.AddFunction(spv::OpBranchConditional, inactive, killLabel, mergeLabel);
+            EmitLabel(state, killLabel);
+            state.module.AddFunction(spv::OpKill);
+            EmitLabel(state, mergeLabel);
+        }
+        state.module.AddFunction(spv::OpReturn);
+    } else {
+        StructuredFunctionState functionState;
+        EmitControlFlow(ctx, functionState, program);
+    }
+    state.module.AddFunction(spv::OpFunctionEnd);
+    if (state.program.Resources().stage == IrShaderStage::Mesh) {
+        EmitMeshEntryPoint(state);
+    }
 }
 
 void DefineGetBdaPointer(SpirvEmitterState& state) {
-    throw std::runtime_error("DefineGetBdaPointer not implemented");
+    if (!state.program.Info().usesDma) {
+        return;
+    }
+    throw std::runtime_error("DefineGetBdaPointer requires a BDA cache page-bits constant that does not exist anywhere in this codebase; it must be added (e.g. to ShaderInfo or SpirvTargetOptions) before this function can be implemented without inventing a fallback value");
 }
 
 void EmitLabel(SpirvEmitterState& state, std::uint32_t label) {
@@ -604,43 +932,136 @@ std::uint32_t Select(SpirvEmitterState& state, std::uint32_t type, std::uint32_t
 }
 
 std::uint32_t EmitMeshDrawParameter(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitMeshDrawParameter not implemented");
+    auto& state = ctx.state;
+    const auto index = inst.Argument(0)->ImmediateU32();
+    if (state.program.Resources().stage != IrShaderStage::Mesh || index >= PushData::MeshDrawDwordCount) {
+        ctx.Fail(inst, "invalid mesh draw parameter");
+    }
+    const auto pointer = state.module.AllocateId();
+    state.module.AddFunction(spv::OpAccessChain, TypePushConstantElementPointer(state), pointer, state.pushConstantVariable, ConstantU32(state, 0u), ConstantU32(state, index));
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(spv::OpLoad, TypeU32(state), result, pointer);
+    return result;
 }
 
 std::uint32_t EmitGetTessellationAttribute(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitGetTessellationAttribute not implemented");
+    return EmitValueOrZeroIfCondition(ctx.state, ctx.Arg(inst, 2), [&]() {
+        const auto value = ctx.state.module.AllocateId();
+        ctx.state.module.AddFunction(spv::OpLoad, TypeU32(ctx.state), value, TessellationPointer(ctx, inst));
+        return value;
+    });
 }
 
 void EmitSetTessellationAttribute(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitSetTessellationAttribute not implemented");
+    EmitIfCondition(ctx.state, ctx.Arg(inst, 3), [&]() {
+        auto value = ctx.Arg(inst, 2);
+        if (inst.Argument(0)->ImmediateU32() == static_cast<std::uint32_t>(TessellationAttribute::Factor)) {
+            const auto floating = ctx.state.module.AllocateId();
+            ctx.state.module.AddFunction(spv::OpBitcast, TypeF32(ctx.state), floating, value);
+            value = floating;
+        }
+        ctx.state.module.AddFunction(spv::OpStore, TessellationPointer(ctx, inst), value);
+    });
 }
 
 std::uint32_t EmitGetUserData(SpirvEmitterState& state, ScalarReg reg) {
-    throw std::runtime_error("EmitGetUserData not implemented");
+    std::uint32_t dwordIndex = 0;
+    if (!UserDataDwordIndex(state, reg, dwordIndex)) {
+        return ConstantU32(state, 0u);
+    }
+    return EmitShaderDataDwordLoad(state, dwordIndex);
 }
 
 std::uint32_t EmitGetBuiltin(SpirvValueEmitContext& ctx, const IrValue* kind, const IrValue* index) {
-    throw std::runtime_error("EmitGetBuiltin not implemented");
+    return EmitBuiltinU32(ctx.state, static_cast<StageInputKind>(kind->ImmediateU32()), index->ImmediateU32());
 }
 
 std::uint32_t EmitGetAttribute(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitGetAttribute not implemented");
+    return EmitAttributeValue(ctx.state, inst.Argument(0)->ImmediateU32(), inst.Argument(1)->ImmediateU32());
 }
 
 std::uint32_t EmitGetInterpolationParameter(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitGetInterpolationParameter not implemented");
+    return EmitInterpolationParameterValue(ctx.state, inst.Argument(0)->ImmediateU32(), inst.Argument(1)->ImmediateU32(), inst.Argument(2)->ImmediateU32());
 }
 
 void EmitSetAttribute(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitSetAttribute not implemented");
+    auto& state = ctx.state;
+    const auto& exp = ctx.Export(inst);
+    const auto exec = ctx.Arg(inst, 1);
+    if (state.program.Resources().stage == IrShaderStage::Pixel && exp.vm && state.requirements.pixelValidMask && state.pixelValidMaskVariable != 0u) {
+        const auto value = state.module.AllocateId();
+        state.module.AddFunction(spv::OpSelect, TypeU32(state), value, exec, ConstantU32(state, 1u), ConstantU32(state, 0u));
+        state.module.AddFunction(spv::OpStore, state.pixelValidMaskVariable, value);
+    }
+    if (exp.kind == ExportTargetKind::Null || exp.en == 0u) {
+        return;
+    }
+    EmitIfCondition(state, exec, [&]() {
+        const auto data = ctx.Arg(inst, 0);
+        if (exp.kind == ExportTargetKind::Primitive) {
+            if (state.program.Resources().stage == IrShaderStage::Mesh) {
+                state.module.AddFunction(spv::OpStore, MeshPrimitivePointer(state), ExportRawComponent(ctx, data, 0));
+            }
+            return;
+        }
+        if (exp.kind == ExportTargetKind::Position && exp.index != 0u) {
+            EmitAuxPositionExport(ctx, data, exp);
+            return;
+        }
+        if (exp.kind == ExportTargetKind::MrtZ) {
+            if ((exp.en & 1u) != 0u && state.depthVariable != 0u) {
+                const auto raw = ExportRawComponent(ctx, data, 0);
+                const auto f32 = state.module.AllocateId();
+                state.module.AddFunction(spv::OpBitcast, TypeF32(state), f32, raw);
+                state.module.AddFunction(spv::OpStore, state.depthVariable, f32);
+            }
+            if ((exp.en & 4u) != 0u && state.sampleMaskVariable != 0u) {
+                const auto raw = ExportRawComponent(ctx, data, 2);
+                const auto value = state.module.AllocateId();
+                const auto pointer = state.module.AllocateId();
+                state.module.AddFunction(spv::OpBitcast, TypeI32(state), value, raw);
+                state.module.AddFunction(spv::OpAccessChain, TypePointer(state, spv::StorageClassOutput, TypeI32(state)), pointer, state.sampleMaskVariable, ConstantU32(state, 0u));
+                state.module.AddFunction(spv::OpStore, pointer, value);
+            }
+            return;
+        }
+        const auto variable = state.program.Resources().stage == IrShaderStage::Mesh ? 0u : OutputVariableForExport(state, exp);
+        if (state.program.Resources().stage != IrShaderStage::Mesh && variable == 0u) {
+            return;
+        }
+        const bool uintOutput = MrtOutputMode(state, exp) == 7u;
+        const auto vectorType = uintOutput ? TypeU32Vector(state, 4u) : TypeF32Vector(state, 4u);
+        auto value = ExportVector(ctx, data, exp, uintOutput);
+        if (state.program.Resources().stage == IrShaderStage::Pixel && exp.kind == ExportTargetKind::Mrt && exp.index < state.inputInfo.pixel->targetExportMapping.size()) {
+            const auto& mapping = state.inputInfo.pixel->targetExportMapping.at(exp.index);
+            if (!mapping.IsIdentity()) {
+                const auto mapped = state.module.AllocateId();
+                state.module.AddFunction(spv::OpVectorShuffle, vectorType, mapped, value, value, mapping.Map(0), mapping.Map(1), mapping.Map(2), mapping.Map(3));
+                value = mapped;
+            }
+        }
+        if (exp.kind == ExportTargetKind::Position && state.inputInfo.vertex->clipSpace.enabled) {
+            value = ConvertPositionToClipSpace(state, value);
+        }
+        if (state.program.Resources().stage == IrShaderStage::Mesh) {
+            const auto kind = exp.kind == ExportTargetKind::Position ? StageOutputKind::Position : StageOutputKind::Parameter;
+            state.module.AddFunction(spv::OpStore, MeshOutputPointer(state, kind, exp.index), value);
+        } else if (exp.kind == ExportTargetKind::Position) {
+            const auto pointer = state.module.AllocateId();
+            state.module.AddFunction(spv::OpAccessChain, TypePointer(state, spv::StorageClassOutput, TypeF32Vector(state, 4u)), pointer, variable, ConstantU32(state, 0u));
+            state.module.AddFunction(spv::OpStore, pointer, value);
+        } else {
+            state.module.AddFunction(spv::OpStore, variable, value);
+        }
+    });
 }
 
 std::uint32_t EmitGetShaderBase(SpirvValueEmitContext& ctx) {
-    throw std::runtime_error("EmitGetShaderBase not implemented");
+    return ConstantU64(ctx.state, 0u);
 }
 
 void EmitTessellationBase(SpirvValueEmitContext& ctx, const IrValue& inst) {
-    throw std::runtime_error("EmitTessellationBase not implemented");
+    ctx.Fail(inst, "must be lowered before SPIR-V emission");
 }
 
 }
