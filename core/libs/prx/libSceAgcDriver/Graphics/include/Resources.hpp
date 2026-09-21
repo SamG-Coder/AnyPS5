@@ -13,11 +13,14 @@ public:
     Buffer(const Buffer&) = delete;
     Buffer& operator=(const Buffer&) = delete;
     VkBuffer Handle() const;
+    VkDeviceAddress DeviceAddress() const;
     std::span<std::byte> Bytes();
 
 private:
+    void initializeAddress(VkBufferUsageFlags usage);
     void release() noexcept;
-    const Context& context;
+    Context context;
+    VkDeviceAddress deviceAddress = 0;
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     void* mapping = nullptr;

@@ -47,12 +47,14 @@ const char* kindName(ShaderRecompiler::DescriptorKind kind) {
 
 ShaderResources::ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : ShaderResources(context, std::array<CompiledShader, 2>{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, static_cast<std::uint32_t>(vertex.pushConstants.size())}}}, target, indexAddress, indexBytes) {}
 
-ShaderResources::ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes) : context(context) {
+ShaderResources::ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes, std::span<const GuestMemorySnapshot> snapshots) : context(context), guestMemory(context) {
+    prepareAddressBindings(shaders, snapshots);
     build(shaders, &target, indexAddress, indexBytes);
 }
 
-ShaderResources::ShaderResources(const Context& context, const CompiledShader& compute) : context(context) {
+ShaderResources::ShaderResources(const Context& context, const CompiledShader& compute, std::span<const GuestMemorySnapshot> snapshots) : context(context), guestMemory(context) {
     Require(compute.stage == ShaderRecompiler::ShaderStage::Compute, "compute resources require a compute shader");
+    prepareAddressBindings(std::span<const CompiledShader>(&compute, 1), snapshots);
     build(std::span<const CompiledShader>(&compute, 1), nullptr, 0, 0);
 }
 
@@ -69,7 +71,8 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
             for (const auto& binding : shader.program->bindings) {
                 Require(binding.descriptorSet == 0, "unexpected descriptor set: every shader resource must use descriptor set zero");
                 Require(occupied.insert(binding.binding).second, "duplicate shader binding");
-                const bool bufferRole = binding.role == ShaderRecompiler::DescriptorRole::GuestBuffers || binding.role == ShaderRecompiler::DescriptorRole::ShaderData || binding.role == ShaderRecompiler::DescriptorRole::FlattenedSrt;
+                const bool addressRole = binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable || binding.role == ShaderRecompiler::DescriptorRole::FaultBuffer;
+                const bool bufferRole = addressRole || binding.role == ShaderRecompiler::DescriptorRole::GuestBuffers || binding.role == ShaderRecompiler::DescriptorRole::ShaderData || binding.role == ShaderRecompiler::DescriptorRole::FlattenedSrt;
                 Require(bufferRole, std::string("unsupported descriptor role ") + roleName(binding.role));
                 Require(binding.kind == ShaderRecompiler::DescriptorKind::StorageBuffer, std::string("unsupported descriptor kind ") + kindName(binding.kind) + " for role " + roleName(binding.role) + ": only StorageBuffer is supported");
                 Require(!binding.readOnly, "read-only descriptors are unsupported because the recompiler emits no NonWritable decoration");
@@ -81,6 +84,9 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
                 if (binding.role == ShaderRecompiler::DescriptorRole::GuestBuffers) {
                     Require(binding.guestDescriptor.size() == static_cast<std::uint64_t>(binding.count) * 4, "guest buffer descriptor must contain four DWORDs per array element");
                     for (std::uint32_t element = 0; element < binding.count; ++element) item.allocations.push_back(addGuestBuffer(std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * 4, 4), target, indexAddress, indexBytes));
+                } else if (addressRole) {
+                    item.allocations.push_back(allocations.size());
+                    allocations.push_back({0, 0, false, nullptr, binding.role});
                 } else {
                     Require(binding.count == 1, "shader data and flattened SRT descriptors must not be arrays");
                     Require(!binding.guestDescriptor.empty(), "empty shader data descriptor");
@@ -90,6 +96,8 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
             }
         }
         Require(storageBuffers <= context.limits.maxDescriptorSetStorageBuffers, "pipeline descriptors exceed device limits");
+        guestMemory.Upload(usesBda);
+        if (usesBda) bda = std::make_unique<BdaResources>(context, guestMemory);
         std::vector<VkDescriptorSetLayoutBinding> description;
         for (const auto& binding : bindings) description.push_back(binding.layout);
         VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -110,7 +118,7 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
         Check(context.Function<PFN_vkAllocateDescriptorSets>("vkAllocateDescriptorSets")(context.device, &allocation, &_set), "vkAllocateDescriptorSets");
         for (const auto& binding : bindings) {
             std::vector<VkDescriptorBufferInfo> buffers;
-            for (const auto index : binding.allocations) buffers.push_back({allocations[index].buffer->Handle(), 0, allocations[index].size});
+            for (const auto index : binding.allocations) buffers.push_back(descriptor(allocations[index]));
             VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             write.dstSet = _set;
             write.dstBinding = binding.layout.binding;
@@ -137,10 +145,8 @@ std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words
     GuestMemory::CheckRange(reinterpret_cast<const void*>(address), size, 1, true);
     Require(target == nullptr || !overlap(address, size, target->address, target->bytes), "shader buffer aliases the render target");
     Require(!overlap(address, size, indexAddress, indexBytes), "writable shader buffer aliases the index buffer");
-    for (const auto& existing : allocations) Require(!existing.guest || !overlap(address, size, existing.address, existing.size), "overlapping writable shader buffers are unsupported");
-    auto buffer = std::make_unique<Buffer>(context, size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    GuestMemory::Read(address, buffer->Bytes());
-    allocations.push_back({address, size, true, std::move(buffer)});
+    guestMemory.AddWritable(address, size);
+    allocations.push_back({address, size, true, nullptr});
     return allocations.size() - 1;
 }
 
@@ -172,12 +178,8 @@ void ShaderResources::Bind(VkCommandBuffer commands, VkPipelineBindPoint bindPoi
 }
 
 void ShaderResources::WriteBack() {
-    for (const auto& allocation : allocations) {
-        if (allocation.guest) GuestMemory::CheckRange(reinterpret_cast<const void*>(allocation.address), allocation.size, 1, true);
-    }
-    for (const auto& allocation : allocations) {
-        if (allocation.guest) GuestMemory::Write(allocation.address, allocation.buffer->Bytes());
-    }
+    if (bda) bda->CheckFault();
+    guestMemory.WriteBack();
 }
 
 }

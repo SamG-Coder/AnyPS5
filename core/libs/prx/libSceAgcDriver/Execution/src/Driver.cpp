@@ -314,7 +314,8 @@ private:
             {0, 0, 0, 128}
         };
         const auto compiled = ShaderRecompiler::Recompile(request);
-        device->Dispatch(compiled, packet[1], packet[2], packet[3]);
+        const std::array<Graphics::GuestMemorySnapshot, 2> snapshots{{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}};
+        device->Dispatch(compiled, packet[1], packet[2], packet[3], snapshots);
     }
 
     void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
@@ -428,7 +429,9 @@ private:
             stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
             pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
         }
-        device->DrawIndexed(graphics, indexed, stages);
+        std::vector<Graphics::GuestMemorySnapshot> snapshots;
+        for (const auto& region : memory) snapshots.push_back({region.guestAddress, region.bytes});
+        device->DrawIndexed(graphics, indexed, stages, snapshots);
     }
 
     void execute(const Submission& submission) {

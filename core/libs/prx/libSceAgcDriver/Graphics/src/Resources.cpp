@@ -5,6 +5,8 @@ namespace AgcDriver::Graphics {
 
 Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usage) : context(context), size(size) {
     Require(size != 0, "zero-sized GPU buffer");
+    const bool addressable = (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0;
+    Require(!addressable || context.bufferDeviceAddress, "buffer device address is not enabled");
     try {
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         info.size = size;
@@ -14,10 +16,13 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         VkMemoryRequirements requirements{};
         context.Function<PFN_vkGetBufferMemoryRequirements>("vkGetBufferMemoryRequirements")(context.device, buffer, &requirements);
         VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+        const VkMemoryAllocateFlagsInfo flags{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, nullptr, VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, 0};
+        if (addressable) allocation.pNext = &flags;
         allocation.allocationSize = requirements.size;
         allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory buffer");
         Check(context.Function<PFN_vkBindBufferMemory>("vkBindBufferMemory")(context.device, buffer, memory, 0), "vkBindBufferMemory");
+        initializeAddress(usage);
         Check(context.Function<PFN_vkMapMemory>("vkMapMemory")(context.device, memory, 0, size, 0, &mapping), "vkMapMemory");
     } catch (...) {
         release();

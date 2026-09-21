@@ -6,6 +6,7 @@
 #include <filesystem>
 
 #include "prx/libc/include/FileStream.hpp"
+#include "prx/libc/include/GuestHeap.hpp"
 #include "prx/libc/include/General.hpp"
 
 extern "C" {
@@ -89,56 +90,20 @@ int APS5_VABI fflush_nid_postfix(FileStream* stream) {
     return 0;
 }
 
-constexpr std::uintptr_t AlignedBlockTag = 1;
-
 void* APS5_VABI malloc_nid_postfix(size_t size) {
-    const size_t headerSize = sizeof(std::uintptr_t);
-    void* rawPtr = std::malloc(size + headerSize);
-    if (rawPtr == nullptr) {
-        _ZSt11_Xbad_allocv_nid_postfix();
-    }
-    *reinterpret_cast<std::uintptr_t*>(rawPtr) = 0;
-    return static_cast<char*>(rawPtr) + headerSize;
+    return GuestHeap::GuestHeapAllocate_nid_postfix(size);
 }
 
 void APS5_VABI free_nid_postfix(void* ptr) {
-    if (ptr == nullptr) {
-        return;
-    }
-    const std::uintptr_t headerValue = reinterpret_cast<std::uintptr_t*>(ptr)[-1];
-    if (headerValue == AlignedBlockTag) {
-        std::free(reinterpret_cast<void**>(ptr)[-2]);
-    } else {
-        std::free(reinterpret_cast<char*>(ptr) - sizeof(std::uintptr_t));
-    }
+    GuestHeap::GuestHeapFree_nid_postfix(ptr);
 }
 
 void* APS5_VABI realloc_nid_postfix(void* ptr, size_t newSize) {
-    if (ptr == nullptr) {
-        return malloc_nid_postfix(newSize);
-    }
-    const size_t headerSize = sizeof(std::uintptr_t);
-    void* rawPtr = static_cast<char*>(ptr) - headerSize;
-    void* newRawPtr = std::realloc(rawPtr, newSize + headerSize);
-    if (newRawPtr == nullptr) {
-        _ZSt11_Xbad_allocv_nid_postfix();
-    }
-    return static_cast<char*>(newRawPtr) + headerSize;
+    return GuestHeap::GuestHeapReallocate_nid_postfix(ptr, newSize);
 }
 
 void* APS5_VABI memalign_nid_postfix(size_t alignment, size_t size) {
-    const size_t headerSize = sizeof(void*) * 2;
-    const size_t worstCaseSize = size + alignment + headerSize;
-    void* rawPtr = std::malloc(worstCaseSize);
-    if (rawPtr == nullptr) {
-        _ZSt11_Xbad_allocv_nid_postfix();
-    }
-    const std::uintptr_t rawAddress = reinterpret_cast<std::uintptr_t>(rawPtr) + headerSize;
-    const std::uintptr_t alignedAddress = (rawAddress + alignment - 1) & ~(alignment - 1);
-    void* alignedPtr = reinterpret_cast<void*>(alignedAddress);
-    reinterpret_cast<void**>(alignedPtr)[-1] = reinterpret_cast<void*>(AlignedBlockTag);
-    reinterpret_cast<void**>(alignedPtr)[-2] = rawPtr;
-    return alignedPtr;
+    return GuestHeap::GuestHeapAlign_nid_postfix(alignment, size);
 }
 
 void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (*compare)(const void*, const void*)) {

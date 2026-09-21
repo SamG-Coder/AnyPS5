@@ -23,7 +23,7 @@ void imageBarrier(const Context& context, VkCommandBuffer commands, VkImage imag
 
 }
 
-void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedDraw& draw, std::span<const CompiledShader> shaders) {
+void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedDraw& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots) {
     APS5_LOG_OUT("DrawIndexed indices=%u instances=%u indexSize=%u flags=%u indexAddress=0x%llx", draw.indexCount, draw.instanceCount, draw.indexSize, draw.flags, static_cast<unsigned long long>(draw.indexAddress));
     APS5_LOG_OUT("State colorTarget=%u render=%ux%u colorAddress=0x%llx colorBytes=%llu colorExtent=%ux%u", state.hasColorTarget ? 1u : 0u, state.renderExtent.width, state.renderExtent.height, static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes), state.color.extent.width, state.color.extent.height);
     APS5_LOG_OUT("Viewport x=%f y=%f w=%f h=%f minDepth=%f maxDepth=%f", state.viewport.x, state.viewport.y, state.viewport.width, state.viewport.height, state.viewport.minDepth, state.viewport.maxDepth);
@@ -85,7 +85,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     }
     APS5_LOG_OUT("Color target object=%u", target ? 1u : 0u);
     APS5_LOG_CHARS_OUT("Creating ShaderResources");
-    ShaderResources resources(context, shaders, state.color, draw.indexAddress, static_cast<std::size_t>(indexBytes));
+    ShaderResources resources(context, shaders, state.color, draw.indexAddress, static_cast<std::size_t>(indexBytes), snapshots);
     APS5_LOG_CHARS_OUT("ShaderResources created");
     APS5_LOG_CHARS_OUT("Creating Pipeline");
     Pipeline pipeline(context, state, target.get(), resources, shaders);

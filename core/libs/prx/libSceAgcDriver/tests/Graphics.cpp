@@ -1,3 +1,4 @@
+#include "BdaTests.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <array>
@@ -255,6 +256,8 @@ struct MockVulkan {
     std::uint64_t next = 1;
     std::int64_t live = 0;
     std::map<VkBuffer, VkDeviceSize> bufferSizes;
+    std::map<VkBuffer, VkBufferUsageFlags> bufferUsage;
+    std::map<VkDeviceMemory, VkMemoryAllocateFlags> allocationFlags;
     std::map<VkBuffer, VkDeviceMemory> bufferMemory;
     std::map<VkDeviceMemory, std::vector<std::byte>> memories;
     std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
@@ -278,6 +281,7 @@ THandle makeHandle() {
 VKAPI_ATTR VkResult VKAPI_CALL mockCreateBuffer(VkDevice, const VkBufferCreateInfo* info, const VkAllocationCallbacks*, VkBuffer* buffer) {
     *buffer = makeHandle<VkBuffer>();
     mock.bufferSizes[*buffer] = info->size;
+    mock.bufferUsage[*buffer] = info->usage;
     ++mock.live;
     return VK_SUCCESS;
 }
@@ -289,6 +293,11 @@ VKAPI_ATTR void VKAPI_CALL mockGetBufferMemoryRequirements(VkDevice, VkBuffer bu
 VKAPI_ATTR VkResult VKAPI_CALL mockAllocateMemory(VkDevice, const VkMemoryAllocateInfo* info, const VkAllocationCallbacks*, VkDeviceMemory* memory) {
     *memory = makeHandle<VkDeviceMemory>();
     mock.memories[*memory] = std::vector<std::byte>(info->allocationSize);
+    if (info->pNext != nullptr) {
+        const auto* flags = static_cast<const VkMemoryAllocateFlagsInfo*>(info->pNext);
+        mock.allocationFlags[*memory] = flags->flags;
+        Require(flags->sType == VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO && flags->flags == VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, "invalid BDA allocation flags");
+    }
     ++mock.live;
     return VK_SUCCESS;
 }
@@ -359,8 +368,16 @@ VKAPI_ATTR void VKAPI_CALL mockCmdBindDescriptorSets(VkCommandBuffer, VkPipeline
     mock.boundSets = count;
 }
 
+VKAPI_ATTR VkDeviceAddress VKAPI_CALL mockGetBufferDeviceAddress(VkDevice, const VkBufferDeviceAddressInfo* info) {
+    Require(mock.bufferMemory.contains(info->buffer), "BDA buffer was not bound");
+    Require((mock.bufferUsage.at(info->buffer) & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0, "BDA buffer usage is missing");
+    Require((mock.allocationFlags.at(mock.bufferMemory.at(info->buffer)) & VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT) != 0, "BDA allocation flags are missing");
+    return 0x100000000000ULL + reinterpret_cast<std::uintptr_t>(info->buffer) * 0x10000;
+}
+
 PFN_vkVoidFunction VKAPI_CALL mockProc(VkDevice, const char* name) {
     static const std::map<std::string_view, PFN_vkVoidFunction> table{
+        {"vkGetBufferDeviceAddressKHR", reinterpret_cast<PFN_vkVoidFunction>(mockGetBufferDeviceAddress)},
         {"vkCreateBuffer", reinterpret_cast<PFN_vkVoidFunction>(mockCreateBuffer)},
         {"vkGetBufferMemoryRequirements", reinterpret_cast<PFN_vkVoidFunction>(mockGetBufferMemoryRequirements)},
         {"vkAllocateMemory", reinterpret_cast<PFN_vkVoidFunction>(mockAllocateMemory)},
@@ -386,6 +403,7 @@ AgcDriver::Graphics::Context mockContext() {
     context.deviceProc = mockProc;
     context.memory.memoryTypeCount = 1;
     context.memory.memoryTypes[0].propertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    context.limits.minStorageBufferOffsetAlignment = 1;
     context.limits.maxBoundDescriptorSets = 1;
     context.limits.maxStorageBufferRange = 4096;
     context.limits.maxPerStageDescriptorStorageBuffers = 16;
@@ -567,8 +585,8 @@ void resourceTests() {
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestImages; binding.kind = Kind::StorageImage; }), "unsupported descriptor role GuestImages");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::GuestSamplers; binding.kind = Kind::Sampler; }), "unsupported descriptor role GuestSamplers");
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::Gds; binding.guestDescriptor.clear(); }), "unsupported descriptor role Gds");
-    expectSingleFailure(changed([](auto& binding) { binding.role = Role::BdaPagetable; binding.guestDescriptor.clear(); }), "unsupported descriptor role BdaPagetable");
-    expectSingleFailure(changed([](auto& binding) { binding.role = Role::FaultBuffer; binding.guestDescriptor.clear(); }), "unsupported descriptor role FaultBuffer");
+    expectSingleFailure(changed([](auto& binding) { binding.role = Role::BdaPagetable; binding.guestDescriptor.clear(); }), "BDA table and fault descriptors");
+    expectSingleFailure(changed([](auto& binding) { binding.role = Role::FaultBuffer; binding.guestDescriptor.clear(); }), "BDA table and fault descriptors");
     expectSingleFailure(changed([](auto& binding) { binding.kind = Kind::UniformBuffer; }), "unsupported descriptor kind UniformBuffer");
     expectSingleFailure(changed([](auto& binding) { binding.kind = Kind::UniformTexelBuffer; }), "unsupported descriptor kind UniformTexelBuffer");
     expectSingleFailure(changed([](auto& binding) { binding.kind = Kind::StorageTexelBuffer; }), "unsupported descriptor kind StorageTexelBuffer");
@@ -589,8 +607,6 @@ void resourceTests() {
     expectSingleFailure(changed([&](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(state.color.address), 64); }), "aliases the render target");
     expectSingleFailure(changed([](auto& binding) { binding.count = 3; binding.guestDescriptor = join(join(vsharp(guestFirst.data(), 16), vsharp(guestSecond.data(), 32)), vsharp(reinterpret_cast<const void*>(0x1000), 8)); }), "not readable");
     expectSingleFailure(changed([&](auto& binding) { binding.count = 2; binding.guestDescriptor = join(vsharp(guestFirst.data(), 16), vsharp(reinterpret_cast<const void*>(state.color.address), 64)); }), "aliases the render target");
-    expectSingleFailure(changed([](auto& binding) { binding.count = 2; binding.guestDescriptor = join(vsharp(guestSecond.data(), 32), vsharp(guestSecond.data(), 32)); }), "overlapping writable shader buffers");
-    expectSingleFailure(changed([](auto& binding) { binding.count = 2; binding.guestDescriptor = join(vsharp(guestSecond.data(), 32), vsharp(&guestSecond[4], 16)); }), "overlapping writable shader buffers");
     expectSingleFailure(changed([](auto& binding) { binding.count = 17; binding.guestDescriptor.assign(68, 0); }), "per-stage limits");
     {
         ShaderRecompiler::RecompileResult vertex;
@@ -600,7 +616,6 @@ void resourceTests() {
         expectResourceFailure(vertex, fragment, "duplicate shader binding");
         fragment.bindings.front().binding = 1;
         fragment.bindings.front().guestDescriptor = vsharp(guestFirst.data(), 16);
-        expectResourceFailure(vertex, fragment, "overlapping writable shader buffers");
     }
 }
 
@@ -793,6 +808,20 @@ int main() {
         pushConstantTests();
         resourceTests();
         validationTests();
+        mock = MockVulkan{};
+        auto bdaContext = mockContext();
+        bdaContext.bufferDeviceAddress = true;
+        RunBdaResourceTests(bdaContext, {
+            [](VkBuffer buffer) -> std::span<std::byte> { return mock.memories.at(mock.bufferMemory.at(buffer)); },
+            [](std::uint32_t binding) {
+                for (auto it = mock.writes.rbegin(); it != mock.writes.rend(); ++it) {
+                    if (it->binding == binding) return it->buffers.at(0);
+                }
+                throw std::runtime_error("missing BDA test descriptor");
+            }
+        });
+        Require(mock.live == 0, "BDA resources leaked Vulkan objects");
+        RunGuestAllocationTests();
         std::cout << "Graphics validation tests passed\n";
         return 0;
     } catch (const std::exception& error) {

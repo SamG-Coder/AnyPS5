@@ -35,6 +35,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/BdaFeatures.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/VulkanDevice.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Draw.cpp
@@ -42,6 +43,10 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Resources.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderInputState.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderResources.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderAddressResources.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestBufferMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/BdaResources.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/BufferAddress.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderValidation.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/State.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Event.cpp
@@ -142,9 +147,15 @@ configure_windows_unwind(agc_driver_pm4_tests)
 
 add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         tests/Graphics.cpp
+        tests/BdaResources.cpp
+        tests/GuestAllocations.cpp
         Graphics/src/State.cpp
         Graphics/src/Resources.cpp
         Graphics/src/ShaderResources.cpp
+        Graphics/src/ShaderAddressResources.cpp
+        Graphics/src/GuestBufferMemory.cpp
+        Graphics/src/BdaResources.cpp
+        Graphics/src/BufferAddress.cpp
         Graphics/src/ShaderValidation.cpp
         Execution/src/GuestMemory.cpp
 )
@@ -162,6 +173,22 @@ target_link_libraries(agc_driver_graphics_tests PRIVATE
 
 set_target_properties(agc_driver_graphics_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_graphics_tests)
+
+add_executable(agc_driver_bda_device_tests EXCLUDE_FROM_ALL
+        tests/BdaDevice.cpp
+        Execution/src/BdaFeatures.cpp
+        Graphics/src/Resources.cpp
+        Graphics/src/BufferAddress.cpp
+)
+
+target_include_directories(agc_driver_bda_device_tests PRIVATE
+        ${LIBS_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler
+        ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
+)
+target_link_libraries(agc_driver_bda_device_tests PRIVATE SDL2-static libc)
+set_target_properties(agc_driver_bda_device_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_driver_bda_device_tests)
 
 option(AGC_BUILD_VISUAL_TEST "Enable the standalone AGC SPIR-V visual test" OFF)
 
@@ -193,10 +220,15 @@ if(AGC_BUILD_VISUAL_TEST)
             tests/Visual.cpp
             Execution/src/VulkanDevice.cpp
             Execution/src/GuestMemory.cpp
+            Execution/src/BdaFeatures.cpp
             Graphics/src/Draw.cpp
             Graphics/src/Pipeline.cpp
             Graphics/src/Resources.cpp
             Graphics/src/ShaderResources.cpp
+            Graphics/src/ShaderAddressResources.cpp
+            Graphics/src/GuestBufferMemory.cpp
+            Graphics/src/BdaResources.cpp
+            Graphics/src/BufferAddress.cpp
             Graphics/src/ShaderValidation.cpp
             ${visualShaders}
     )

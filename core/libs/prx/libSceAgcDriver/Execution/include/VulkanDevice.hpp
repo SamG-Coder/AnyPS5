@@ -23,8 +23,8 @@ public:
     std::uint64_t PresentClear(std::uint32_t width, std::uint32_t height, bool opaque);
     std::uint64_t PresentPixels(std::uint32_t width, std::uint32_t height, std::span<const std::byte> pixels);
     void WaitPresented(std::uint64_t id);
-    void Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z);
-    void DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders);
+    void Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots = {});
+    void DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots = {});
 
 private:
     Graphics::Context graphicsContext() const;

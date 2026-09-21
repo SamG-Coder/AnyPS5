@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_SHADERRESOURCES_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/BdaResources.hpp"
 #include "Recompiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Shaders.hpp"
 #include <array>
@@ -13,8 +14,8 @@ namespace AgcDriver::Graphics {
 class ShaderResources {
 public:
     ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
-    ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
-    ShaderResources(const Context& context, const CompiledShader& compute);
+    ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes, std::span<const GuestMemorySnapshot> snapshots = {});
+    ShaderResources(const Context& context, const CompiledShader& compute, std::span<const GuestMemorySnapshot> snapshots = {});
     ~ShaderResources();
     ShaderResources(const ShaderResources&) = delete;
     ShaderResources& operator=(const ShaderResources&) = delete;
@@ -28,13 +29,19 @@ private:
         std::size_t size;
         bool guest;
         std::unique_ptr<Buffer> buffer;
+        ShaderRecompiler::DescriptorRole role = ShaderRecompiler::DescriptorRole::ShaderData;
     };
 
     void build(std::span<const CompiledShader> shaders, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes);
     std::size_t addGuestBuffer(std::span<const std::uint32_t> words, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes);
     std::size_t addDataBuffer(std::span<const std::uint32_t> words);
     void release() noexcept;
+    void prepareAddressBindings(std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots);
+    VkDescriptorBufferInfo descriptor(const Allocation& allocation) const;
     const Context& context;
+    GuestBufferMemory guestMemory;
+    std::unique_ptr<BdaResources> bda;
+    bool usesBda = false;
     VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
     VkDescriptorSet _set = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;

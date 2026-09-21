@@ -34,6 +34,7 @@ struct Context {
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
     bool depthClipControl = false;
     bool depthRangeUnrestricted = false;
+    bool bufferDeviceAddress = false;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

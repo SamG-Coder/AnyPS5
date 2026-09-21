@@ -1,4 +1,5 @@
 #include "DirectMemory.hpp"
+#include "prx/libc/include/GuestAllocations.hpp"
 #include <cerrno>
 #include <limits>
 #include <stdexcept>
@@ -170,36 +171,70 @@ int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart,
     if (physStart < 0 || (static_cast<std::uint64_t>(physStart) & (PS5_PAGE_SIZE - 1)) != 0 || static_cast<std::uint64_t>(physStart) >= DIRECT_MEMORY_SIZE || len > DIRECT_MEMORY_SIZE - static_cast<std::uint64_t>(physStart)) {
         return SCE_KERNEL_ERROR_EINVAL;
     }
-    *addr = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, alignment);
+    GuestAllocations::Mutation mutation;
+    if (*addr != nullptr) mutation.RequireAvailable(*addr, len);
+    void* mapped = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, alignment);
+    try {
+        mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
+    } catch (...) {
+        Unmap(mapped, len);
+        throw;
+    }
+    *addr = mapped;
     return 0;
 }
 
 int DoMapAnon(void** addr, size_t len, int prot, int flags) {
     ValidateOutput(addr);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
-    *addr = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, PS5_PAGE_SIZE);
+    GuestAllocations::Mutation mutation;
+    if (*addr != nullptr) mutation.RequireAvailable(*addr, len);
+    void* mapped = MapAligned(*addr, len, LinuxProtFromSce(prot), flags, PS5_PAGE_SIZE);
+    try {
+        mutation.Add(mapped, len, (prot & 3) != 0, (prot & 2) != 0);
+    } catch (...) {
+        Unmap(mapped, len);
+        throw;
+    }
+    *addr = mapped;
     return 0;
 }
 
 int DoMprotect(const void* addr, size_t len, int prot) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
-    if (mprotect(const_cast<void*>(addr), len, LinuxProtFromSce(prot)) != 0) return SCE_KERNEL_ERROR_EINVAL;
+    const auto nativeProtection = LinuxProtFromSce(prot);
+    GuestAllocations::Mutation mutation;
+    mutation.Protect(addr, len, (prot & 3) != 0, (prot & 2) != 0, [&] {
+        if (mprotect(const_cast<void*>(addr), len, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
+    });
     return 0;
 }
 
 int DoMunmap(void* addr, size_t len) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
+    GuestAllocations::Mutation mutation;
+    mutation.Unmap(addr, len, [&](const void* allocation, bool last) {
 #if defined(__linux__)
-    Unmap(addr, len);
+        Unmap(addr, len);
 #else
-    munmap_release(addr);
+        if (last) munmap_release(const_cast<void*>(allocation));
+        else munmap(addr, len);
 #endif
+    });
     return 0;
 }
 
 int DoReserveVirtual(void** addr, size_t len, size_t alignment) {
     ValidateOutput(addr);
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
-    *addr = MapAligned(nullptr, len, PROT_NONE, 0, alignment);
+    GuestAllocations::Mutation mutation;
+    void* mapped = MapAligned(nullptr, len, PROT_NONE, 0, alignment);
+    try {
+        mutation.Add(mapped, len, false, false);
+    } catch (...) {
+        Unmap(mapped, len);
+        throw;
+    }
+    *addr = mapped;
     return 0;
 }

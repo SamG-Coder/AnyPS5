@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libc/include/General.hpp"
 #include <SDL_loadso.h>
 #include <SDL_error.h>
@@ -279,6 +280,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     std::vector<VkExtensionProperties> availableExtensions(extensionCount);
     check(enumerateDeviceExtensions(selected, nullptr, &extensionCount, availableExtensions.data()), "vkEnumerateDeviceExtensionProperties");
     const auto hasExtension = [&](const char* name) { return std::any_of(availableExtensions.begin(), availableExtensions.end(), [&](const auto& item) { return std::strcmp(item.extensionName, name) == 0; }); };
+    auto bdaFeatures = QueryBdaFeatures(selected, state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2"), availableExtensions);
     const std::array<const char*, 3> meshExtensions{VK_EXT_MESH_SHADER_EXTENSION_NAME, VK_KHR_SPIRV_1_4_EXTENSION_NAME, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME};
     const bool meshAvailable = std::all_of(meshExtensions.begin(), meshExtensions.end(), hasExtension);
     VkPhysicalDeviceMeshShaderFeaturesEXT meshFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
@@ -293,6 +295,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     meshFeatures.meshShader = state->meshShader;
     std::vector<const char*> deviceExtensions;
     if (window != nullptr) deviceExtensions.assign(presentationExtensions.begin(), presentationExtensions.end());
+    deviceExtensions.push_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    state->capabilities.push_back(11);
+    state->capabilities.push_back(5347);
+    state->spirvExtensions.push_back("SPV_KHR_physical_storage_buffer");
     state->depthRangeUnrestricted = hasExtension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     if (state->depthRangeUnrestricted) deviceExtensions.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     VkPhysicalDeviceDepthClipControlFeaturesEXT depthClipFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
@@ -320,6 +326,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures>("vkGetPhysicalDeviceFeatures")(selected, &available);
     require(available.vertexPipelineStoresAndAtomics && available.fragmentStoresAndAtomics, "graphics shader buffer writes and atomics are unavailable");
     VkPhysicalDeviceFeatures enabled{};
+    enabled.shaderInt64 = VK_TRUE;
     enabled.vertexPipelineStoresAndAtomics = VK_TRUE;
     enabled.fragmentStoresAndAtomics = VK_TRUE;
     enabled.tessellationShader = available.tessellationShader;
@@ -344,6 +351,8 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         depthClipFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
         deviceInfo.pNext = &depthClipFeatures;
     }
+    bdaFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
+    deviceInfo.pNext = &bdaFeatures;
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
     state->DeviceFunction<PFN_vkGetDeviceQueue>("vkGetDeviceQueue")(state->device, family, 0, &state->queue);
     APS5_LOG_OUT("Vulkan device ready device=%p queue=%p family=%u", reinterpret_cast<void*>(state->device), reinterpret_cast<void*>(state->queue), family);
@@ -586,18 +595,19 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->meshShader,
         state->meshLimits,
         state->depthClipControl,
-        state->depthRangeUnrestricted
+        state->depthRangeUnrestricted,
+        true
     };
 }
 
-void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders) {
+void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
     APS5_LOG_OUT("VulkanDevice::DrawIndexed indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
     const auto context = graphicsContext();
-    Graphics::DrawIndexed(context, graphics, draw, shaders);
+    Graphics::DrawIndexed(context, graphics, draw, shaders, snapshots);
     APS5_LOG_CHARS_OUT("VulkanDevice::DrawIndexed complete");
 }
 
-void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z) {
+void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
     APS5_LOG_OUT("Dispatch groups=%ux%ux%u spirvWords=%zu bindings=%zu pushConstants=%zu", x, y, z, shader.spirv.size(), shader.bindings.size(), shader.pushConstants.size());
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
@@ -637,7 +647,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         moduleInfo.codeSize = shader.spirv.size() * sizeof(std::uint32_t);
         moduleInfo.pCode = shader.spirv.data();
         check(state->DeviceFunction<PFN_vkCreateShaderModule>("vkCreateShaderModule")(state->device, &moduleInfo, nullptr, &module), "vkCreateShaderModule");
-        Graphics::ShaderResources resources(context, shaders[0]);
+        Graphics::ShaderResources resources(context, shaders[0], snapshots);
         const auto setLayout = resources.Layout();
         const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, Graphics::PipelinePushConstantBytes};
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
