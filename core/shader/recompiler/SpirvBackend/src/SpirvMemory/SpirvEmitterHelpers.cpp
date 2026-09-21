@@ -1,3 +1,4 @@
+#include "BdaAbi.hpp"
 #include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvTypes.hpp"
 #include "SpirvBackend/SpirvMemory/SpirvConstants.hpp"
@@ -63,7 +64,7 @@ std::uint32_t F32ArrayType(SpirvEmitterState& state, std::uint32_t count) {
 }
 
 std::uint32_t StorageBufferBlockType(SpirvEmitterState& state) {
-    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeU32(state));
+    const auto array = state.module.DecoratedType(spv::OpTypeRuntimeArray, {{spv::OpDecorate, {spv::DecorationArrayStride, 4u}}}, TypeU32(state));
     return state.module.DecoratedType(spv::OpTypeStruct,
         {{spv::OpDecorate, {spv::DecorationBlock}},
          {spv::OpMemberDecorate, {0u, spv::DecorationOffset, 0u}}},
@@ -71,7 +72,7 @@ std::uint32_t StorageBufferBlockType(SpirvEmitterState& state) {
 }
 
 std::uint32_t StorageBufferU64BlockType(SpirvEmitterState& state) {
-    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeScalarU64(state));
+    const auto array = state.module.DecoratedType(spv::OpTypeRuntimeArray, {{spv::OpDecorate, {spv::DecorationArrayStride, 8u}}}, TypeScalarU64(state));
     return state.module.DecoratedType(spv::OpTypeStruct,
         {{spv::OpDecorate, {spv::DecorationBlock}},
          {spv::OpMemberDecorate, {0u, spv::DecorationOffset, 0u}}},
@@ -157,9 +158,16 @@ void CheckBindings(const IrProgram& program, const BindingAllocationResult& bind
     }
 }
 
-void EmitBaseHeader(SpirvModule& module, const IrProgram&) {
+void EmitBaseHeader(SpirvModule& module, const IrProgram& program) {
     module.EmitCapability(spv::CapabilityShader);
-    module.AddMemoryModel(spv::AddressingModelLogical, spv::MemoryModelGLSL450);
+    if (program.Info().usesDma) {
+        module.EmitCapability(spv::CapabilityInt64);
+        module.EmitCapability(spv::CapabilityPhysicalStorageBufferAddresses);
+        module.EmitCapability(spv::CapabilityStorageBuffer8BitAccess);
+        module.EmitExtension("SPV_KHR_physical_storage_buffer");
+        module.EmitExtension("SPV_KHR_8bit_storage");
+    }
+    module.AddMemoryModel(program.Info().usesDma ? spv::AddressingModelPhysicalStorageBuffer64 : spv::AddressingModelLogical, spv::MemoryModelGLSL450);
 }
 
 void DefineInputs(SpirvEmitterState& state) {
@@ -350,7 +358,7 @@ void DefineDescriptors(SpirvEmitterState& state) {
             }
             break;
         case DescriptorBindingKind::BdaPagetable:
-            state.bdaPagetableVariable = Define(StorageBufferU64BlockType(state), "bda_pagetable");
+            state.bdaPagetableVariable = Define(StorageBufferBlockType(state), "bda_pagetable");
             break;
         case DescriptorBindingKind::FaultBuffer:
             state.faultBufferVariable = Define(StorageBufferBlockType(state), "fault_buffer");

@@ -519,7 +519,7 @@ void writeSpirvTarget(Writer& writer, const SpirvTarget& target) {
     writer.WriteU32(target.vulkanVersion);
     writer.WriteU32(target.spirvVersion);
     writer.WriteU32(target.subgroupSize);
-    writer.WriteU32(target.bdaCachePageBits);
+    writer.WriteU32(target.bdaAbiVersion);
     writer.WriteU32Span(target.supportedCapabilities);
     writer.WriteU64(target.supportedExtensions.size());
     for (const std::string_view extension : target.supportedExtensions) {
@@ -545,7 +545,7 @@ SpirvTarget readSpirvTarget(Reader& reader, DeserializedRequest& result) {
     target.vulkanVersion = reader.ReadU32();
     target.spirvVersion = reader.ReadU32();
     target.subgroupSize = reader.ReadU32();
-    target.bdaCachePageBits = reader.ReadU32();
+    target.bdaAbiVersion = reader.ReadU32();
     result.supportedCapabilities = reader.ReadU32Vector();
     target.supportedCapabilities = result.supportedCapabilities;
     const auto extensionCount = reader.ReadU64();
@@ -657,6 +657,8 @@ GraphicsCompileContext readGraphicsCompileContext(Reader& reader, DeserializedGr
 std::string RequestSerializer::Serialize(const RecompileRequest& request) const {
     std::string buffer;
     Writer writer(buffer);
+    writer.WriteU32(0x41505335u);
+    writer.WriteU32(1u);
     writeShaderBinary(writer, request.shader);
     writeGuestContext(writer, request.context);
     writeSpirvTarget(writer, request.target);
@@ -671,6 +673,7 @@ std::string RequestSerializer::Serialize(const RecompileRequest& request) const 
 DeserializedRequest RequestSerializer::Deserialize(std::string_view text) const {
     const std::string decoded = base64Decode(text);
     Reader reader(decoded);
+    if (reader.ReadU32() != 0x41505335u || reader.ReadU32() != 1u) throw std::runtime_error("unsupported recompile request serialization version");
     DeserializedRequest result{};
     result.request.shader = readShaderBinary(reader, result.shaderCode, result.shaderHeader);
     result.request.context = readGuestContext(reader, result);

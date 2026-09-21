@@ -1,3 +1,4 @@
+#include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvEmitter.hpp"
 #include "SpirvBackend/SpirvEmitterHelpers.hpp"
 #include "SpirvBackend/SpirvEmitterState.hpp"
@@ -209,6 +210,7 @@ std::vector<std::uint32_t> SpirvEmitter::Emit(const IrProgram& program, const Sh
         FailProgram(program, "SPIR-V emitter requires a fully planned native shader program");
     }
     ValidateProgram(program, true);
+    ValidateBdaTarget(program, target);
     SpirvEmitterState state(program, inputInfo);
     state.module.RequireVersion(target.spirvVersion);
     const auto* workgroup = ShaderWorkgroupInputFor(state);

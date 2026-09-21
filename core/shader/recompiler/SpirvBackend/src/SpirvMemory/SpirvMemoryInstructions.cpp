@@ -1,3 +1,4 @@
+#include "SpirvBackend/SpirvBda.hpp"
 #include "SpirvBackend/SpirvEmitterInstructions.hpp"
 #include "SpirvBackend/SpirvBufferFormat.hpp"
 #include <spirv/unified1/spirv.hpp>
@@ -183,7 +184,7 @@ std::uint32_t GuestAddress(SpirvValueEmitContext& ctx, const IrValue& inst, cons
             ctx.Fail(inst, "has no address base pair");
         }
         const auto base = DeviceAddressFromWords(state, ctx.Arg(*handle, 0), ctx.Arg(*handle, 1));
-        address = Binary(state, spv::OpIAdd, TypeScalarU64(state), base, Unary(state, spv::OpUConvert, TypeScalarU64(state), low));
+        address = AddBdaAddress(ctx, inst, base, Unary(state, spv::OpUConvert, TypeScalarU64(state), low), false);
     }
     auto immediate = static_cast<std::int32_t>(mem.offset);
     if (mem.kind == ResourceKind::ScalarAddress) {
@@ -192,54 +193,13 @@ std::uint32_t GuestAddress(SpirvValueEmitContext& ctx, const IrValue& inst, cons
     if (immediate == 0) {
         return address;
     }
-    return Binary(state, spv::OpIAdd, TypeScalarU64(state), address, ConstantDeviceAddress(state, static_cast<std::uint64_t>(static_cast<std::int64_t>(immediate))));
-}
-
-std::uint32_t GetBdaPointer(SpirvValueEmitContext& ctx, std::uint32_t address) {
-    auto& state = ctx.state;
-    if (state.bdaPointerFunction == 0u) {
-        ctx.Fail("BDA pointer function was not defined before function emission");
-    }
-    const auto result = state.module.AllocateId();
-    state.module.AddFunction(spv::OpFunctionCall, TypeScalarU64(state), result, state.bdaPointerFunction, address);
-    return result;
-}
-
-std::uint32_t LoadBdaDword(SpirvValueEmitContext& ctx, std::uint32_t address) {
-    auto& state = ctx.state;
-    const auto bda = GetBdaPointer(ctx, address);
-    const auto present = Binary(state, spv::OpINotEqual, TypeBool(state), bda, ConstantDeviceAddress(state, 0u));
-    return EmitValueOrZeroIfCondition(state, present, [&]() {
-        const auto pointer = state.module.AllocateId();
-        state.module.AddFunction(spv::OpConvertUToPtr, TypePhysicalU32Pointer(state), pointer, bda);
-        const auto value = state.module.AllocateId();
-        state.module.AddFunction(spv::OpLoad, TypeU32(state), value, pointer, spv::MemoryAccessAlignedMask, static_cast<std::uint32_t>(sizeof(std::uint32_t)));
-        return value;
-    });
+    const auto magnitude = immediate < 0 ? -static_cast<std::int64_t>(immediate) : static_cast<std::int64_t>(immediate);
+    return AddBdaAddress(ctx, inst, address, ConstantDeviceAddress(state, static_cast<std::uint64_t>(magnitude)), immediate < 0);
 }
 
 std::uint32_t LoadBda(SpirvValueEmitContext& ctx, const IrValue& inst, const MemoryInfo& mem, std::uint32_t bits) {
-    auto& state = ctx.state;
-    if (bits != 8u && bits != 16u && bits != 32u) {
-        ctx.Fail(inst, "has an unsupported address load width");
-    }
-    const auto address = GuestAddress(ctx, inst, mem);
-    return EmitValueOrZeroIfCondition(state, ActiveArgument(ctx, inst), [&]() {
-        const auto aligned = Binary(state, spv::OpBitwiseAnd, TypeScalarU64(state), address, ConstantDeviceAddress(state, ~std::uint64_t{3}));
-        const auto first = LoadBdaDword(ctx, aligned);
-        const auto byte = Binary(state, spv::OpBitwiseAnd, TypeU32(state), Unary(state, spv::OpUConvert, TypeU32(state), address), ConstantU32(state, 3u));
-        const auto crosses = bits == 8u ? ConstantBool(state, false) : Binary(state, bits == 16u ? spv::OpUGreaterThan : spv::OpINotEqual, TypeBool(state), byte, ConstantU32(state, bits == 16u ? 2u : 0u));
-        const auto second = EmitValueOrZeroIfCondition(state, crosses, [&]() {
-            return LoadBdaDword(ctx, Binary(state, spv::OpIAdd, TypeScalarU64(state), aligned, ConstantDeviceAddress(state, sizeof(std::uint32_t))));
-        });
-        const auto shift = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), byte, ConstantU32(state, 3u));
-        const auto upperByte = Binary(state, spv::OpBitwiseAnd, TypeU32(state), Binary(state, spv::OpISub, TypeU32(state), ConstantU32(state, 4u), byte), ConstantU32(state, 3u));
-        const auto upperShift = Binary(state, spv::OpShiftLeftLogical, TypeU32(state), upperByte, ConstantU32(state, 3u));
-        const auto merged = Binary(state, spv::OpBitwiseOr, TypeU32(state), Binary(state, spv::OpShiftRightLogical, TypeU32(state), first, shift), Binary(state, spv::OpShiftLeftLogical, TypeU32(state), second, upperShift));
-        if (bits == 32u) {
-            return merged;
-        }
-        return Binary(state, spv::OpBitwiseAnd, TypeU32(state), merged, ConstantU32(state, bits == 8u ? 0xffu : 0xffffu));
+    return EmitValueOrZeroIfCondition(ctx.state, ActiveArgument(ctx, inst), [&]() {
+        return EmitBdaRead(ctx, inst, GuestAddress(ctx, inst, mem), bits);
     });
 }
 

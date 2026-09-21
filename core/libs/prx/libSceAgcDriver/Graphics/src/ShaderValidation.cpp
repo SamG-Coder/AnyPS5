@@ -1,3 +1,4 @@
+#include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
@@ -136,13 +137,15 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
         const auto instruction = std::span(words).subspan(cursor, count);
         switch (op) {
             case spv::OpCapability:
-                Require(count == 2 && (instruction[1] == spv::CapabilityShader || ((control || evaluation) && instruction[1] == spv::CapabilityTessellation) || (mesh && instruction[1] == spv::CapabilityMeshShadingEXT)), "SPIR-V requires an unsupported device capability");
+                Require(count == 2 && (instruction[1] == spv::CapabilityShader || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (instruction[1] == spv::CapabilityInt64 || instruction[1] == spv::CapabilityPhysicalStorageBufferAddresses || instruction[1] == spv::CapabilityStorageBuffer8BitAccess)) || ((control || evaluation) && instruction[1] == spv::CapabilityTessellation) || (mesh && instruction[1] == spv::CapabilityMeshShadingEXT)), "SPIR-V requires an unsupported device capability");
                 break;
             case spv::OpExtension: {
                 const auto bytes = std::as_bytes(instruction.subspan(1));
                 const auto* text = reinterpret_cast<const char*>(bytes.data());
                 const auto end = std::find(text, text + bytes.size(), '\0');
-                Require(mesh && end != text + bytes.size() && std::string_view(text, static_cast<std::size_t>(end - text)) == "SPV_EXT_mesh_shader", "unsupported SPIR-V extension");
+                Require(end != text + bytes.size(), "unterminated SPIR-V extension");
+                const std::string_view extension(text, static_cast<std::size_t>(end - text));
+                Require((mesh && extension == "SPV_EXT_mesh_shader") || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (extension == "SPV_KHR_physical_storage_buffer" || extension == "SPV_KHR_8bit_storage")), "unsupported SPIR-V extension");
                 break;
             }
             case spv::OpDecorateId:
@@ -156,7 +159,7 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
             case spv::OpSpecConstantOp:
                 throw std::runtime_error("AGC graphics: unsupported SPIR-V extension, grouped decoration or specialization constant");
             case spv::OpMemoryModel:
-                Require(count == 3 && instruction[1] == spv::AddressingModelLogical && instruction[2] == spv::MemoryModelGLSL450, "unsupported SPIR-V memory model");
+                Require(count == 3 && instruction[1] == (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version ? spv::AddressingModelPhysicalStorageBuffer64 : spv::AddressingModelLogical) && instruction[2] == spv::MemoryModelGLSL450, "unsupported SPIR-V memory model");
                 ++memoryModels;
                 break;
             case spv::OpEntryPoint:
@@ -312,7 +315,7 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
             Require(binding->kind == ShaderRecompiler::DescriptorKind::StorageBuffer, "SPIR-V descriptor type disagrees with recompiler binding metadata");
             Require(!binding->readOnly, "read-only descriptor metadata is unsupported because the recompiler emits no NonWritable decoration");
             const bool array = binding->role == ShaderRecompiler::DescriptorRole::GuestBuffers;
-            Require(array || binding->role == ShaderRecompiler::DescriptorRole::ShaderData || binding->role == ShaderRecompiler::DescriptorRole::FlattenedSrt, "SPIR-V descriptor role is unsupported");
+            Require(array || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (binding->role == ShaderRecompiler::DescriptorRole::BdaPagetable || binding->role == ShaderRecompiler::DescriptorRole::FaultBuffer)) || binding->role == ShaderRecompiler::DescriptorRole::ShaderData || binding->role == ShaderRecompiler::DescriptorRole::FlattenedSrt, "SPIR-V descriptor role is unsupported");
             auto blockId = typeId;
             if (array) {
                 Require(type.size() == 4 && (type[0] & 0xffffu) == spv::OpTypeArray, "guest buffer descriptors must be declared as a descriptor array");

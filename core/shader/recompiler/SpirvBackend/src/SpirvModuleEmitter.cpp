@@ -901,13 +901,6 @@ void EmitProgram(SpirvEmitterState& state) {
     }
 }
 
-void DefineGetBdaPointer(SpirvEmitterState& state) {
-    if (!state.program.Info().usesDma) {
-        return;
-    }
-    throw std::runtime_error("DefineGetBdaPointer is not implemented: the bdaCachePageBits value is not wired into SpirvEmitterState, and the bda_pagetable and fault_buffer descriptor bindings have no defined entry layout or fault-reporting protocol, so this function cannot be emitted without inventing that layout");
-}
-
 void EmitLabel(SpirvEmitterState& state, std::uint32_t label) {
     state.currentLabel = label;
     state.module.AddFunction(spv::OpLabel, label);

@@ -13,7 +13,7 @@ namespace {
 }
 
 std::uint32_t StorageBufferType(SpirvEmitterState& state) {
-    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeU32(state));
+    const auto array = state.module.DecoratedType(spv::OpTypeRuntimeArray, {{spv::OpDecorate, {spv::DecorationArrayStride, 4u}}}, TypeU32(state));
     return state.module.DecoratedType(spv::OpTypeStruct,
         {{spv::OpDecorate, {spv::DecorationBlock}},
          {spv::OpMemberDecorate, {0, spv::DecorationOffset, 0}}},
@@ -21,7 +21,7 @@ std::uint32_t StorageBufferType(SpirvEmitterState& state) {
 }
 
 std::uint32_t StorageBufferU64Type(SpirvEmitterState& state) {
-    const auto array = state.module.Type(spv::OpTypeRuntimeArray, TypeScalarU64(state));
+    const auto array = state.module.DecoratedType(spv::OpTypeRuntimeArray, {{spv::OpDecorate, {spv::DecorationArrayStride, 8u}}}, TypeScalarU64(state));
     return state.module.DecoratedType(spv::OpTypeStruct,
         {{spv::OpDecorate, {spv::DecorationBlock}},
          {spv::OpMemberDecorate, {0, spv::DecorationOffset, 0}}},

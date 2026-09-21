@@ -176,6 +176,9 @@ configure_windows_unwind(agc_driver_graphics_tests)
 
 add_executable(agc_driver_bda_device_tests EXCLUDE_FROM_ALL
         tests/BdaDevice.cpp
+        tests/BdaShader.cpp
+        tests/BdaExecution.cpp
+        tests/BdaContracts.cpp
         Execution/src/BdaFeatures.cpp
         Graphics/src/Resources.cpp
         Graphics/src/BufferAddress.cpp
@@ -186,7 +189,7 @@ target_include_directories(agc_driver_bda_device_tests PRIVATE
         ${CMAKE_SOURCE_DIR}/core/shader/recompiler
         ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
 )
-target_link_libraries(agc_driver_bda_device_tests PRIVATE SDL2-static libc)
+target_link_libraries(agc_driver_bda_device_tests PRIVATE SDL2-static libc shader_recompiler_agc_driver)
 set_target_properties(agc_driver_bda_device_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_bda_device_tests)
 
