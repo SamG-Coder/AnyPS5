@@ -6,7 +6,10 @@
 #include "Optimization/include/Optimization/BindingAllocator.hpp"
 #include "Optimization/include/Optimization/ConstantFolder.hpp"
 #include "Optimization/include/Optimization/DeadCodeEliminator.hpp"
+#include "Optimization/include/Optimization/DescriptorBindingBuilder.hpp"
 #include "Optimization/include/Optimization/ReadLaneEliminator.hpp"
+#include "Optimization/include/Optimization/RequestMemoryView.hpp"
+#include "Optimization/include/Optimization/ResourceMaterializer.hpp"
 #include "Optimization/include/Optimization/ResourceTracker.hpp"
 #include "Optimization/include/Optimization/ShaderInfoCollector.hpp"
 #include "Optimization/include/Optimization/SrtWalker.hpp"
@@ -106,11 +109,28 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     resourceTracker.Track(program);
     deadCodeEliminator.Eliminate(program);
 
+    constexpr ResourceMaterializer resourceMaterializer;
+    const auto resourcePlan = resourceMaterializer.ExtractPlan(program);
+
+    RequestMemoryView requestMemoryView(request.context.memory);
+    const auto srtRuntime = requestMemoryView.MakeRuntime(request.context.userData, request.shader.codeAddress);
+
+    ResourceSnapshot resourceSnapshot;
+    ResourceSpecialization resourceSpecialization;
+    resourceMaterializer.Materialize(resourcePlan, srtRuntime, resourceSnapshot, resourceSpecialization);
+    resourceMaterializer.Apply(program, resourceSpecialization);
+
+    deadCodeEliminator.RemoveIdentities(program);
+    deadCodeEliminator.Eliminate(program);
+
     constexpr ShaderInfoCollector shaderInfoCollector;
     shaderInfoCollector.Collect(program, inputInfo);
 
     constexpr BindingAllocator bindingAllocator;
-    const auto bindings = bindingAllocator.Allocate(program, request.layout.pushConstantOffsetBytes);
+    auto bindings = bindingAllocator.Allocate(program, request.layout);
+
+    constexpr DescriptorBindingBuilder descriptorBindingBuilder;
+    descriptorBindingBuilder.Populate(bindings, program, resourceSnapshot);
 
     SpirvTargetOptions targetOptions {};
     targetOptions.vulkanVersion = request.target.vulkanVersion;
@@ -123,6 +143,7 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     RecompileResult result;
     result.spirv = spirv;
     result.bindings = bindings.bindings;
+    result.pushConstants = bindings.pushConstants;
     return result;
 }
 

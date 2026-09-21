@@ -207,8 +207,20 @@ enum class DescriptorKind {
     Sampler
 };
 
+enum class DescriptorRole {
+    GuestBuffers,
+    GuestImages,
+    GuestSamplers,
+    Gds,
+    BdaPagetable,
+    FaultBuffer,
+    FlattenedSrt,
+    ShaderData
+};
+
 struct DescriptorBinding {
     DescriptorKind kind;
+    DescriptorRole role;
     std::uint32_t descriptorSet;
     std::uint32_t binding;
     std::uint32_t count;

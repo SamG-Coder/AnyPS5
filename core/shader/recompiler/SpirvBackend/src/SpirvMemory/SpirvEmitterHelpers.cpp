@@ -113,22 +113,46 @@ void CheckBindings(const IrProgram& program, const BindingAllocationResult& bind
         if (physical.count != expectedCount) {
             FailEmit("descriptor binding " + std::to_string(index) + " has an incorrect descriptor count");
         }
+        if (physical.descriptorSet != 0u) {
+            FailEmit("descriptor binding " + std::to_string(index) + " is bound to the wrong descriptor set");
+        }
         if (physical.binding != NativeBinding(stage, logical.kind)) {
             FailEmit("descriptor binding " + std::to_string(index) + " is bound to the wrong native binding slot");
         }
         DescriptorKind expectedKind = DescriptorKind::StorageBuffer;
+        DescriptorRole expectedRole = DescriptorRole::GuestBuffers;
         if (logical.kind == DescriptorBindingKind::Samplers) {
             expectedKind = DescriptorKind::Sampler;
+            expectedRole = DescriptorRole::GuestSamplers;
+        } else if (logical.kind == DescriptorBindingKind::Gds) {
+            expectedRole = DescriptorRole::Gds;
+        } else if (logical.kind == DescriptorBindingKind::BdaPagetable) {
+            expectedRole = DescriptorRole::BdaPagetable;
+        } else if (logical.kind == DescriptorBindingKind::FaultBuffer) {
+            expectedRole = DescriptorRole::FaultBuffer;
+        } else if (logical.kind == DescriptorBindingKind::FlattenedSrt) {
+            expectedRole = DescriptorRole::FlattenedSrt;
+        } else if (logical.kind == DescriptorBindingKind::ShaderData) {
+            expectedRole = DescriptorRole::ShaderData;
         } else {
             const auto imageClass = ImageBindingResourceClass(logical.kind);
             if (imageClass == ImageResourceClass::Sampled) {
                 expectedKind = DescriptorKind::SampledImage;
+                expectedRole = DescriptorRole::GuestImages;
             } else if (imageClass == ImageResourceClass::Storage) {
                 expectedKind = DescriptorKind::StorageImage;
+                expectedRole = DescriptorRole::GuestImages;
+            } else if (logical.kind == DescriptorBindingKind::Buffers) {
+                expectedRole = DescriptorRole::GuestBuffers;
+            } else {
+                FailEmit("descriptor binding " + std::to_string(index) + " has an unmapped binding kind");
             }
         }
         if (physical.kind != expectedKind) {
             FailEmit("descriptor binding " + std::to_string(index) + " has an incorrect descriptor kind");
+        }
+        if (physical.role != expectedRole) {
+            FailEmit("descriptor binding " + std::to_string(index) + " has an incorrect descriptor role");
         }
     }
 }

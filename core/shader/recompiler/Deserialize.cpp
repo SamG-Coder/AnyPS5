@@ -227,7 +227,7 @@ int main(int argc, char** argv) {
         std::cout << "ShaderInfoCollector::Collect OK\n";
 
         BindingAllocator bindingAllocator;
-        const auto bindings = bindingAllocator.Allocate(program, request.layout.pushConstantOffsetBytes);
+        const auto bindings = bindingAllocator.Allocate(program, request.layout);
 
         std::cout << "BindingAllocator::Allocate OK, bindings=" << bindings.bindings.size() << "\n";
         std::cout << "ALL STAGES OK\n";

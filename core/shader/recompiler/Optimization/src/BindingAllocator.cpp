@@ -67,11 +67,26 @@ bool usesGds(const IrProgram& program) {
 
 }
 
-BindingAllocationResult BindingAllocator::Allocate(IrProgram& program, std::uint32_t pushDataStartDword) const {
+BindingAllocationResult BindingAllocator::Allocate(IrProgram& program, const BindingLayout& layout) const {
     IrProgramMetadata& metadata = program.Metadata();
     if (!metadata.shaderInfoComplete || metadata.bindingLayoutComplete) {
         fail(metadata.shaderInfoComplete ? "shader binding layout failed: binding layout already allocated"
                                           : "shader binding layout failed: shader info is not ready");
+    }
+    if (layout.descriptorSet != 0u) {
+        fail("shader binding layout failed: descriptor set must be 0");
+    }
+    if (layout.firstBinding != 0u) {
+        fail("shader binding layout failed: first binding must be 0");
+    }
+    if (layout.pushConstantOffsetBytes % 4u != 0u) {
+        fail("shader binding layout failed: push constant offset is not dword-aligned");
+    }
+    if (layout.pushConstantSizeBytes % 4u != 0u) {
+        fail("shader binding layout failed: push constant size is not dword-aligned");
+    }
+    if (layout.pushConstantOffsetBytes + layout.pushConstantSizeBytes > NativePushConstantSize) {
+        fail("shader binding layout failed: push constant range exceeds the native push constant size");
     }
 
     const ShaderInfo& info = program.Resources().info;
@@ -80,7 +95,10 @@ BindingAllocationResult BindingAllocator::Allocate(IrProgram& program, std::uint
     next.userDataRegisters = collectUserData(program);
     next.memoryOffsetDword = static_cast<std::uint32_t>(next.userDataRegisters.size());
     next.memoryOffsetCount = static_cast<std::uint32_t>(info.buffers.size());
-    next.pushDataStartDword = PushData::StartFor(pushDataStartDword, next.ShaderDataDwords());
+    const std::uint32_t pushDataStartDword = layout.pushConstantOffsetBytes / 4u;
+    const std::uint32_t pushConstantSizeDwords = layout.pushConstantSizeBytes / 4u;
+    const bool usesPushData = next.ShaderDataDwords() != 0u && next.ShaderDataDwords() <= pushConstantSizeDwords;
+    next.pushDataStartDword = usesPushData ? pushDataStartDword : PushData::NoStart;
 
     if (!info.buffers.empty()) {
         std::vector<std::uint32_t> resources(info.buffers.size());
