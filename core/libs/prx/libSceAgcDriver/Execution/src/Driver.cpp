@@ -410,22 +410,23 @@ private:
         std::vector<Graphics::CompiledShader> stages;
         results.reserve(programs.size());
         stages.reserve(programs.size());
-        const auto pushStride = Graphics::PushConstantStride(static_cast<std::size_t>(std::count_if(roles.begin(), roles.end(), [](Role role) { return role != Role::GeometryBack; })));
+        std::uint32_t pushCursorBytes = 0;
         for (std::size_t i = 0; i < programs.size(); ++i) {
             if (roles[i] == Role::GeometryBack) continue;
             const auto& program = programs[i];
-            const auto descriptorSet = static_cast<std::uint32_t>(stages.size());
-            const auto offset = descriptorSet * pushStride;
             const auto waveSize = program.binary.stage == Stage::Fragment ? graphics.stages.fragmentWaveSize : graphics.stages.vertexWaveSize;
             const ShaderRecompiler::RecompileRequest request{
                 program.binary,
                 {waveSize, program.userDataBase, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, program.binary.stage == Stage::Fragment ? std::nullopt : std::optional(Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData)), memory},
                 device->Target(),
-                {descriptorSet, 0, offset, pushStride},
+                {0, 0, pushCursorBytes, Graphics::PipelinePushConstantBytes - pushCursorBytes},
                 ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}
             };
             results.push_back(ShaderRecompiler::Recompile(request));
-            stages.push_back({program.binary.stage, &results.back(), offset});
+            const auto& result = results.back();
+            require(result.pushConstants.size() <= Graphics::PipelinePushConstantBytes - pushCursorBytes, "stage push constants exceed the pipeline push constant block");
+            stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
+            pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
         }
         device->DrawIndexed(graphics, indexed, stages);
     }

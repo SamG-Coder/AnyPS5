@@ -112,7 +112,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     APS5_LOG_OUT("Beginning pipeline renderExtent=%ux%u", state.renderExtent.width, state.renderExtent.height);
     pipeline.Begin(commands, state.renderExtent);
     APS5_LOG_CHARS_OUT("Pipeline Begin OK");
-    resources.Bind(commands, pipeline.Layout());
+    resources.Bind(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Layout());
     APS5_LOG_CHARS_OUT("Resources bound");
     pipeline.PushConstants(commands, shaders);
     APS5_LOG_CHARS_OUT("Push constants recorded");

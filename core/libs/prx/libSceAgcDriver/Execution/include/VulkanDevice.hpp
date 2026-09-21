@@ -27,6 +27,7 @@ public:
     void DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders);
 
 private:
+    Graphics::Context graphicsContext() const;
     std::uint64_t present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels);
     struct State;
     std::unique_ptr<State> state;

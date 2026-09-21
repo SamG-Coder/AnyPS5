@@ -43,7 +43,7 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
     auto fragment = LoadShader(directory / "Triangle.frag.spv");
     const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{
         {ShaderRecompiler::ShaderStage::Vertex, &vertex, 0},
-        {ShaderRecompiler::ShaderStage::Fragment, &fragment, AgcDriver::Graphics::StagePushConstantBytes}
+        {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}
     }};
     for (std::size_t i = 0; i < Pixels.size(); i += 4) {
         Pixels[i] = std::byte{16};

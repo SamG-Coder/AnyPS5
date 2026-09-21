@@ -28,13 +28,12 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
     Require(viewport.width <= context.limits.maxViewportDimensions[0] && std::abs(viewport.height) <= context.limits.maxViewportDimensions[1], "viewport dimensions exceed device limits");
     Require(viewport.x >= context.limits.viewportBoundsRange[0] && viewport.x + viewport.width <= context.limits.viewportBoundsRange[1], "viewport X exceeds device bounds");
     Require(std::min(viewport.y, viewport.y + viewport.height) >= context.limits.viewportBoundsRange[0] && std::max(viewport.y, viewport.y + viewport.height) <= context.limits.viewportBoundsRange[1], "viewport Y exceeds device bounds");
-    Require(context.limits.maxPushConstantsSize >= shaders.size() * PushConstantStride(shaders.size()), "graphics push constant range exceeds device limit");
+    const auto pushStages = PushConstantStages(shaders);
+    Require(pushStages == 0 || context.limits.maxPushConstantsSize >= PipelinePushConstantBytes, "graphics push constant range exceeds device limit");
     try {
         std::vector<VkPipelineShaderStageCreateInfo> stages(shaders.size());
-        std::vector<VkPushConstantRange> pushes;
         for (std::uint32_t i = 0; i < shaders.size(); ++i) {
             const auto& shader = *shaders[i].program;
-            Require(shader.pushConstants.size() <= PushConstantStride(shaders.size()) && shader.pushConstants.size() % 4 == 0, "shader push constants exceed the assigned stage range");
             VkShaderModuleCreateInfo module{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             module.codeSize = shader.spirv.size() * sizeof(std::uint32_t);
             module.pCode = shader.spirv.data();
@@ -44,13 +43,14 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
             stages[i].stage = stage;
             stages[i].module = _modules[i];
             stages[i].pName = "main";
-            if (!shader.pushConstants.empty()) pushes.push_back({stage, shaders[i].pushConstantOffset, static_cast<std::uint32_t>(shader.pushConstants.size())});
         }
+        const auto setLayout = resources.Layout();
+        const VkPushConstantRange push{pushStages, 0, PipelinePushConstantBytes};
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.setLayoutCount = static_cast<std::uint32_t>(resources.Layouts().size());
-        layoutInfo.pSetLayouts = resources.Layouts().data();
-        layoutInfo.pushConstantRangeCount = static_cast<std::uint32_t>(pushes.size());
-        layoutInfo.pPushConstantRanges = pushes.data();
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &setLayout;
+        layoutInfo.pushConstantRangeCount = pushStages != 0 ? 1 : 0;
+        layoutInfo.pPushConstantRanges = pushStages != 0 ? &push : nullptr;
         Check(context.Function<PFN_vkCreatePipelineLayout>("vkCreatePipelineLayout")(context.device, &layoutInfo, nullptr, &layout), "vkCreatePipelineLayout graphics");
         VkAttachmentDescription color{};
         color.format = state.color.format;
@@ -154,12 +154,10 @@ void Pipeline::Begin(VkCommandBuffer commands, VkExtent2D extent) const {
 }
 
 void Pipeline::PushConstants(VkCommandBuffer commands, std::span<const CompiledShader> shaders) const {
-    for (std::uint32_t i = 0; i < shaders.size(); ++i) {
-        const auto& bytes = shaders[i].program->pushConstants;
-        if (bytes.empty()) continue;
-        const auto stage = VulkanStage(shaders[i].stage);
-        context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, stage, shaders[i].pushConstantOffset, static_cast<std::uint32_t>(bytes.size()), bytes.data());
-    }
+    const auto stages = PushConstantStages(shaders);
+    if (stages == 0) return;
+    const auto bytes = AssemblePushConstants(shaders);
+    context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, stages, 0, PipelinePushConstantBytes, bytes.data());
 }
 
 }

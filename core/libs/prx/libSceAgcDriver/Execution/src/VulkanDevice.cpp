@@ -571,9 +571,8 @@ ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
     return target;
 }
 
-void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders) {
-    APS5_LOG_OUT("VulkanDevice::DrawIndexed indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
-    const Graphics::Context context{
+Graphics::Context VulkanDevice::graphicsContext() const {
+    return Graphics::Context{
         state->device,
         state->physical,
         state->queue,
@@ -589,6 +588,11 @@ void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::Index
         state->depthClipControl,
         state->depthRangeUnrestricted
     };
+}
+
+void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders) {
+    APS5_LOG_OUT("VulkanDevice::DrawIndexed indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
+    const auto context = graphicsContext();
     Graphics::DrawIndexed(context, graphics, draw, shaders);
     APS5_LOG_CHARS_OUT("VulkanDevice::DrawIndexed complete");
 }
@@ -598,12 +602,13 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
     }
-    if (!shader.bindings.empty()) {
-        throw std::runtime_error("Vulkan dispatch: guest descriptor materialization is not implemented");
+    const std::array<Graphics::CompiledShader, 1> shaders{{{ShaderRecompiler::ShaderStage::Compute, &shader, 0}}};
+    const auto pushStages = Graphics::PushConstantStages(shaders);
+    if (pushStages != 0 && state->properties.limits.maxPushConstantsSize < Graphics::PipelinePushConstantBytes) {
+        throw std::runtime_error("Vulkan dispatch: compute push constant range exceeds device limit");
     }
-    if (shader.pushConstants.size() > state->properties.limits.maxPushConstantsSize || (shader.pushConstants.size() & 3u) != 0) {
-        throw std::runtime_error("Vulkan dispatch: invalid push constant size");
-    }
+    const auto pushBytes = Graphics::AssemblePushConstants(shaders);
+    const auto context = graphicsContext();
     const auto* limit = state->properties.limits.maxComputeWorkGroupCount;
     if (x > limit[0] || y > limit[1] || z > limit[2]) {
         throw std::runtime_error("Vulkan dispatch: workgroup count exceeds device limits");
@@ -632,10 +637,14 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         moduleInfo.codeSize = shader.spirv.size() * sizeof(std::uint32_t);
         moduleInfo.pCode = shader.spirv.data();
         check(state->DeviceFunction<PFN_vkCreateShaderModule>("vkCreateShaderModule")(state->device, &moduleInfo, nullptr, &module), "vkCreateShaderModule");
-        VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(shader.pushConstants.size())};
+        Graphics::ShaderResources resources(context, shaders[0]);
+        const auto setLayout = resources.Layout();
+        const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, Graphics::PipelinePushConstantBytes};
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutInfo.pushConstantRangeCount = push.size == 0 ? 0 : 1;
-        layoutInfo.pPushConstantRanges = push.size == 0 ? nullptr : &push;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &setLayout;
+        layoutInfo.pushConstantRangeCount = pushStages != 0 ? 1 : 0;
+        layoutInfo.pPushConstantRanges = pushStages != 0 ? &push : nullptr;
         check(state->DeviceFunction<PFN_vkCreatePipelineLayout>("vkCreatePipelineLayout")(state->device, &layoutInfo, nullptr, &layout), "vkCreatePipelineLayout");
         VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
         pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -652,11 +661,20 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         check(state->DeviceFunction<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer");
+        VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        upload.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &upload, 0, nullptr, 0, nullptr);
         state->DeviceFunction<PFN_vkCmdBindPipeline>("vkCmdBindPipeline")(commands, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
-        if (push.size != 0) {
-            state->DeviceFunction<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, push.size, shader.pushConstants.data());
+        resources.Bind(commands, VK_PIPELINE_BIND_POINT_COMPUTE, layout);
+        if (pushStages != 0) {
+            state->DeviceFunction<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, Graphics::PipelinePushConstantBytes, pushBytes.data());
         }
         state->DeviceFunction<PFN_vkCmdDispatch>("vkCmdDispatch")(commands, x, y, z);
+        VkMemoryBarrier download{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        download.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
         check(state->DeviceFunction<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
         VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         check(state->DeviceFunction<PFN_vkCreateFence>("vkCreateFence")(state->device, &fenceInfo, nullptr, &fence), "vkCreateFence");
@@ -671,6 +689,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
             check(idle, "vkDeviceWaitIdle after fence failure");
         }
         check(result, "vkWaitForFences");
+        resources.WriteBack();
         APS5_LOG_OUT("Dispatch complete groups=%ux%ux%u", x, y, z);
     } catch (...) {
         cleanup();

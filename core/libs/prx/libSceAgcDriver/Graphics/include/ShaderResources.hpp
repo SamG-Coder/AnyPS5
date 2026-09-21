@@ -14,25 +14,29 @@ class ShaderResources {
 public:
     ShaderResources(const Context& context, const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
     ShaderResources(const Context& context, std::span<const CompiledShader> shaders, const ColorTarget& target, std::uint64_t indexAddress, std::size_t indexBytes);
+    ShaderResources(const Context& context, const CompiledShader& compute);
     ~ShaderResources();
     ShaderResources(const ShaderResources&) = delete;
     ShaderResources& operator=(const ShaderResources&) = delete;
-    const std::vector<VkDescriptorSetLayout>& Layouts() const;
-    void Bind(VkCommandBuffer commands, VkPipelineLayout layout) const;
+    VkDescriptorSetLayout Layout() const;
+    void Bind(VkCommandBuffer commands, VkPipelineBindPoint bindPoint, VkPipelineLayout layout) const;
     void WriteBack();
 
 private:
     struct Allocation {
         std::uint64_t address;
         std::size_t size;
-        bool writable;
+        bool guest;
         std::unique_ptr<Buffer> buffer;
     };
 
+    void build(std::span<const CompiledShader> shaders, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes);
+    std::size_t addGuestBuffer(std::span<const std::uint32_t> words, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes);
+    std::size_t addDataBuffer(std::span<const std::uint32_t> words);
     void release() noexcept;
     const Context& context;
-    std::vector<VkDescriptorSetLayout> _layouts;
-    std::vector<VkDescriptorSet> _sets;
+    VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
+    VkDescriptorSet _set = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     std::vector<Allocation> allocations;
 };

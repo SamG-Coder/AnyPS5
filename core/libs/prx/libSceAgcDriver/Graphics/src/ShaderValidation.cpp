@@ -16,10 +16,9 @@ struct Decoration {
     std::optional<std::uint32_t> set;
     std::optional<std::uint32_t> binding;
     std::optional<std::uint32_t> stride;
-    bool bufferBlock = false;
+    bool block = false;
     bool patch = false;
     bool perPrimitive = false;
-    bool nonWritable = false;
 };
 
 struct Variable {
@@ -33,7 +32,6 @@ struct Module {
     std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> builtins;
     std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> offsets;
     std::map<std::uint32_t, Variable> variables;
-    std::set<std::pair<std::uint32_t, std::uint32_t>> readOnlyMembers;
     std::map<std::uint32_t, std::uint32_t> constants;
     std::set<std::uint32_t> interface;
     std::map<std::uint32_t, std::string> inputs;
@@ -71,23 +69,6 @@ struct Module {
         }
         Require(locations.emplace(location | (patch ? 0x10000u : 0u), std::string(patch ? "patch:" : "vertex:") + Signature(typeId)).second, "duplicate shader interface location");
         return location + 1;
-    }
-
-    std::uint64_t Size(std::uint32_t id, std::uint32_t depth = 0) {
-        Require(depth < 8, "SPIR-V push constant type nesting exceeds supported depth");
-        const auto& type = Type(id);
-        const auto op = static_cast<spv::Op>(type[0] & 0xffffu);
-        if ((op == spv::OpTypeInt || op == spv::OpTypeFloat) && type.size() >= 3 && type[2] == 32) return 4;
-        if (op == spv::OpTypeVector && type.size() == 4 && type[3] >= 2 && type[3] <= 4) return Size(type[2], depth + 1) * type[3];
-        if (op == spv::OpTypeArray && type.size() == 4) {
-            const auto count = constants.find(type[3]);
-            const auto stride = decorations[id].stride;
-            Require(count != constants.end() && count->second != 0 && count->second <= StagePushConstantBytes && stride.has_value(), "invalid push constant array");
-            const auto elementSize = Size(type[2], depth + 1);
-            Require(*stride >= elementSize && *stride <= StagePushConstantBytes, "invalid push constant array stride");
-            return static_cast<std::uint64_t>(count->second - 1) * *stride + elementSize;
-        }
-        throw std::runtime_error("AGC graphics: unsupported push constant member type");
     }
 
     void Builtin(std::uint32_t value, std::uint32_t type, std::uint32_t storage, ShaderRecompiler::ShaderStage stage) {
@@ -204,13 +185,11 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
                 Require(kind != spv::DecorationComponent && kind != spv::DecorationIndex && kind != spv::DecorationStream && kind != spv::DecorationXfbBuffer && kind != spv::DecorationXfbStride, "unsupported shader interface packing or transform feedback");
                 if (kind == spv::DecorationPatch) decoration.patch = true;
                 if (kind == spv::DecorationPerPrimitiveEXT) decoration.perPrimitive = true;
-                if (kind == spv::DecorationNonWritable) decoration.nonWritable = true;
-                if (kind == spv::DecorationBufferBlock) decoration.bufferBlock = true;
+                if (kind == spv::DecorationBlock) decoration.block = true;
                 break;
             }
             case spv::OpMemberDecorate:
                 Require(count >= 4, "malformed SPIR-V member decoration");
-                if (instruction[3] == spv::DecorationNonWritable) module.readOnlyMembers.emplace(instruction[1], instruction[2]);
                 if (instruction[3] == spv::DecorationBuiltIn || instruction[3] == spv::DecorationOffset) {
                     Require(count == 5, "malformed SPIR-V member literal decoration");
                     auto& fields = instruction[3] == spv::DecorationBuiltIn ? module.builtins : module.offsets;
@@ -313,28 +292,42 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
         } else if (variable.storage == spv::StorageClassPushConstant) {
             Require(!push && !shader.pushConstants.empty() && (type[0] & 0xffffu) == spv::OpTypeStruct, "invalid push constant interface");
             push = true;
-            const auto first = compiled.pushConstantOffset;
-            for (std::size_t i = 2; i < type.size(); ++i) {
-                const auto offset = module.offsets.find({typeId, static_cast<std::uint32_t>(i - 2)});
-                Require(offset != module.offsets.end(), "push constant member has no offset");
-                Require(offset->second >= first && static_cast<std::uint64_t>(offset->second) + module.Size(type[i]) <= first + shader.pushConstants.size(), "push constant member exceeds its stage range");
-            }
+            Require(type.size() == 3 && module.decorations[typeId].block, "push constant variable must be a Block struct with exactly one member");
+            const auto offset = module.offsets.find({typeId, 0});
+            Require(offset != module.offsets.end() && offset->second == 0, "push constant member must have offset zero");
+            const auto& array = module.Type(type[2]);
+            Require(array.size() == 4 && (array[0] & 0xffffu) == spv::OpTypeArray && module.Signature(array[2]) == "u32", "push constant member must be an array of u32");
+            const auto length = module.constants.find(array[3]);
+            Require(length != module.constants.end() && length->second == PipelinePushConstantBytes / 4, "push constant array must contain 32 elements");
+            const auto stride = module.decorations[type[2]].stride;
+            Require(stride.has_value() && *stride == 4, "push constant array must have an ArrayStride of 4");
         } else if (variable.storage == spv::StorageClassWorkgroup) {
             Require(mesh, "workgroup memory outside a mesh shader");
         } else {
-            Require((variable.storage == spv::StorageClassUniform || variable.storage == spv::StorageClassStorageBuffer) && decoration.set && decoration.binding, "unsupported or unbound shader resource");
-            Require((type[0] & 0xffffu) == spv::OpTypeStruct, "descriptor arrays and non-buffer shader resources are unsupported");
+            Require(variable.storage == spv::StorageClassStorageBuffer && decoration.set && decoration.binding, "unsupported or unbound shader resource");
             const auto key = std::make_pair(*decoration.set, *decoration.binding);
             Require(descriptors.insert(key).second, "duplicate SPIR-V resource binding");
             const auto binding = std::find_if(shader.bindings.begin(), shader.bindings.end(), [&](const auto& item) { return item.descriptorSet == key.first && item.binding == key.second; });
             Require(binding != shader.bindings.end(), "SPIR-V resource is absent from recompiler binding metadata");
-            const auto kind = variable.storage == spv::StorageClassStorageBuffer || module.decorations[typeId].bufferBlock ? ShaderRecompiler::DescriptorKind::StorageBuffer : ShaderRecompiler::DescriptorKind::UniformBuffer;
-            if (kind == ShaderRecompiler::DescriptorKind::StorageBuffer && binding->readOnly) {
-                bool membersReadOnly = type.size() > 2;
-                for (std::size_t member = 2; member < type.size(); ++member) membersReadOnly = membersReadOnly && module.readOnlyMembers.contains({typeId, static_cast<std::uint32_t>(member - 2)});
-                Require(decoration.nonWritable || membersReadOnly, "read-only buffer metadata lacks NonWritable decoration");
+            Require(binding->kind == ShaderRecompiler::DescriptorKind::StorageBuffer, "SPIR-V descriptor type disagrees with recompiler binding metadata");
+            Require(!binding->readOnly, "read-only descriptor metadata is unsupported because the recompiler emits no NonWritable decoration");
+            const bool array = binding->role == ShaderRecompiler::DescriptorRole::GuestBuffers;
+            Require(array || binding->role == ShaderRecompiler::DescriptorRole::ShaderData || binding->role == ShaderRecompiler::DescriptorRole::FlattenedSrt, "SPIR-V descriptor role is unsupported");
+            auto blockId = typeId;
+            if (array) {
+                Require(type.size() == 4 && (type[0] & 0xffffu) == spv::OpTypeArray, "guest buffer descriptors must be declared as a descriptor array");
+                const auto count = module.constants.find(type[3]);
+                Require(count != module.constants.end() && count->second == binding->count, "descriptor array length disagrees with recompiler binding count");
+                blockId = type[2];
+            } else {
+                Require(binding->count == 1, "non-array descriptor must have a binding count of one");
             }
-            Require(binding->kind == kind, "SPIR-V descriptor type disagrees with recompiler binding metadata");
+            const auto& block = module.Type(blockId);
+            Require(block.size() == 3 && (block[0] & 0xffffu) == spv::OpTypeStruct && module.decorations[blockId].block, "descriptor must be a Block struct with exactly one member");
+            const auto& words = module.Type(block[2]);
+            Require(words.size() == 3 && (words[0] & 0xffffu) == spv::OpTypeRuntimeArray && module.Signature(words[2]) == "u32", "descriptor block member must be a runtime array of u32");
+            const auto member = module.offsets.find({blockId, 0});
+            Require(member != module.offsets.end() && member->second == 0, "descriptor block member must have offset zero");
         }
     }
     Require(descriptors.size() == shader.bindings.size(), "recompiler binding metadata contains undeclared resources");
@@ -355,12 +348,13 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
     Require(state.stages.mesh.has_value() == mesh && state.stages.tessellation.has_value() == tessellation, "graphics stage configuration disagrees with its path");
     Require(shaders.size() == (tessellation ? 4u : 2u), "incorrect graphics stage count");
     const std::array<Stage, 4> tessStages{Stage::Local, Stage::TessellationControl, Stage::TessellationEvaluation, Stage::Fragment};
+    static_cast<void>(AssemblePushConstants(shaders));
     Module previous;
     for (std::size_t i = 0; i < shaders.size(); ++i) {
         const auto expected = tessellation ? tessStages[i] : i == 1 ? Stage::Fragment : state.stages.path == ShaderPath::Geometry ? Stage::Mesh : Stage::Vertex;
-        Require(shaders[i].program != nullptr && shaders[i].program->pushConstants.size() <= PushConstantStride(shaders.size()), "graphics push constants exceed the assigned range");
-        Require(shaders[i].stage == expected && shaders[i].pushConstantOffset == i * PushConstantStride(shaders.size()), "graphics stage order or push constant layout disagrees");
-        for (const auto& binding : shaders[i].program->bindings) Require(binding.descriptorSet == i, "graphics resource uses a different stage descriptor set");
+        Require(shaders[i].program != nullptr, "missing compiled shader");
+        Require(shaders[i].stage == expected, "graphics stage order disagrees");
+        for (const auto& binding : shaders[i].program->bindings) Require(binding.descriptorSet == 0, "graphics resource uses a descriptor set other than zero");
         const auto current = Inspect(shaders[i], state);
         if (i != 0) {
             for (const auto& [location, signature] : current.inputs) {
@@ -374,7 +368,7 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
 }
 
 void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) {
-    const std::array<CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, StagePushConstantBytes}}};
+    const std::array<CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, static_cast<std::uint32_t>(vertex.pushConstants.size())}}};
     State state{};
     state.stages.path = ShaderPath::Vertex;
     ValidateShaders(shaders, state);
