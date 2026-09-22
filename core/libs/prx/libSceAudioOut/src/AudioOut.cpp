@@ -7,6 +7,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <vector>
+#include <prx/libc/include/General.hpp>
 
 #include "SDL.h"
 #include "SceTypes.hpp"
@@ -185,7 +186,7 @@ static const void* prepareBuffer(const Port& port, const void* data, std::vector
 
 static void queueAudio(Port& port, const void* data) {
     if (port.device == 0 || data == nullptr) {
-        return;
+        APS5_INVALID_ARG_EX;
     }
 
     std::vector<std::uint8_t> prepareBuf;
@@ -242,6 +243,7 @@ static void queueAudio(Port& port, const void* data) {
     if (SDL_QueueAudio(port.device, queueData, queueSize) < 0) {
         throw std::runtime_error(std::string("SDL_QueueAudio: ") + SDL_GetError());
     }
+    // APS5_LOG_OUT("device=%u type=%d bytes=%u queued=%u", port.device, port.type, queueSize, SDL_GetQueuedAudioSize(port.device));
 }
 
 static bool portTypeValid(int type) {

@@ -224,6 +224,37 @@ void testCopies() {
 #endif
 }
 
+void testEventWrite() {
+    for (const auto eventType : {0x07u, 0x0fu, 0x10u}) {
+        AgcDriver::Pm4::Validate(makePacket(0x46, {0x400u | eventType}), 0);
+        for (std::uint32_t index = 0; index < 8; ++index) {
+            if (index == 4) continue;
+            expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x46, {(index << 8u) | eventType}), 0); }, "partial-flush event index");
+        }
+        if (eventType == 0x07) {
+            AgcDriver::Pm4::Validate(makePacket(0x46, {0x407}), 0x20);
+        } else {
+            expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x400u | eventType}), 0x20); }, "compute queue");
+        }
+    }
+    for (const auto eventType : {0x16u, 0x31u, 0x2au, 0x2cu, 0x2eu}) {
+        for (const auto index : {0u, 7u}) {
+            AgcDriver::Pm4::Validate(makePacket(0x46, {(index << 8u) | eventType}), 0);
+        }
+        for (std::uint32_t index = 1; index < 7; ++index) {
+            expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x46, {(index << 8u) | eventType}), 0); }, "cache-flush event index");
+        }
+        expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x46, {eventType}), 0x20); }, "compute queue");
+    }
+    for (const auto bit : {0x40u, 0x80u, 0x800u, 0x80000000u}) {
+        expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x410u | bit}), 0); }, "reserved bits");
+    }
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x410}, 1), 0); }, "header flags");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x410, 0, 0}), 0); }, "packet size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x139, 0, 0}), 0); }, "event type 57");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x0d}), 0); }, "event type 13");
+}
+
 void testDriverSubmission() {
     std::array<std::uint32_t, 2> source{0x10, 73};
     std::array<std::uint32_t, 1> destination{};
@@ -232,12 +263,28 @@ void testDriverSubmission() {
         makePacket(0x9f, {low(source.data()), high(source.data()), 0x80000000, 1}),
         makePacket(0x81, {0, 83}),
         makePacket(0x42, {0}),
+        makePacket(0x46, {0x410}),
+        makePacket(0x46, {0x407}),
+        makePacket(0x46, {0x40f}),
+        makePacket(0x46, {0x16}),
+        makePacket(0x46, {0x731}),
+        makePacket(0x46, {0x2a}),
+        makePacket(0x46, {0x72c}),
+        makePacket(0x46, {0x2e}),
         makePacket(0x83, {0, 1, low(destination.data()), high(destination.data())})
     }) commands.insert(commands.end(), packet.begin(), packet.end());
     Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
     check(sceAgcDriverSubmitDcb(&packet) == 0, "PM4 submission failed");
     AgcDriverWaitIdle_nid_postfix();
     check(destination[0] == 83, "worker did not execute PM4 memory operations");
+    auto rejectedCommands = commands;
+    const auto unsupportedEvent = makePacket(0x46, {0x139, 0, 0});
+    rejectedCommands.insert(rejectedCommands.end(), unsupportedEvent.begin(), unsupportedEvent.end());
+    Packet rejectedPacket{rejectedCommands.data(), static_cast<std::uint32_t>(rejectedCommands.size()), 0, {}};
+    destination[0] = 0;
+    expectFailure([&] { sceAgcDriverSubmitDcb(&rejectedPacket); }, "EVENT_WRITE at DWORD");
+    AgcDriverWaitIdle_nid_postfix();
+    check(destination[0] == 0, "rejected event submission executed a prefix");
     destination[0] = 0;
     const auto emptyDraw = makePacket(0x2d, {0, 2});
     commands.insert(commands.end(), emptyDraw.begin(), emptyDraw.end());
@@ -280,6 +327,7 @@ int main(int argc, char** argv) {
         testAutoDraw();
         testMemory();
         testCopies();
+        testEventWrite();
         testDriverSubmission();
         LibcRunShutdown_nid_postfix();
         std::puts("PM4 catalog, registers, state, memory and submission tests passed");

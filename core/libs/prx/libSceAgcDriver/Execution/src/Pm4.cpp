@@ -100,7 +100,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
     }
     switch (opcode) {
         case 0x11: case 0x12: case 0x13: case 0x15: case 0x16: case 0x26:
-        case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x50:
+        case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
         case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
         case 0x81: case 0x83: case 0x9f: return {};
         case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
@@ -112,7 +112,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
             return "cooperative command-queue waits are not implemented";
         case 0x84: case 0x85: case 0x86: case 0x88:
             return "separate CE/DE execution and counter synchronization are not implemented";
-        case 0x43: case 0x46: case 0x47: case 0x48: case 0x49: case 0x58:
+        case 0x43: case 0x47: case 0x48: case 0x49: case 0x58:
             return "guest cache actions, GPU events and interrupt delivery are not implemented";
         case 0x8e: return "GPU LOD statistics are not implemented; synthetic results are forbidden";
         case 0x28: case 0x41: case 0x68: case 0x78:
@@ -182,6 +182,25 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             require((packet.back() & ~0x8000u) == 0x41u, "indirect dispatch modifiers are not implemented");
             break;
         case 0x42: size(2); require(packet[1] == 0, "unsupported PFP_SYNC_ME payload"); break;
+        case 0x46: {
+            require((packet[1] & ~0x73fu) == 0, "unsupported EVENT_WRITE flags or reserved bits");
+            const auto eventType = packet[1] & 0x3fu;
+            const auto eventIndex = (packet[1] >> 8u) & 7u;
+            switch (eventType) {
+                case 0x07: case 0x0f: case 0x10:
+                    size(2);
+                    require(eventIndex == 4, "invalid partial-flush event index");
+                    if (eventType != 0x07) graphics();
+                    break;
+                case 0x16: case 0x31: case 0x2a: case 0x2c: case 0x2e:
+                    graphics();
+                    size(2);
+                    require(eventIndex == 0 || eventIndex == 7, "invalid cache-flush event index");
+                    break;
+                default: throw std::runtime_error("EVENT_WRITE event type " + std::to_string(eventType) + " is not implemented");
+            }
+            break;
+        }
         case 0x63: case 0x64: case 0x9f:
             if (opcode != 0x63) graphics();
             size(5);

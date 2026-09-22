@@ -49,8 +49,7 @@ int main(const int argc, char* argv[]) {
             fileWriter.Write(absPath, std::move(result.Bytes));
             std::cout << "OK: " << result.ReplacedCount << " instructions replaced\n";
 
-            if (args.autorun) Cli::Autorun(absPath, args.toWindows);
-            return 0;
+            if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
         }
 
         auto elfReader = std::make_shared<Relinker::ElfReader>(sourceBytes);
@@ -99,7 +98,7 @@ int main(const int argc, char* argv[]) {
         fileWriter.Write(absPath, patcher->Patch(sourceBytes, result.OriginalHeaders, result.DynamicSection, result.OriginalPltGotVaddr, args.runPath, args.lazyBinding, args.windowsDiagnostics));
         std::cout << "External prx references: " << result.RegistryEntries.size() << "\nOutput file: " << absPath << '\n';
 
-        if (args.autorun) Cli::Autorun(absPath, args.toWindows);
+        if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
 
     } catch (const Domain::RelinkerException& e) {
         std::cerr << "FAIL: " << e.what();

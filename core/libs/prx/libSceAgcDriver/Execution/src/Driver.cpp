@@ -473,7 +473,7 @@ private:
             const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
             const auto packet = std::span(submission.commands).subspan(cursor, count);
             const auto opcode = (header >> 8u) & 0xffu;
-            if (Pm4::AccessesMemory(header) || opcode == 0x42 || header == FlipPacketHeader) {
+            if (Pm4::AccessesMemory(header) || opcode == 0x42 || opcode == 0x46 || header == FlipPacketHeader) {
                 std::lock_guard gpuLock(gpuMutex);
                 if (device != nullptr) device->WaitIdle();
             }
@@ -487,7 +487,7 @@ private:
                 dispatch(queue, direct, submission);
             } else if (opcode == 0x35 || opcode == 0x2d) {
                 draw(queue, packet, submission);
-            } else if (opcode != 0x42) {
+            } else if (opcode != 0x42 && opcode != 0x46) {
                 Pm4::Execute(packet, queue);
             }
             cursor += count;

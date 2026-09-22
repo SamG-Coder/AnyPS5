@@ -20,6 +20,6 @@ struct Args {
 
 Args ParseArgs(int argc, char* argv[]);
 
-void Autorun(const std::string& absPath, bool toWindows);
+int Autorun(const std::string& absPath, bool toWindows);
 
 }

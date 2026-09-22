@@ -7,7 +7,7 @@
 
 namespace Cli {
 
-void Autorun(const std::string& absPath, bool toWindows) {
+int Autorun(const std::string& absPath, bool toWindows) {
     if (!toWindows) {
         std::filesystem::permissions(absPath,
             std::filesystem::perms::owner_exec |
@@ -28,6 +28,8 @@ void Autorun(const std::string& absPath, bool toWindows) {
     std::cout << "\nPress Enter to exit...\n";
     std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::cin.get();
+
+    return rawCode;
 }
 
 }
