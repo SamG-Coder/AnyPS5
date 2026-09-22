@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <memory>
 #include <filesystem>
+#include <limits>
+#include <utility>
 
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/GuestHeap.hpp"
@@ -106,8 +108,35 @@ void* APS5_VABI memalign_nid_postfix(size_t alignment, size_t size) {
     return GuestHeap::GuestHeapAlign_nid_postfix(alignment, size);
 }
 
-void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (*compare)(const void*, const void*)) {
-    std::qsort(base, count, size, compare);
+void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
+    if (!compare) throw std::invalid_argument("qsort: null comparator");
+    if (size == 0) throw std::invalid_argument("qsort: zero element size");
+    if (count == 0) return;
+    if (!base) throw std::invalid_argument("qsort: null base");
+    if (count > std::numeric_limits<size_t>::max() / size) throw std::overflow_error("qsort: array size overflow");
+    if (count == 1) return;
+
+    auto* bytes = static_cast<unsigned char*>(base);
+    const auto swapElements = [bytes, size](size_t left, size_t right) {
+        auto* leftElement = bytes + left * size;
+        auto* rightElement = bytes + right * size;
+        for (size_t index = 0; index < size; ++index) std::swap(leftElement[index], rightElement[index]);
+    };
+    const auto siftDown = [bytes, size, compare, &swapElements](size_t root, size_t heapSize) {
+        while (root < heapSize / 2) {
+            size_t child = root * 2 + 1;
+            if (child + 1 < heapSize && compare(bytes + child * size, bytes + (child + 1) * size) < 0) ++child;
+            if (compare(bytes + root * size, bytes + child * size) >= 0) return;
+            swapElements(root, child);
+            root = child;
+        }
+    };
+
+    for (size_t parent = count / 2; parent != 0; --parent) siftDown(parent - 1, count);
+    for (size_t heapSize = count; heapSize > 1;) {
+        swapElements(0, --heapSize);
+        siftDown(0, heapSize);
+    }
 }
 
 }
