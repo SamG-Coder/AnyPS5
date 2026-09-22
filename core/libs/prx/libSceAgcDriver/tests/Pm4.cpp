@@ -127,6 +127,33 @@ void testContextAndBases() {
     check(state.shader.empty() && state.context == AgcDriver::InitialContextRegisters() && state.dispatchIndirectBase == 0 && state.indexBase == 0 && !state.savedContext, "dispatch reset retained state");
 }
 
+void testAutoDraw() {
+    check(AgcDriver::Pm4::AccessesMemory(0xc0012d00u), "auto draw must synchronize guest memory");
+    AgcDriver::QueueState state;
+    state.instanceCount = 4;
+    state.indexBase = 1;
+    state.indexType = 0xffffffffu;
+    state.userConfig[0x24a] = 7;
+    for (const auto flags : {2u, 0x22u}) {
+        const auto draw = AgcDriver::Pm4::ResolveDraw(makePacket(0x2d, {3, flags}), state);
+        check(!draw.indexed && draw.indexAddress == 0 && draw.indexSize == 0, "auto draw used the index buffer");
+        check(draw.indexCount == 3 && draw.instanceCount == 4 && draw.firstVertex == 7 && draw.firstInstance == 0 && draw.flags == (flags & 0x20u), "auto draw parameters mismatch");
+    }
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x2d, {3, 2}), 0x20); }, "compute queue");
+    for (const auto flags : {0u, 1u, 3u, 0x20u, 0x42u}) {
+        expectFailure([&] { AgcDriver::Pm4::Validate(makePacket(0x2d, {3, flags}), 0); }, "auto draw flags");
+    }
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x2d, {3}), 0); }, "packet size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x2d, {3, 2, 0}), 0); }, "packet size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x2d, {3, 2}, 1), 0); }, "header flags");
+    state.userConfig[0x24a] = std::numeric_limits<std::uint32_t>::max();
+    check(AgcDriver::Pm4::ResolveDraw(makePacket(0x2d, {1, 2}), state).firstVertex == std::numeric_limits<std::uint32_t>::max(), "last vertex rejected");
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(makePacket(0x2d, {2, 2}), state); }, "vertex range overflow");
+    check(AgcDriver::Pm4::ResolveDraw(makePacket(0x2d, {0, 2}), state).indexCount == 0, "empty auto draw rejected");
+    state.userConfig.erase(0x24a);
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(makePacket(0x2d, {1, 2}), state); }, "GE_INDX_OFFSET");
+}
+
 void testIndexedDraw() {
     AgcDriver::QueueState state;
     alignas(4) std::array<std::uint32_t, 8> indices{};
@@ -212,7 +239,14 @@ void testDriverSubmission() {
     AgcDriverWaitIdle_nid_postfix();
     check(destination[0] == 83, "worker did not execute PM4 memory operations");
     destination[0] = 0;
-    const auto draw = makePacket(0x2d, {3, 2});
+    const auto emptyDraw = makePacket(0x2d, {0, 2});
+    commands.insert(commands.end(), emptyDraw.begin(), emptyDraw.end());
+    packet = Packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
+    check(sceAgcDriverSubmitDcb(&packet) == 0, "auto draw submission failed");
+    AgcDriverWaitIdle_nid_postfix();
+    check(destination[0] == 83, "empty auto draw prevented command execution");
+    destination[0] = 0;
+    const auto draw = makePacket(0x2d, {3, 3});
     commands.insert(commands.end(), draw.begin(), draw.end());
     packet = Packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
     expectFailure([&] { sceAgcDriverSubmitDcb(&packet); }, "DRAW_INDEX_AUTO at DWORD");
@@ -243,6 +277,7 @@ int main(int argc, char** argv) {
         testRegisters();
         testContextAndBases();
         testIndexedDraw();
+        testAutoDraw();
         testMemory();
         testCopies();
         testDriverSubmission();

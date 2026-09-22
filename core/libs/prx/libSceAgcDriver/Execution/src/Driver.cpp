@@ -325,7 +325,8 @@ private:
     }
 
     void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
-        const auto indexed = Pm4::ResolveDraw(packet, queue);
+        auto drawParameters = Pm4::ResolveDraw(packet, queue);
+        if (!drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return;
         const auto graphics = Graphics::DecodeState(queue);
         struct Program {
             ShaderRecompiler::ShaderBinary binary;
@@ -428,20 +429,30 @@ private:
                 {waveSize, program.firstUserSgpr, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, program.binary.stage == Stage::Fragment ? std::nullopt : std::optional(Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData)), memory},
                 device->Target(),
                 {0, 0, pushCursorBytes, Graphics::PipelinePushConstantBytes - pushCursorBytes},
-                ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}
+                ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {drawParameters.indexAddress, drawParameters.indexCount, drawParameters.indexSize, drawParameters.instanceCount}}
             };
             shaderMemory.Capture(request);
             memory = shaderMemory.Regions();
             request.context.memory = memory;
             results.push_back(ShaderRecompiler::Recompile(request));
             const auto& result = results.back();
+            if (!drawParameters.indexed && i == 0) {
+                const auto offsetValue = [&](std::int32_t sgpr) {
+                    require(sgpr >= 0 && static_cast<std::uint32_t>(sgpr) >= program.firstUserSgpr, "invalid draw offset SGPR");
+                    const auto index = static_cast<std::uint32_t>(sgpr) - program.firstUserSgpr;
+                    require(index < program.userData.size(), "draw offset SGPR exceeds user data");
+                    return program.userData[index];
+                };
+                if (drawParameters.firstVertex == 0 && result.vertexOffsetSgpr >= 0) drawParameters.firstVertex = offsetValue(result.vertexOffsetSgpr);
+                if (result.instanceOffsetSgpr >= 0) drawParameters.firstInstance = offsetValue(result.instanceOffsetSgpr);
+            }
             require(result.pushConstants.size() <= Graphics::PipelinePushConstantBytes - pushCursorBytes, "stage push constants exceed the pipeline push constant block");
             stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
             pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
         }
         std::vector<Graphics::GuestMemorySnapshot> snapshots;
         for (const auto& region : memory) snapshots.push_back({region.guestAddress, region.bytes});
-        device->DrawIndexed(graphics, indexed, stages, snapshots);
+        device->Draw(graphics, drawParameters, stages, snapshots);
     }
 
     void execute(const Submission& submission) {
@@ -474,7 +485,7 @@ private:
             } else if (opcode == 0x16) {
                 const auto direct = Pm4::ResolveDispatch(packet, queue);
                 dispatch(queue, direct, submission);
-            } else if (opcode == 0x35) {
+            } else if (opcode == 0x35 || opcode == 0x2d) {
                 draw(queue, packet, submission);
             } else if (opcode != 0x42) {
                 Pm4::Execute(packet, queue);

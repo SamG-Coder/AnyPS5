@@ -1,6 +1,7 @@
 #include "BdaTests.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <array>
 #include <bit>
@@ -813,6 +814,9 @@ void validationTests() {
         expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 3, 1); }, "record count");
         attribute.fetchIndex = 1;
         Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 100, 2) == 48, "instance attributes used the vertex index");
+        Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 100, 2, 1) == 80, "first instance was ignored");
+        expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 0, 2, 2); }, "record count");
+        expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 0, 2, 0xffffffffu); }, "instance range overflow");
         expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 0, 4); }, "record count");
         attribute.resource.fields[1] = 0;
         attribute.resource.fields[2] = 16;
@@ -936,6 +940,27 @@ void validationTests() {
 
 int main() {
     try {
+        {
+            const AgcDriver::Graphics::Context context{};
+            const AgcDriver::Graphics::State state{};
+            AgcDriver::Pm4::DrawParameters draw{0, 0, 0, 1, 0, false};
+            AgcDriver::Graphics::Draw(context, state, draw, {});
+            draw.indexCount = 3;
+            draw.instanceCount = 0;
+            AgcDriver::Graphics::Draw(context, state, draw, {});
+            draw.instanceCount = 2;
+            draw.firstInstance = 0xffffffffu;
+            expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "instance range overflow");
+            draw.firstInstance = 0;
+            draw.firstVertex = 0xffffffffu;
+            expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "vertex range overflow");
+            draw.firstVertex = 0;
+            draw.indexAddress = 1;
+            expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "must not reference an index buffer");
+            draw.indexAddress = 0;
+            draw.flags = 1;
+            expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
+        }
         stateTests();
         DepthClipTests();
         DisabledColorTests();

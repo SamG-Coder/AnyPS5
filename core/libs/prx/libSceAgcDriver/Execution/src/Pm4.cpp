@@ -100,10 +100,10 @@ std::string_view UnsupportedReason(std::uint32_t header) {
     }
     switch (opcode) {
         case 0x11: case 0x12: case 0x13: case 0x15: case 0x16: case 0x26:
-        case 0x2a: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x50:
+        case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x50:
         case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
         case 0x81: case 0x83: case 0x9f: return {};
-        case 0x24: case 0x25: case 0x27: case 0x2c: case 0x2d: case 0x38: case 0x3a: case 0x8d:
+        case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
             return "graphics draw, shader stages and guest render-target materialization are not implemented";
         case 0x20: return "GPU query predication is not implemented";
         case 0x22: return "conditional command execution and conditional flip reservation are not implemented";
@@ -165,6 +165,11 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
         case 0x13: case 0x2f: graphics(); size(2); break;
         case 0x26: graphics(); size(3); break;
         case 0x2a: graphics(); size(2); require(packet[1] <= 3, "unsupported index-type modifiers"); break;
+        case 0x2d:
+            graphics();
+            size(3);
+            require((packet[2] & ~0x20u) == 2u, "unsupported auto draw flags");
+            break;
         case 0x35:
             graphics();
             size(5);
@@ -229,7 +234,7 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
 
 bool AccessesMemory(std::uint32_t header) {
     switch ((header >> 8u) & 0xffu) {
-        case 0x16: case 0x35: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
+        case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
         default: return false;
     }
 }
@@ -247,8 +252,15 @@ std::array<std::uint32_t, 5> ResolveDispatch(std::span<const std::uint32_t> pack
     return result;
 }
 
-IndexedDraw ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
+DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
     Validate(packet, 0);
+    if (((packet[0] >> 8u) & 0xffu) == 0x2d) {
+        const auto offset = queue.userConfig.find(0x24a);
+        require(offset != queue.userConfig.end(), "missing GE_INDX_OFFSET register");
+        const auto firstVertex = offset->second;
+        require(packet[1] == 0 || firstVertex <= std::numeric_limits<std::uint32_t>::max() - (packet[1] - 1u), "auto draw vertex range overflow");
+        return {0, packet[1], 0, queue.instanceCount, packet[2] & 0x20u, false, firstVertex, 0};
+    }
     require(((packet[0] >> 8u) & 0xffu) == 0x35, "expected DRAW_INDEX_OFFSET_2 packet");
     require(queue.indexType <= 2, "unsupported index type");
     const std::uint32_t indexSize = queue.indexType == 0 ? 2 : queue.indexType == 1 ? 4 : 1;

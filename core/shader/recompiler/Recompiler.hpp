@@ -243,6 +243,8 @@ struct RecompileResult {
     std::vector<std::byte> pushConstants;
     std::uint32_t bdaAbiVersion = 0;
     std::vector<VertexAttribute> vertexAttributes;
+    std::int32_t vertexOffsetSgpr = -1;
+    std::int32_t instanceOffsetSgpr = -1;
 };
 
 [[nodiscard]] RecompileResult Recompile(const RecompileRequest& request);

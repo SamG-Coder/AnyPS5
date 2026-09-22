@@ -110,12 +110,13 @@ inline VertexInputLayout BuildVertexInputLayout(const Context& context, std::spa
     return result;
 }
 
-inline std::size_t VertexBufferReadSize(const ShaderRecompiler::VertexAttribute& attribute, std::uint32_t maxIndex, std::uint32_t instances) {
+inline std::size_t VertexBufferReadSize(const ShaderRecompiler::VertexAttribute& attribute, std::uint32_t maxIndex, std::uint32_t instances, std::uint32_t firstInstance = 0) {
     Require(instances != 0, "vertex input requires nonzero instance count");
+    Require(firstInstance <= std::numeric_limits<std::uint32_t>::max() - (instances - 1u), "vertex input instance range overflow");
     const auto stride = (attribute.resource.fields[1] >> 16u) & 0x3fffu;
     const auto records = attribute.resource.fields[2];
     Require(attribute.fetchIndex <= 1, "unsupported vertex fetch index");
-    const auto index = attribute.fetchIndex == 0 ? maxIndex : instances - 1u;
+    const auto index = attribute.fetchIndex == 0 ? maxIndex : firstInstance + instances - 1u;
     const auto bytes = DecodeVertexFormat(attribute).bytes;
     Require(stride == 0 || index < records, "vertex fetch exceeds descriptor record count");
     const auto available = stride == 0 ? static_cast<std::uint64_t>(records) : static_cast<std::uint64_t>(records) * stride;

@@ -638,11 +638,11 @@ Graphics::Context VulkanDevice::graphicsContext() const {
     };
 }
 
-void VulkanDevice::DrawIndexed(const Graphics::State& graphics, const Pm4::IndexedDraw& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
-    APS5_LOG_OUT("VulkanDevice::DrawIndexed indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
+void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    APS5_LOG_OUT("VulkanDevice::Draw indices=%u instances=%u indexSize=%u address=0x%llx shaders=%zu colorTarget=%u", draw.indexCount, draw.instanceCount, draw.indexSize, static_cast<unsigned long long>(draw.indexAddress), shaders.size(), static_cast<unsigned>(graphics.hasColorTarget));
     const auto context = graphicsContext();
-    Graphics::DrawIndexed(context, graphics, draw, shaders, snapshots);
-    APS5_LOG_CHARS_OUT("VulkanDevice::DrawIndexed complete");
+    Graphics::Draw(context, graphics, draw, shaders, snapshots);
+    APS5_LOG_CHARS_OUT("VulkanDevice::Draw complete");
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {

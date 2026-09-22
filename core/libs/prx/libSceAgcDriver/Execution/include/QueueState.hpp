@@ -43,7 +43,7 @@ inline Registers InitialContextRegisters() {
 struct QueueState {
     Registers shader;
     Registers context = InitialContextRegisters();
-    Registers userConfig{{0x24b, 0}};
+    Registers userConfig{{0x24a, 0}, {0x24b, 0}};
     std::optional<Registers> savedContext;
     std::array<std::uint32_t, 0x3000> constantRam{};
     std::uint64_t indexBase = 0;

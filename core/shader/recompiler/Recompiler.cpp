@@ -162,6 +162,8 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
+    result.vertexOffsetSgpr = program.Info().vertexOffsetSgpr;
+    result.instanceOffsetSgpr = program.Info().instanceOffsetSgpr;
     if (request.shader.stage == ShaderStage::Vertex || request.shader.stage == ShaderStage::Local) {
         if (inputInfo.vertex == nullptr) throw std::runtime_error("vertex input metadata is missing");
         for (const auto& input : program.Info().inputs) {

@@ -24,20 +24,28 @@ void imageBarrier(const Context& context, VkCommandBuffer commands, VkImage imag
 
 }
 
-void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedDraw& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots) {
-    APS5_LOG_OUT("DrawIndexed indices=%u instances=%u indexSize=%u flags=%u indexAddress=0x%llx", draw.indexCount, draw.instanceCount, draw.indexSize, draw.flags, static_cast<unsigned long long>(draw.indexAddress));
+void Draw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots) {
+    APS5_LOG_OUT("Draw indices=%u instances=%u indexSize=%u flags=%u indexAddress=0x%llx", draw.indexCount, draw.instanceCount, draw.indexSize, draw.flags, static_cast<unsigned long long>(draw.indexAddress));
     APS5_LOG_OUT("State colorTarget=%u render=%ux%u colorAddress=0x%llx colorBytes=%llu colorExtent=%ux%u", state.hasColorTarget ? 1u : 0u, state.renderExtent.width, state.renderExtent.height, static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes), state.color.extent.width, state.color.extent.height);
     APS5_LOG_OUT("Viewport x=%f y=%f w=%f h=%f minDepth=%f maxDepth=%f", state.viewport.x, state.viewport.y, state.viewport.width, state.viewport.height, state.viewport.minDepth, state.viewport.maxDepth);
     APS5_LOG_OUT("Scissor x=%d y=%d w=%u h=%u topology=%u cullMode=0x%x frontFace=%u", state.scissor.offset.x, state.scissor.offset.y, state.scissor.extent.width, state.scissor.extent.height, static_cast<unsigned>(state.topology), static_cast<unsigned>(state.cullMode), static_cast<unsigned>(state.frontFace));
-    Require(draw.flags == 0, "indexed draw modifiers are unsupported");
-    Require(draw.indexSize == 2 || draw.indexSize == 4, "only uint16 and uint32 index buffers are supported");
+    Require(draw.indexed ? draw.flags == 0 : (draw.flags & ~0x20u) == 0, "draw modifiers are unsupported");
+    if (draw.indexed) {
+        Require(draw.indexSize == 2 || draw.indexSize == 4, "only uint16 and uint32 index buffers are supported");
+        Require(draw.firstVertex == 0 && draw.firstInstance == 0, "indexed draw offsets are unsupported");
+    } else {
+        Require(draw.indexAddress == 0 && draw.indexSize == 0, "auto draw must not reference an index buffer");
+        if (draw.indexCount == 0 || draw.instanceCount == 0) return;
+        Require(draw.firstVertex <= std::numeric_limits<std::uint32_t>::max() - (draw.indexCount - 1u), "auto draw vertex range overflow");
+        Require(draw.firstInstance <= std::numeric_limits<std::uint32_t>::max() - (draw.instanceCount - 1u), "auto draw instance range overflow");
+    }
     Require(draw.indexCount != 0 && draw.instanceCount != 0, "zero-count indexed draws are unsupported");
     const auto indexBytes = static_cast<std::uint64_t>(draw.indexCount) * draw.indexSize;
     APS5_LOG_OUT("Index buffer bytes=%llu", static_cast<unsigned long long>(indexBytes));
     Require(indexBytes <= std::numeric_limits<std::size_t>::max(), "index buffer size overflow");
-    GuestMemory::CheckRange(reinterpret_cast<const void*>(draw.indexAddress), static_cast<std::size_t>(indexBytes), draw.indexSize);
+    if (draw.indexed) GuestMemory::CheckRange(reinterpret_cast<const void*>(draw.indexAddress), static_cast<std::size_t>(indexBytes), draw.indexSize);
     APS5_LOG_CHARS_OUT("Index buffer range OK");
-    Require(!state.hasColorTarget || draw.indexAddress + indexBytes <= state.color.address || state.color.address + state.color.bytes <= draw.indexAddress, "index buffer aliases the render target");
+    Require(!draw.indexed || !state.hasColorTarget || draw.indexAddress + indexBytes <= state.color.address || state.color.address + state.color.bytes <= draw.indexAddress, "index buffer aliases the render target");
     APS5_LOG_CHARS_OUT("ValidateShaders");
     ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     APS5_LOG_CHARS_OUT("ValidateShaders OK");
@@ -45,6 +53,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     APS5_LOG_OUT("PipelineStages=0x%x", static_cast<unsigned>(shaderStages));
     std::uint32_t meshGroups = 0;
     if (state.stages.mesh) {
+        Require(draw.firstVertex == 0 && draw.firstInstance == 0, "mesh draw offsets are unsupported");
         APS5_LOG_CHARS_OUT("Mesh path");
         Require(context.meshShader, "device does not support mesh shaders");
         const auto& mesh = *state.stages.mesh;
@@ -57,22 +66,23 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
         Require(meshGroups <= context.meshLimits.maxMeshWorkGroupCount[0] && draw.instanceCount <= context.meshLimits.maxMeshWorkGroupCount[1] && static_cast<std::uint64_t>(meshGroups) * draw.instanceCount <= context.meshLimits.maxMeshWorkGroupTotalCount, "mesh draw exceeds workgroup count limits");
     }
     if (state.stages.tessellation) Require(draw.indexCount % state.stages.tessellation->inputControlPoints == 0, "incomplete tessellation patch");
-    APS5_LOG_CHARS_OUT("Creating index buffer");
-    Buffer indices(context, static_cast<std::size_t>(indexBytes), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-    GuestMemory::Read(draw.indexAddress, indices.Bytes(), draw.indexSize);
-    APS5_LOG_CHARS_OUT("Index buffer uploaded");
-    std::uint32_t maxIndex = 0;
-    for (std::size_t offset = 0; offset < indexBytes; offset += draw.indexSize) {
-        std::uint32_t index = 0;
-        if (draw.indexSize == 2) {
-            std::uint16_t value = 0;
-            std::memcpy(&value, indices.Bytes().data() + offset, sizeof(value));
-            index = value;
-        } else {
-            std::memcpy(&index, indices.Bytes().data() + offset, sizeof(index));
+    std::unique_ptr<Buffer> indices;
+    std::uint32_t maxIndex = draw.indexed ? 0u : draw.firstVertex + draw.indexCount - 1u;
+    if (draw.indexed) {
+        indices = std::make_unique<Buffer>(context, static_cast<std::size_t>(indexBytes), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+        GuestMemory::Read(draw.indexAddress, indices->Bytes(), draw.indexSize);
+        for (std::size_t offset = 0; offset < indexBytes; offset += draw.indexSize) {
+            std::uint32_t index = 0;
+            if (draw.indexSize == 2) {
+                std::uint16_t value = 0;
+                std::memcpy(&value, indices->Bytes().data() + offset, sizeof(value));
+                index = value;
+            } else {
+                std::memcpy(&index, indices->Bytes().data() + offset, sizeof(index));
+            }
+            Require(index <= context.limits.maxDrawIndexedIndexValue, "index exceeds the device's indexed draw limit");
+            maxIndex = std::max(maxIndex, index);
         }
-        Require(index <= context.limits.maxDrawIndexedIndexValue, "index exceeds the device's indexed draw limit");
-        maxIndex = std::max(maxIndex, index);
     }
     APS5_LOG_CHARS_OUT("Index validation OK");
     const auto& attributes = shaders.front().program->vertexAttributes;
@@ -81,7 +91,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     std::vector<VkBuffer> vertexHandles;
     std::vector<VkDeviceSize> vertexOffsets(attributes.size(), 0);
     for (const auto& attribute : attributes) {
-        const auto bytes = VertexBufferReadSize(attribute, maxIndex, draw.instanceCount);
+        const auto bytes = VertexBufferReadSize(attribute, maxIndex, draw.instanceCount, draw.firstInstance);
         const auto& fields = attribute.resource.fields;
         const auto address = fields[0] | (static_cast<std::uint64_t>(fields[1] & 0xffffu) << 32u);
         Require(!state.hasColorTarget || address + bytes <= state.color.address || state.color.address + state.color.bytes <= address, "vertex buffer aliases the render target");
@@ -139,11 +149,13 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
         APS5_LOG_OUT("vkCmdDrawMeshTasksEXT groups=%u instances=%u", meshGroups, draw.instanceCount);
         context.Function<PFN_vkCmdDrawMeshTasksEXT>("vkCmdDrawMeshTasksEXT")(commands, meshGroups, draw.instanceCount, 1);
     } else {
-        APS5_LOG_OUT("vkCmdBindIndexBuffer indexSize=%u", draw.indexSize);
         if (!vertexHandles.empty()) context.Function<PFN_vkCmdBindVertexBuffers>("vkCmdBindVertexBuffers")(commands, 0, static_cast<std::uint32_t>(vertexHandles.size()), vertexHandles.data(), vertexOffsets.data());
-        context.Function<PFN_vkCmdBindIndexBuffer>("vkCmdBindIndexBuffer")(commands, indices.Handle(), 0, draw.indexSize == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
-        APS5_LOG_OUT("vkCmdDrawIndexed indices=%u instances=%u", draw.indexCount, draw.instanceCount);
-        context.Function<PFN_vkCmdDrawIndexed>("vkCmdDrawIndexed")(commands, draw.indexCount, draw.instanceCount, 0, 0, 0);
+        if (draw.indexed) {
+            context.Function<PFN_vkCmdBindIndexBuffer>("vkCmdBindIndexBuffer")(commands, indices->Handle(), 0, draw.indexSize == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+            context.Function<PFN_vkCmdDrawIndexed>("vkCmdDrawIndexed")(commands, draw.indexCount, draw.instanceCount, 0, 0, 0);
+        } else {
+            context.Function<PFN_vkCmdDraw>("vkCmdDraw")(commands, draw.indexCount, draw.instanceCount, draw.firstVertex, draw.firstInstance);
+        }
     }
     APS5_LOG_CHARS_OUT("Draw recorded");
     context.Function<PFN_vkCmdEndRenderPass>("vkCmdEndRenderPass")(commands);
@@ -177,7 +189,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     APS5_LOG_CHARS_OUT("Shader resources WriteBack OK");
     if (state.hasColorTarget) GuestMemory::Write(state.color.address, transfer->Bytes(), 256);
     if (state.hasColorTarget) APS5_LOG_OUT("Color target written to guest address=0x%llx bytes=%llu", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes));
-    APS5_LOG_CHARS_OUT("DrawIndexed finished");
+    APS5_LOG_CHARS_OUT("Draw finished");
 }
 
 }

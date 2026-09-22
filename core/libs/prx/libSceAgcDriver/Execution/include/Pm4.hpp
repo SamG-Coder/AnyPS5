@@ -9,12 +9,15 @@
 
 namespace AgcDriver::Pm4 {
 
-struct IndexedDraw {
+struct DrawParameters {
     std::uint64_t indexAddress;
     std::uint32_t indexCount;
     std::uint32_t indexSize;
     std::uint32_t instanceCount;
     std::uint32_t flags;
+    bool indexed = true;
+    std::uint32_t firstVertex = 0;
+    std::uint32_t firstInstance = 0;
 };
 
 std::string Name(std::uint32_t header);
@@ -23,7 +26,7 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue);
 void Execute(std::span<const std::uint32_t> packet, QueueState& queue);
 bool AccessesMemory(std::uint32_t header);
 std::array<std::uint32_t, 5> ResolveDispatch(std::span<const std::uint32_t> packet, const QueueState& queue);
-IndexedDraw ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue);
+DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue);
 
 }
 
