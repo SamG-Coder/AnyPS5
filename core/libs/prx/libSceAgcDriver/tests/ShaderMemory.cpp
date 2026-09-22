@@ -2,6 +2,7 @@
 #include "ControlFlow/RequestSerializer.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/ResourceProgram.hpp"
+#include "SpirvBackend/SpirvOptimizer.hpp"
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -40,6 +41,23 @@ void verifyResult(const ShaderRecompiler::RecompileResult& first, const ShaderRe
 int main() {
     try {
         using namespace ShaderRecompiler;
+        const std::vector<std::uint32_t> minimalSpirv{
+            0x07230203u, 0x00010000u, 0u, 5u, 0u,
+            0x00020011u, 1u,
+            0x0003000eu, 0u, 1u,
+            0x0005000fu, 5u, 3u, 0x6e69616du, 0u,
+            0x00060010u, 3u, 17u, 1u, 1u, 1u,
+            0x00020013u, 1u,
+            0x00030021u, 2u, 1u,
+            0x00050036u, 1u, 3u, 0u, 2u,
+            0x000200f8u, 4u,
+            0x00010000u,
+            0x000100fdu,
+            0x00010038u
+        };
+        const auto optimizedSpirv = ValidateAndOptimizeSpirv(minimalSpirv, 0x00401001u, 0x00010000u);
+        require(optimizedSpirv.size() < minimalSpirv.size(), "SPIR-V optimization did not remove the no-op");
+        require(optimizedSpirv == ValidateAndOptimizeSpirv(minimalSpirv, 0x00401001u, 0x00010000u), "SPIR-V optimization is not deterministic");
         const std::array<std::uint32_t, 8> code{0xf4040004u, 0xfa000000u, 0xf4000080u, 0xfa000000u, 0x7e000202u, 0xf80008cfu, 0u, 0xbf810000u};
         std::uint32_t payload = 0x3f800000u;
         std::uint64_t table = reinterpret_cast<std::uintptr_t>(&payload);
@@ -64,6 +82,11 @@ int main() {
         request.context.memory = regions;
         const auto first = Recompile(request);
         require(!first.spirv.empty(), "empty compiled shader");
+        auto invalidSpirv = first.spirv;
+        invalidSpirv[0] = 0;
+        expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(invalidSpirv, request.target.vulkanVersion, request.target.spirvVersion)); }, "SPIR-V validation before optimization failed", "invalid SPIR-V passed validation");
+        expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00400000u, 0x00010600u)); }, "unsupported Vulkan/SPIR-V target", "incompatible target accepted");
+        expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00405000u, 0x00010600u)); }, "unsupported Vulkan target", "unknown Vulkan target accepted");
         const auto serialized = RequestSerializer{}.Serialize(request);
         table = 0;
         payload = 0xdeadbeefu;

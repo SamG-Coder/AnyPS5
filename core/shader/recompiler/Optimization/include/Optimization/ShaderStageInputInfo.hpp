@@ -181,7 +181,7 @@ struct ShaderPixelInputInfo {
     ShaderStageRuntime stage;
 
     bool HasPositionInput() const {
-        throw std::runtime_error("shader input helper not implemented");
+        return psPosX || psPosY || psPosZ || psPosW;
     }
 };
 

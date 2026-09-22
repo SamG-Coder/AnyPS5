@@ -16,9 +16,11 @@
 #include "Optimization/include/Optimization/SrtWalker.hpp"
 #include "Optimization/include/Optimization/SsaBuilder.hpp"
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
+#include "SpirvBackend/SpirvOptimizer.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
 #include <exception>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <ControlFlow/RequestSerializer.hpp>
@@ -156,11 +158,13 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     const auto spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
 
     RecompileResult result;
-    result.spirv = spirv;
+    result.spirv = ValidateAndOptimizeSpirv(spirv, request.target.vulkanVersion, request.target.spirvVersion);
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
 
+    std::fprintf(stdout, "[RecompileImpl] shader recompiled\n");
+    std::fflush(stdout);
     return result;
 }
 
