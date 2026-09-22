@@ -104,8 +104,24 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
         }
         for (std::uint32_t i = 0; i < 8; ++i) {
             pixelStorage.targetOutputMode[i] = pixel.targetOutputMode[i];
+            pixelStorage.targetExportMapping[i].packed = pixel.targetExportMapping[i];
         }
-        throw std::runtime_error("ShaderInputInfoBuilder: color component mapping source is not available");
+        pixelStorage.psPosX = pixel.posX;
+        pixelStorage.psPosY = pixel.posY;
+        pixelStorage.psPosZ = pixel.posZ;
+        pixelStorage.psPosW = pixel.posW;
+        pixelStorage.psFrontFace = pixel.frontFace;
+        pixelStorage.psAncillary = pixel.ancillary;
+        pixelStorage.psNoPerspective = pixel.noPerspective;
+        pixelStorage.psPixelKillEnable = pixel.pixelKillEnable;
+        pixelStorage.psDepthExportEnable = pixel.depthExportEnable;
+        pixelStorage.psSampleMaskExportEnable = pixel.sampleMaskExportEnable;
+        pixelStorage.psSampleShading = pixel.sampleShading;
+        pixelStorage.psEarlyZ = pixel.earlyZ;
+        pixelStorage.psExecuteOnNoop = pixel.executeOnNoop;
+        ShaderStageInputInfo result;
+        result.pixel = &pixelStorage;
+        return result;
     }
     case ShaderStageKind::Vertex:
     case ShaderStageKind::Local:

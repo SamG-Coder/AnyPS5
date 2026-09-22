@@ -217,6 +217,7 @@ State DecodeState(const QueueState& queue) {
         APS5_LOG_OUT("Color bytes=%llu", static_cast<unsigned long long>(result.color.bytes));
         GuestMemory::CheckRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, 256, true);
         result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
+        result.color.componentMapping = 0xe4u;
         APS5_LOG_OUT("Color VkFormat=%u", static_cast<unsigned>(result.color.format));
         result.renderExtent = result.color.extent;
         APS5_LOG_OUT("Render extent from color target=%ux%u", result.renderExtent.width, result.renderExtent.height);

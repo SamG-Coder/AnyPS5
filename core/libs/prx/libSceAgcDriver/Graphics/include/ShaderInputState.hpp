@@ -8,7 +8,7 @@
 
 namespace AgcDriver::Graphics {
 
-ShaderRecompiler::ShaderPixelStageInfo DecodePixelStageInfo(const Registers& context);
+ShaderRecompiler::ShaderPixelStageInfo DecodePixelStageInfo(const Registers& context, bool hasColorTarget, std::uint8_t colorComponentMapping);
 ShaderRecompiler::ShaderComputeStageInfo DecodeComputeStageInfo(const Registers& shader);
 ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const std::byte> header, std::uint64_t headerAddress, std::span<const std::uint32_t> userData);
 

@@ -31,6 +31,7 @@ struct ColorTarget {
     VkExtent2D extent;
     VkFormat format;
     std::size_t bytes;
+    std::uint8_t componentMapping;
 };
 
 struct State {

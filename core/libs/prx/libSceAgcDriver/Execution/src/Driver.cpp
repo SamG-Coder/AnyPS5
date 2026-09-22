@@ -397,7 +397,7 @@ private:
         }
         append(0x008, 1, Stage::Fragment, 0x00b, 0x00c, Role::Fragment);
         programs.back().firstUserSgpr = 0;
-        const auto pixel = Graphics::DecodePixelStageInfo(queue.context);
+        const auto pixel = Graphics::DecodePixelStageInfo(queue.context, graphics.hasColorTarget, graphics.color.componentMapping);
         std::vector<ShaderRecompiler::MemoryRegion> memory;
         std::vector<ShaderRecompiler::LinkedProgram> linked;
         for (std::size_t i = 0; i < programs.size(); ++i) {
