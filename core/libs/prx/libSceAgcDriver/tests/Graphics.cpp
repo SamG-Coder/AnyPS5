@@ -629,6 +629,12 @@ struct ModuleShape {
     bool plainBuffer = false;
     bool shaderData = false;
     bool vertexInput = false;
+    bool barycentric = false;
+    bool barycentricNoPerspective = false;
+    std::uint32_t barycentricComponents = 3;
+    bool perVertex = false;
+    std::uint32_t perVertexLength = 3;
+    bool parameterOutput = false;
 };
 
 void emit(std::vector<std::uint32_t>& out, spv::Op op, std::initializer_list<std::uint32_t> operands) {
@@ -653,6 +659,7 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     const auto label = id();
     const auto inputPointer = id();
     const auto input = id();
+    std::vector<std::uint32_t> extraInterface;
     emit(declarations, spv::OpTypeVoid, {voidType});
     emit(declarations, spv::OpTypeFunction, {functionType, voidType});
     emit(declarations, spv::OpTypeFloat, {floatType, 32});
@@ -660,6 +667,35 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     emit(declarations, spv::OpTypeInt, {uintType, 32, 0});
     emit(declarations, spv::OpTypePointer, {outputPointer, spv::StorageClassOutput, vectorType});
     emit(declarations, spv::OpVariable, {outputPointer, output, spv::StorageClassOutput});
+    if (shape.parameterOutput) {
+        const auto parameter = id();
+        emit(declarations, spv::OpVariable, {outputPointer, parameter, spv::StorageClassOutput});
+        emit(annotations, spv::OpDecorate, {parameter, spv::DecorationLocation, 0});
+        extraInterface.push_back(parameter);
+    }
+    if (shape.barycentric) {
+        const auto vector = id();
+        const auto pointer = id();
+        const auto variable = id();
+        emit(declarations, spv::OpTypeVector, {vector, floatType, shape.barycentricComponents});
+        emit(declarations, spv::OpTypePointer, {pointer, spv::StorageClassInput, vector});
+        emit(declarations, spv::OpVariable, {pointer, variable, spv::StorageClassInput});
+        emit(annotations, spv::OpDecorate, {variable, spv::DecorationBuiltIn, shape.barycentricNoPerspective ? spv::BuiltInBaryCoordNoPerspKHR : spv::BuiltInBaryCoordKHR});
+        extraInterface.push_back(variable);
+    }
+    if (shape.perVertex) {
+        const auto length = id();
+        const auto array = id();
+        const auto pointer = id();
+        const auto variable = id();
+        emit(declarations, spv::OpConstant, {uintType, length, shape.perVertexLength});
+        emit(declarations, spv::OpTypeArray, {array, vectorType, length});
+        emit(declarations, spv::OpTypePointer, {pointer, spv::StorageClassInput, array});
+        emit(declarations, spv::OpVariable, {pointer, variable, spv::StorageClassInput});
+        emit(annotations, spv::OpDecorate, {variable, spv::DecorationLocation, 0});
+        emit(annotations, spv::OpDecorate, {variable, spv::DecorationPerVertexKHR});
+        extraInterface.push_back(variable);
+    }
     if (shape.vertexInput) {
         emit(declarations, spv::OpTypePointer, {inputPointer, spv::StorageClassInput, vectorType});
         emit(declarations, spv::OpVariable, {inputPointer, input, spv::StorageClassInput});
@@ -714,9 +750,21 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     emit(function, spv::OpFunctionEnd, {});
     std::vector<std::uint32_t> words{spv::MagicNumber, 0x10300, 0, next, 0};
     emit(words, spv::OpCapability, {spv::CapabilityShader});
+    if (shape.barycentric) {
+        emit(words, spv::OpCapability, {spv::CapabilityFragmentBarycentricKHR});
+        const std::string extension = "SPV_KHR_fragment_shader_barycentric";
+        const auto count = (extension.size() + 4) / 4;
+        words.push_back((static_cast<std::uint32_t>(count + 1) << 16u) | spv::OpExtension);
+        const auto start = words.size();
+        words.resize(start + count, 0);
+        for (std::size_t i = 0; i < extension.size(); ++i) words[start + i / 4] |= static_cast<std::uint32_t>(static_cast<unsigned char>(extension[i])) << ((i % 4) * 8);
+    }
     emit(words, spv::OpMemoryModel, {spv::AddressingModelLogical, spv::MemoryModelGLSL450});
+    const auto entryPointOffset = words.size();
     if (shape.vertexInput) emit(words, spv::OpEntryPoint, {spv::ExecutionModelVertex, main, 0x6e69616du, 0, output, input});
     else emit(words, spv::OpEntryPoint, {shape.fragment ? spv::ExecutionModelFragment : spv::ExecutionModelVertex, main, 0x6e69616du, 0, output});
+    words[entryPointOffset] += static_cast<std::uint32_t>(extraInterface.size()) << 16u;
+    words.insert(words.end(), extraInterface.begin(), extraInterface.end());
     if (shape.fragment) emit(words, spv::OpExecutionMode, {main, spv::ExecutionModeOriginUpperLeft});
     words.insert(words.end(), annotations.begin(), annotations.end());
     words.insert(words.end(), declarations.begin(), declarations.end());
@@ -731,15 +779,36 @@ void validationTests() {
     fragment.spirv = makeModule({.fragment = true});
     {
         ShaderRecompiler::RecompileResult vertex;
+        vertex.spirv = makeModule({.parameterOutput = true});
+        ShaderRecompiler::RecompileResult pixel;
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &pixel, 0}}};
+        const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        for (const auto noPerspective : {false, true}) {
+            pixel.spirv = makeModule({.fragment = true, .barycentric = true, .barycentricNoPerspective = noPerspective, .perVertex = true});
+            AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true);
+            expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "fragmentShaderBarycentric");
+        }
+        pixel.spirv = makeModule({.fragment = true, .barycentric = true, .barycentricComponents = 4});
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true); }, "invalid barycentric built-in");
+        pixel.spirv = makeModule({.fragment = true, .barycentric = true, .perVertex = true, .perVertexLength = 2});
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true); }, "three vertices");
+        pixel.spirv = makeModule({.fragment = true, .perVertex = true});
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true); }, "PerVertexKHR requires");
+        vertex.spirv = makeModule({.barycentric = true});
+        pixel.spirv = makeModule({.fragment = true});
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, true); }, "requires a fragment shader");
+    }
+    {
+        ShaderRecompiler::RecompileResult vertex;
         vertex.spirv = makeModule({.vertexInput = true});
         ShaderRecompiler::VertexAttribute attribute{0, 4, {{0x1000, 32u << 16u, 3, 77u << 12u}}, 0};
         const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}}};
         const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
-        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "missing attribute metadata");
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "missing attribute metadata");
         vertex.vertexAttributes.push_back(attribute);
-        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup);
+        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false);
         vertex.vertexAttributes[0].components = 2;
-        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "metadata disagrees");
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "metadata disagrees");
         Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 2, 1) == 80, "incorrect strided vertex range");
         expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 3, 1); }, "record count");
         attribute.fetchIndex = 1;
@@ -779,17 +848,17 @@ void validationTests() {
         VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
         subgroup.supportedStages = VK_SHADER_STAGE_VERTEX_BIT;
         subgroup.supportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
-        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup);
+        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false);
         subgroup.supportedStages = VK_SHADER_STAGE_FRAGMENT_BIT;
-        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "unsupported for shader stage");
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "unsupported for shader stage");
         subgroup.supportedStages = VK_SHADER_STAGE_VERTEX_BIT;
         subgroup.supportedOperations = capability == spv::CapabilityGroupNonUniform ? 0u : VK_SUBGROUP_FEATURE_BASIC_BIT;
-        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "device lacks operations");
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup, false); }, "device lacks operations");
     }
     const std::vector<std::uint32_t> words(8, 0);
     const auto validate = [&](const ShaderRecompiler::RecompileResult& vertex, std::uint32_t fragmentOffset) {
         const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, fragmentOffset}}};
-        AgcDriver::Graphics::ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES});
+        AgcDriver::Graphics::ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false);
     };
     const auto pushed = [&](const ModuleShape& shape) {
         ShaderRecompiler::RecompileResult vertex;

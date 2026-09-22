@@ -21,6 +21,7 @@ struct Decoration {
     bool block = false;
     bool patch = false;
     bool perPrimitive = false;
+    bool perVertex = false;
 };
 
 struct Variable {
@@ -40,6 +41,7 @@ struct Module {
     std::map<std::uint32_t, std::string> outputs;
     bool position = false;
     bool primitiveIndices = false;
+    bool fragmentBarycentric = false;
     std::map<std::uint32_t, std::vector<std::uint32_t>> modes;
 
     const std::vector<std::uint32_t>& Type(std::uint32_t id) const {
@@ -78,6 +80,10 @@ struct Module {
         const bool vertex = stage == Stage::Vertex || stage == Stage::Local;
         const bool input = storage == spv::StorageClassInput;
         const auto& raw = Type(type);
+        if (value == spv::BuiltInBaryCoordKHR || value == spv::BuiltInBaryCoordNoPerspKHR) {
+            Require(fragmentBarycentric && stage == Stage::Fragment && input && Signature(type) == "f32x3", "invalid barycentric built-in: expected fragment Float32 vec3 input with FragmentBarycentricKHR");
+            return;
+        }
         if (value == spv::BuiltInSubgroupLocalInvocationId) {
             Require(input && Signature(type) == "u32", "invalid subgroup local invocation ID input");
             Require((subgroup.supportedStages & VulkanStage(stage)) != 0 && (subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0, "subgroup local invocation ID is unsupported for this shader stage");
@@ -117,7 +123,7 @@ struct Module {
     }
 };
 
-Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup) {
+Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric) {
     using Stage = ShaderRecompiler::ShaderStage;
     Require(compiled.program != nullptr, "missing compiled shader");
     const auto& shader = *compiled.program;
@@ -146,6 +152,12 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
                 Require(count == 2, "invalid OpCapability instruction");
 
                 const auto capability = static_cast<spv::Capability>(instruction[1]);
+                const bool isBarycentricCapability = capability == spv::CapabilityFragmentBarycentricKHR;
+                if (isBarycentricCapability) {
+                    Require(fragment, "FragmentBarycentricKHR requires a fragment shader");
+                    Require(fragmentShaderBarycentric, "device does not support enabled VK_KHR_fragment_shader_barycentric with fragmentShaderBarycentric");
+                    module.fragmentBarycentric = true;
+                }
                 VkSubgroupFeatureFlags subgroupOperations = 0;
                 switch (capability) {
                     case spv::CapabilityGroupNonUniform: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT; break;
@@ -179,6 +191,7 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
 
                 Require(
                     isBaseCapability ||
+                    isBarycentricCapability ||
                     isSubgroupCapability ||
                     isBdaCapability ||
                     isTessellationCapability ||
@@ -195,6 +208,10 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
                 const auto end = std::find(text, text + bytes.size(), '\0');
                 Require(end != text + bytes.size(), "unterminated SPIR-V extension");
                 const std::string_view extension(text, static_cast<std::size_t>(end - text));
+                if (extension == "SPV_KHR_fragment_shader_barycentric") {
+                    Require(fragment && fragmentShaderBarycentric, "SPV_KHR_fragment_shader_barycentric requires enabled fragmentShaderBarycentric in a fragment shader");
+                    break;
+                }
                 Require(extension == "SPV_KHR_float_controls" || (mesh && extension == "SPV_EXT_mesh_shader") || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (extension == "SPV_KHR_physical_storage_buffer" || extension == "SPV_KHR_8bit_storage")), "unsupported SPIR-V extension");
                 break;
             }
@@ -238,6 +255,10 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
                 Require(kind != spv::DecorationComponent && kind != spv::DecorationIndex && kind != spv::DecorationStream && kind != spv::DecorationXfbBuffer && kind != spv::DecorationXfbStride, "unsupported shader interface packing or transform feedback");
                 if (kind == spv::DecorationPatch) decoration.patch = true;
                 if (kind == spv::DecorationPerPrimitiveEXT) decoration.perPrimitive = true;
+                if (kind == spv::DecorationPerVertexKHR) {
+                    Require(count == 3, "malformed PerVertexKHR decoration");
+                    decoration.perVertex = true;
+                }
                 if (kind == spv::DecorationBlock) decoration.block = true;
                 break;
             }
@@ -314,6 +335,13 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
         const bool tessellationLevels = decoration.builtin && (*decoration.builtin == spv::BuiltInTessLevelOuter || *decoration.builtin == spv::BuiltInTessLevelInner);
         const bool vertexArray = !tessellationLevels && ((control && (input || output)) || (evaluation && input) || (mesh && output)) && !decoration.patch;
         const auto& outer = module.Type(typeId);
+        if (decoration.perVertex) {
+            Require(fragment && input && module.fragmentBarycentric && !decoration.patch && !decoration.perPrimitive && !decoration.builtin && decoration.location.has_value(), "PerVertexKHR requires a fragment location input with FragmentBarycentricKHR");
+            Require(outer.size() == 4 && (outer[0] & 0xffffu) == spv::OpTypeArray, "PerVertexKHR input must be an array");
+            const auto length = module.constants.find(outer[3]);
+            Require(length != module.constants.end() && length->second == 3, "PerVertexKHR input must contain three vertices");
+            typeId = outer[2];
+        }
         if (vertexArray && (outer[0] & 0xffffu) == spv::OpTypeArray) {
             Require(outer.size() == 4, "malformed per-vertex interface array");
             const auto length = module.constants.find(outer[3]);
@@ -408,7 +436,7 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
 
 }
 
-void ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup) {
+void ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric) {
     using Stage = ShaderRecompiler::ShaderStage;
     const bool tessellation = state.stages.path == ShaderPath::Tessellation;
     const bool mesh = state.stages.path == ShaderPath::Geometry;
@@ -423,7 +451,7 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
         Require(shaders[i].program != nullptr, "missing compiled shader");
         Require(shaders[i].stage == expected, "graphics stage order disagrees");
         for (const auto& binding : shaders[i].program->bindings) Require(binding.descriptorSet == 0, "graphics resource uses a descriptor set other than zero");
-        const auto current = Inspect(shaders[i], state, subgroup);
+        const auto current = Inspect(shaders[i], state, subgroup, fragmentShaderBarycentric);
         if (i != 0) {
             for (const auto& [location, signature] : current.inputs) {
                 const auto output = previous.outputs.find(location);
@@ -439,7 +467,7 @@ void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const S
     const std::array<CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, static_cast<std::uint32_t>(vertex.pushConstants.size())}}};
     State state{};
     state.stages.path = ShaderPath::Vertex;
-    ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES});
+    ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false);
 }
 
 }

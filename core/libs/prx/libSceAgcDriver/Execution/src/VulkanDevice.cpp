@@ -60,6 +60,7 @@ struct VulkanDevice::State {
     std::vector<std::string_view> spirvExtensions;
     bool tessellationShader = false;
     bool meshShader = false;
+    bool fragmentShaderBarycentric = false;
     bool depthClipControl = false;
     bool depthRangeUnrestricted = false;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
@@ -306,8 +307,19 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     }
     meshFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
     meshFeatures.meshShader = state->meshShader;
+    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR barycentricFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR};
+    if (hasExtension(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &barycentricFeatures};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+        state->fragmentShaderBarycentric = barycentricFeatures.fragmentShaderBarycentric == VK_TRUE;
+    }
     std::vector<const char*> deviceExtensions;
     if (window != nullptr) deviceExtensions.assign(presentationExtensions.begin(), presentationExtensions.end());
+    if (state->fragmentShaderBarycentric) {
+        deviceExtensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+        state->capabilities.push_back(spv::CapabilityFragmentBarycentricKHR);
+        state->spirvExtensions.push_back("SPV_KHR_fragment_shader_barycentric");
+    }
     deviceExtensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
     state->capabilities.push_back(spv::CapabilitySignedZeroInfNanPreserve);
     state->spirvExtensions.push_back("SPV_KHR_float_controls");
@@ -371,6 +383,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         deviceInfo.pNext = &depthClipFeatures;
     }
     byteFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
+    if (state->fragmentShaderBarycentric) {
+        barycentricFeatures.pNext = byteFeatures.pNext;
+        byteFeatures.pNext = &barycentricFeatures;
+    }
     bdaFeatures.pNext = &byteFeatures;
     deviceInfo.pNext = &bdaFeatures;
     check(state->InstanceFunction<PFN_vkCreateDevice>("vkCreateDevice")(selected, &deviceInfo, nullptr, &state->device), "vkCreateDevice");
@@ -617,7 +633,8 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->depthClipControl,
         state->depthRangeUnrestricted,
         true,
-        state->subgroup
+        state->subgroup,
+        state->fragmentShaderBarycentric
     };
 }
 

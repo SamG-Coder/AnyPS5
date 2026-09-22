@@ -39,7 +39,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     APS5_LOG_CHARS_OUT("Index buffer range OK");
     Require(!state.hasColorTarget || draw.indexAddress + indexBytes <= state.color.address || state.color.address + state.color.bytes <= draw.indexAddress, "index buffer aliases the render target");
     APS5_LOG_CHARS_OUT("ValidateShaders");
-    ValidateShaders(shaders, state, context.subgroup);
+    ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     APS5_LOG_CHARS_OUT("ValidateShaders OK");
     const auto shaderStages = PipelineStages(shaders);
     APS5_LOG_OUT("PipelineStages=0x%x", static_cast<unsigned>(shaderStages));
