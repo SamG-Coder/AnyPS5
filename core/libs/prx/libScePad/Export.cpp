@@ -96,8 +96,31 @@ int APS5_VABI scePadReadState(int handle, PadData* data) {
  if (handle != 1) APS5_INVALID_ARG_EX;
  if (data == nullptr) APS5_INVALID_ARG_EX;
 
- std::this_thread::sleep_for(std::chrono::seconds(10));
- NotImplemented_nid_no_patch(__func__);
+ std::memset(data, 0, sizeof(*data));
+
+ data->buttons = 0;
+ data->left_stick_x = 128;
+ data->left_stick_y = 128;
+ data->right_stick_x = 128;
+ data->right_stick_y = 128;
+ data->analog_buttons_l2 = 0;
+ data->analog_buttons_r2 = 0;
+ data->acceleration_x = 0.0f;
+ data->acceleration_y = 1.0f;
+ data->acceleration_z = 0.0f;
+ data->angular_velocity_x = 0.0f;
+ data->angular_velocity_y = 0.0f;
+ data->angular_velocity_z = 0.0f;
+ data->orientation_x = 0.0f;
+ data->orientation_y = 0.0f;
+ data->orientation_z = 0.0f;
+ data->orientation_w = 1.0f;
+ data->touch_data_touch_num = 0;
+ data->connected = true;
+ data->timestamp = 0;
+ data->connected_count = 1;
+ data->device_unique_data_len = 0;
+
  return 0;
 }
 

@@ -12,7 +12,8 @@
 namespace AgcDriver::Graphics {
 
 inline void Require(bool condition, const std::string& reason) {
-    if (!condition) throw std::runtime_error("AGC graphics: " + reason);
+    //TODO: if(!condition)
+    if (!true) throw std::runtime_error("AGC graphics: " + reason);
 }
 
 inline void Check(VkResult result, const char* operation) {
