@@ -101,7 +101,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
     switch (opcode) {
         case 0x11: case 0x12: case 0x13: case 0x15: case 0x16: case 0x26:
         case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
-        case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
+        case 0x58: case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
         case 0x81: case 0x83: case 0x9f: return {};
         case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
             return "graphics draw, shader stages and guest render-target materialization are not implemented";
@@ -112,7 +112,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
             return "cooperative command-queue waits are not implemented";
         case 0x84: case 0x85: case 0x86: case 0x88:
             return "separate CE/DE execution and counter synchronization are not implemented";
-        case 0x43: case 0x47: case 0x48: case 0x49: case 0x58:
+        case 0x43: case 0x47: case 0x48: case 0x49:
             return "guest cache actions, GPU events and interrupt delivery are not implemented";
         case 0x8e: return "GPU LOD statistics are not implemented; synthetic results are forbidden";
         case 0x28: case 0x41: case 0x68: case 0x78:
@@ -198,6 +198,22 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
                     require(eventIndex == 0 || eventIndex == 7, "invalid cache-flush event index");
                     break;
                 default: throw std::runtime_error("EVENT_WRITE event type " + std::to_string(eventType) + " is not implemented");
+            }
+            break;
+        }
+        case 0x58: {
+            require(packet.size() == 7 || packet.size() == 8, "invalid ACQUIRE_MEM packet size");
+            const auto controlMask = packet.size() == 8 ? 0x86287fc3u : 0xfeecfffbu;
+            require((packet[1] & ~controlMask) == 0, "unsupported ACQUIRE_MEM control flags");
+            require(queue == 0 || (packet[1] & 0x06287fc3u) == 0, "graphics cache operation in compute queue");
+            require(packet[3] == 0 && packet[5] == 0, "ACQUIRE_MEM ranges above 40 bits are not implemented");
+            require(packet[6] <= 0xffffu, "invalid ACQUIRE_MEM poll interval");
+            const auto base = static_cast<std::uint64_t>(packet[4]) << 8u;
+            const auto bytes = static_cast<std::uint64_t>(packet[2]) << 8u;
+            require(bytes <= (1ull << 40u) - base, "ACQUIRE_MEM range exceeds 40-bit address space");
+            if (packet.size() == 8) {
+                require((packet[7] & ~0x3ffffu) == 0, "unsupported ACQUIRE_MEM GCR flags");
+                require((packet[7] & 0x2000u) == 0, "ACQUIRE_MEM cache discard is not implemented");
             }
             break;
         }

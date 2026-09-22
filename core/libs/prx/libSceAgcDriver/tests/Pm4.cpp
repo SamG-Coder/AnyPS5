@@ -255,6 +255,32 @@ void testEventWrite() {
     expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x46, {0x0d}), 0); }, "event type 13");
 }
 
+void testAcquireMem() {
+    const auto captured = makePacket(0x58, {0x02007fc0, 0, 0, 0, 0, 10, 0x200});
+    AgcDriver::Pm4::Validate(captured, 0);
+    AgcDriver::Pm4::Validate(makePacket(0x58, {0x82007fc0, 1, 0, 0xffffffff, 0, 0xffff, 0x200}), 0);
+    AgcDriver::Pm4::Validate(makePacket(0x58, {0x80000000, 0, 0, 0, 0, 10, 0x200}), 0x20);
+    AgcDriver::Pm4::Validate(makePacket(0x58, {0x00800000, 0xffffffff, 0, 0, 0, 10}), 0);
+    AgcDriver::Pm4::Validate(makePacket(0x58, {0x80800000, 16, 0, 0x1000, 0, 0}), 0x20);
+    expectFailure([&] { AgcDriver::Pm4::Validate(captured, 0x20); }, "compute queue");
+    const auto invalidWord = [&](std::size_t index, std::uint32_t value, const char* reason) {
+        auto packet = captured;
+        packet[index] = value;
+        expectFailure([&] { AgcDriver::Pm4::Validate(packet, 0); }, reason);
+    };
+    invalidWord(0, captured[0] | 1u, "header flags");
+    invalidWord(1, 4, "control flags");
+    invalidWord(1, 0x00800000, "control flags");
+    invalidWord(3, 1, "above 40 bits");
+    invalidWord(5, 1, "above 40 bits");
+    invalidWord(6, 0x10000, "poll interval");
+    invalidWord(7, 0x40000, "GCR flags");
+    invalidWord(7, 0x2000, "cache discard");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x58, {0, 2, 0, 0xffffffff, 0, 0, 0}), 0); }, "range exceeds");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x58, {0, 0, 0, 0, 0}), 0); }, "packet size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x58, {0, 0, 0, 0, 0, 0, 0, 0}), 0); }, "packet size");
+}
+
 void testDriverSubmission() {
     std::array<std::uint32_t, 2> source{0x10, 73};
     std::array<std::uint32_t, 1> destination{};
@@ -271,6 +297,8 @@ void testDriverSubmission() {
         makePacket(0x46, {0x2a}),
         makePacket(0x46, {0x72c}),
         makePacket(0x46, {0x2e}),
+        makePacket(0x58, {0x02007fc0, 0, 0, 0, 0, 10, 0x200}),
+        makePacket(0x58, {0x00800000, 0xffffffff, 0, 0, 0, 10}),
         makePacket(0x83, {0, 1, low(destination.data()), high(destination.data())})
     }) commands.insert(commands.end(), packet.begin(), packet.end());
     Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
@@ -328,6 +356,7 @@ int main(int argc, char** argv) {
         testMemory();
         testCopies();
         testEventWrite();
+        testAcquireMem();
         testDriverSubmission();
         LibcRunShutdown_nid_postfix();
         std::puts("PM4 catalog, registers, state, memory and submission tests passed");
