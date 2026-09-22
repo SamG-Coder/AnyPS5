@@ -23,6 +23,8 @@
 #include <string>
 #include <ControlFlow/RequestSerializer.hpp>
 
+#include "../../libs/prx/libc/include/general/LogMacros.hpp"
+
 namespace ShaderRecompiler {
 
 namespace {
@@ -148,6 +150,9 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
+
+    std::fprintf(stdout, "[RecompileImpl] shader recompiled\n");
+    std::fflush(stdout);
     return result;
 }
 

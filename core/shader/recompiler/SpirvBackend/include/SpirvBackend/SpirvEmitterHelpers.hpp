@@ -131,12 +131,14 @@ std::uint32_t Select(SpirvEmitterState& state, std::uint32_t type, std::uint32_t
 
 template<std::uint32_t TOpcode, IrType TValueType, typename... TArguments>
 std::uint32_t EmitNative(SpirvEmitterState& state, TArguments... arguments) {
-    throw std::runtime_error("EmitNative not implemented");
+    const auto result = state.module.AllocateId();
+    state.module.AddFunction(TOpcode, TypeId(state, TValueType), result, arguments...);
+    return result;
 }
 
 template<std::uint32_t TOpcode, IrType TValueType, typename... TArguments>
 std::uint32_t EmitGlsl(SpirvEmitterState& state, TArguments... arguments) {
-    throw std::runtime_error("EmitGlsl not implemented");
+    return EmitNative<spv::OpExtInst, TValueType>(state, GlslStd450(state), TOpcode, arguments...);
 }
 
 template<typename TFunction>
