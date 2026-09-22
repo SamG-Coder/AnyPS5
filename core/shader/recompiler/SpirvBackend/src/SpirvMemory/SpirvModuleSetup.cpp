@@ -163,6 +163,8 @@ void DefineModule(SpirvEmitterState& state) {
         state.module.EmitCapability(spv::CapabilityFragmentBarycentricKHR);
         state.module.EmitExtension("SPV_KHR_fragment_shader_barycentric");
     }
+    state.module.EmitCapability(spv::CapabilitySignedZeroInfNanPreserve);
+    state.module.EmitExtension("SPV_KHR_float_controls");
     state.module.AddExecutionMode(state.mainFunc, spv::ExecutionModeSignedZeroInfNanPreserve, 32u);
     if (const auto* workgroup = ShaderWorkgroupInput(state)) {
         const std::uint32_t derivativeDefault = state.requirements.computeDerivatives ? 2u : 1u;
