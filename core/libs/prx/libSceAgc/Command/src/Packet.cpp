@@ -45,7 +45,7 @@ std::uint32_t available(const CommandBuffer& buffer, const char* function) {
 
 }
 
-std::uint32_t* Allocate(CommandBuffer* buffer, std::uint32_t count, const char* function) {
+void Reserve(CommandBuffer* buffer, std::uint32_t count, const char* function) {
     Require(buffer != nullptr && count != 0, function, "null command buffer or empty allocation");
     if (available(*buffer, function) < count) {
         Require(buffer->callback != nullptr, function, "command buffer exhausted");
@@ -53,6 +53,10 @@ std::uint32_t* Allocate(CommandBuffer* buffer, std::uint32_t count, const char* 
         Require(buffer->callback(buffer, count + buffer->reserved_dw, buffer->user_data), function, "command buffer allocation callback failed");
         Require(available(*buffer, function) >= count, function, "command buffer allocation callback returned insufficient space");
     }
+}
+
+std::uint32_t* Allocate(CommandBuffer* buffer, std::uint32_t count, const char* function) {
+    Reserve(buffer, count, function);
     auto* result = buffer->cursor_up;
     buffer->cursor_up += count;
     return result;

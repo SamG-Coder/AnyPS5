@@ -16,6 +16,7 @@ extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, s
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, std::uint32_t offset, const std::uint32_t* values, std::uint32_t numValues);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbContextStateAnotherOp(CommandBuffer* buf, std::uint32_t operation);
 
 namespace {
 
@@ -69,6 +70,94 @@ void testPackets() {
     exhausted.buffer.cursor_down = exhausted.words.data() + 2;
     expectFailure([&] { Agc::Command::WriteNop(&exhausted.buffer, 3, __func__); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed allocation advanced cursor");
+}
+
+struct ContextGrowth {
+    Storage destination;
+    std::uint32_t* expectedCursor;
+    std::uint32_t expectedCount;
+    std::uint32_t calls = 0;
+    bool success = true;
+};
+
+bool APS5_VABI growContext(CommandBuffer* buffer, std::uint32_t count, void* userData) {
+    auto& growth = *static_cast<ContextGrowth*>(userData);
+    check(++growth.calls == 1, "unexpected repeated context allocation callback");
+    check(buffer->cursor_up == growth.expectedCursor, "context callback at wrong packet boundary");
+    check(count == growth.expectedCount, "incorrect context reservation size");
+    if (!growth.success) {
+        return false;
+    }
+    buffer->bottom = growth.destination.buffer.bottom;
+    buffer->top = growth.destination.buffer.top;
+    buffer->cursor_up = growth.destination.buffer.cursor_up;
+    buffer->cursor_down = growth.destination.buffer.cursor_down;
+    return true;
+}
+
+void testContextState() {
+    const std::array<std::array<std::uint32_t, 6>, 4> sizes{{{5}, {5, 8, 9, 3, 2}, {3, 5, 8, 9, 2}, {5, 8, 9, 3, 2, 5}}};
+    const std::array<std::array<std::uint32_t, 4>, 4> reservations{{{5}, {22, 3, 2}, {3, 22, 2}, {22, 3, 2, 5}}};
+    const std::array<std::uint32_t, 4> totals{5, 27, 27, 32};
+    for (std::uint32_t operation = 0; operation < sizes.size(); ++operation) {
+        for (std::uint32_t capacity = 0; capacity <= totals[operation]; ++capacity) {
+            Storage source;
+            source.words.fill(0xdeadbeefu);
+            std::uint32_t split = 0;
+            std::uint32_t requested = 0;
+            for (const auto count : reservations[operation]) {
+                if (count > capacity - split) {
+                    requested = count;
+                    break;
+                }
+                split += count;
+            }
+            ContextGrowth growth{{}, source.words.data() + split, requested + 2};
+            growth.destination.words.fill(0xdeadbeefu);
+            source.buffer.cursor_down = source.words.data() + capacity + 2;
+            source.buffer.reserved_dw = 2;
+            source.buffer.callback = growContext;
+            source.buffer.user_data = &growth;
+            auto* first = sceAgcDcbContextStateAnotherOp(&source.buffer, operation);
+            check(first == (split == 0 ? growth.destination.words.data() : source.words.data()), "incorrect first context packet address");
+            check(growth.calls == (requested == 0 ? 0u : 1u), "incorrect context callback count");
+            auto* end = requested == 0 ? source.words.data() + totals[operation] : growth.destination.words.data() + totals[operation] - split;
+            check(source.buffer.cursor_up == end, "incorrect context cursor advance");
+            check(*end == 0xdeadbeefu && source.words[split] == 0xdeadbeefu, "context allocation overwrote adjacent memory");
+            std::uint32_t offset = 0;
+            for (const auto count : sizes[operation]) {
+                if (count == 0) {
+                    break;
+                }
+                const auto* packet = offset < split ? source.words.data() + offset : growth.destination.words.data() + offset - split;
+                const auto header = 0xc0001000u | ((count - 2u) << 16u) | (offset == 0 ? 0x68u : 0u);
+                check(packet[0] == header, "incorrect context packet header");
+                for (std::uint32_t i = 1; i < count; ++i) {
+                    check(packet[i] == (offset == 0 && i == 1 ? operation : 0u), "incorrect context packet payload");
+                }
+                offset += count;
+            }
+        }
+    }
+    expectFailure([] { sceAgcDcbContextStateAnotherOp(nullptr, 0); });
+    Storage invalid;
+    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 4); });
+    check(invalid.buffer.cursor_up == invalid.words.data(), "invalid context operation advanced cursor");
+    invalid.buffer.cursor_up = invalid.words.data() + 1;
+    invalid.buffer.cursor_down = invalid.words.data();
+    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 0); });
+    invalid.buffer.cursor_up = invalid.words.data();
+    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    ContextGrowth growth{{}, invalid.words.data(), 22};
+    invalid.buffer.callback = growContext;
+    invalid.buffer.user_data = &growth;
+    growth.success = false;
+    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    growth.calls = 0;
+    growth.success = true;
+    growth.destination.buffer.cursor_down = growth.destination.words.data() + 21;
+    expectFailure([&] { sceAgcDcbContextStateAnotherOp(&invalid.buffer, 1); });
+    check(invalid.buffer.cursor_up == growth.destination.words.data(), "failed reservation advanced cursor");
 }
 
 void testFlip() {
@@ -178,6 +267,7 @@ void testDefaults() {
 int main() {
     try {
         testPackets();
+        testContextState();
         testFlip();
         testRegisters();
         testRegisterRange();
