@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
@@ -307,14 +308,19 @@ private:
             device = std::make_shared<VulkanDevice>();
         }
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
-        const ShaderRecompiler::RecompileRequest request{
+        ShaderRecompiler::RecompileRequest request{
             {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
-            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0x240, userData, compute, std::nullopt, std::nullopt, memory},
+            {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0, userData, compute, std::nullopt, std::nullopt, memory},
             device->Target(),
             {0, 0, 0, 128}
         };
+        ShaderMemory shaderMemory(memory);
+        shaderMemory.Capture(request);
+        const auto captured = shaderMemory.Regions();
+        request.context.memory = captured;
         const auto compiled = ShaderRecompiler::Recompile(request);
-        const std::array<Graphics::GuestMemorySnapshot, 2> snapshots{{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}};
+        std::vector<Graphics::GuestMemorySnapshot> snapshots;
+        for (const auto& region : captured) snapshots.push_back({region.guestAddress, region.bytes});
         device->Dispatch(compiled, packet[1], packet[2], packet[3], snapshots);
     }
 
@@ -407,6 +413,7 @@ private:
         }
         std::lock_guard gpuLock(gpuMutex);
         if (device == nullptr) device = std::make_shared<VulkanDevice>();
+        ShaderMemory shaderMemory(memory);
         std::vector<ShaderRecompiler::RecompileResult> results;
         std::vector<Graphics::CompiledShader> stages;
         results.reserve(programs.size());
@@ -416,13 +423,16 @@ private:
             if (roles[i] == Role::GeometryBack) continue;
             const auto& program = programs[i];
             const auto waveSize = program.binary.stage == Stage::Fragment ? graphics.stages.fragmentWaveSize : graphics.stages.vertexWaveSize;
-            const ShaderRecompiler::RecompileRequest request{
+            ShaderRecompiler::RecompileRequest request{
                 program.binary,
-                {waveSize, program.userDataBase, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, program.binary.stage == Stage::Fragment ? std::nullopt : std::optional(Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData)), memory},
+                {waveSize, program.firstUserSgpr, program.userData, std::nullopt, program.binary.stage == Stage::Fragment ? std::optional(pixel) : std::nullopt, program.binary.stage == Stage::Fragment ? std::nullopt : std::optional(Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData)), memory},
                 device->Target(),
                 {0, 0, pushCursorBytes, Graphics::PipelinePushConstantBytes - pushCursorBytes},
                 ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {indexed.indexAddress, indexed.indexCount, indexed.indexSize, indexed.instanceCount}}
             };
+            shaderMemory.Capture(request);
+            memory = shaderMemory.Regions();
+            request.context.memory = memory;
             results.push_back(ShaderRecompiler::Recompile(request));
             const auto& result = results.back();
             require(result.pushConstants.size() <= Graphics::PipelinePushConstantBytes - pushCursorBytes, "stage push constants exceed the pipeline push constant block");

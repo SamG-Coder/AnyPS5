@@ -35,6 +35,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/ShaderMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/BdaFeatures.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/VulkanDevice.cpp
@@ -112,6 +113,16 @@ target_link_libraries(agc_driver_recompiler_tests PRIVATE
 
 set_target_properties(agc_driver_recompiler_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_recompiler_tests)
+
+add_executable(agc_shader_memory_tests EXCLUDE_FROM_ALL
+        tests/ShaderMemory.cpp
+        Execution/src/ShaderMemory.cpp
+        Execution/src/GuestMemory.cpp
+)
+target_include_directories(agc_shader_memory_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_shader_memory_tests PRIVATE shader_recompiler_agc_driver libc)
+set_target_properties(agc_shader_memory_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_shader_memory_tests)
 
 add_executable(agc_driver_flip_tests EXCLUDE_FROM_ALL
         tests/Flip.cpp

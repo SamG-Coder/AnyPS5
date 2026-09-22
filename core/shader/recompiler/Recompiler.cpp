@@ -10,6 +10,7 @@
 #include "Optimization/include/Optimization/ReadLaneEliminator.hpp"
 #include "Optimization/include/Optimization/RequestMemoryView.hpp"
 #include "Optimization/include/Optimization/ResourceMaterializer.hpp"
+#include "Optimization/ResourceProgram.hpp"
 #include "Optimization/include/Optimization/ResourceTracker.hpp"
 #include "Optimization/include/Optimization/ShaderInfoCollector.hpp"
 #include "Optimization/include/Optimization/SrtWalker.hpp"
@@ -17,13 +18,10 @@
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
-#include "tests/DummyShaders.hpp"
 #include <exception>
 #include <stdexcept>
 #include <string>
 #include <ControlFlow/RequestSerializer.hpp>
-
-#include "../../libs/prx/libc/include/general/LogMacros.hpp"
 
 namespace ShaderRecompiler {
 
@@ -51,7 +49,9 @@ ShaderStageKind toShaderStageKind(ShaderStage stage) {
     throw std::runtime_error("ShaderRecompiler::Recompile: unsupported shader stage");
 }
 
-RecompileResult RecompileImpl(const RecompileRequest& request) {
+}
+
+IrProgram PrepareResourceProgram(const RecompileRequest& request) {
     const auto stageKind = toShaderStageKind(request.shader.stage);
     const auto inputInfo = BuildShaderStageInputInfo(stageKind, request.context);
 
@@ -111,6 +111,16 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     resourceTracker.Track(program);
     deadCodeEliminator.Eliminate(program);
 
+    return program;
+}
+
+namespace {
+
+RecompileResult RecompileImpl(const RecompileRequest& request) {
+    auto program = PrepareResourceProgram(request);
+    const auto inputInfo = BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context);
+    constexpr DeadCodeEliminator deadCodeEliminator;
+
     constexpr ResourceMaterializer resourceMaterializer;
     const auto resourcePlan = resourceMaterializer.ExtractPlan(program);
 
@@ -151,15 +161,12 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
 
-    std::fprintf(stdout, "[RecompileImpl] shader recompiled\n");
-    std::fflush(stdout);
     return result;
 }
 
 }
 
 RecompileResult Recompile(const RecompileRequest& request) {
-    // return RecompileDummy(request);
     try {
         return RecompileImpl(request);
     } catch (const std::exception& e) {

@@ -604,7 +604,6 @@ IrResourcePlan ResourceMaterializer::ExtractPlan(const IrProgram& program) const
     plan.memoryInfo = source.memoryInfo;
     plan.descriptorSources = source.descriptorSources;
     plan.controlFlow = source.controlFlow;
-    plan.materializationSources = source.materializationSources;
     plan.srtReads = source.srtReads;
     plan.cleanFlatSlots = source.cleanFlatSlots;
     plan.requiresSpecializationMemory = source.requiresSpecializationMemory;
@@ -612,6 +611,24 @@ IrResourcePlan ResourceMaterializer::ExtractPlan(const IrProgram& program) const
     plan.resourceTrackingComplete = source.resourceTrackingComplete;
     plan.info = source.info;
     plan.uniformFill = source.uniformFill;
+    const auto addSource = [&plan](std::uint32_t index) {
+        if (index >= plan.descriptorSources.size()) {
+            throw std::runtime_error("ResourceMaterializer::ExtractPlan resource references an unknown descriptor source");
+        }
+        plan.materializationSources.push_back(index);
+    };
+    for (const auto& buffer : plan.info.buffers) addSource(buffer.source);
+    for (const auto& image : plan.info.images) {
+        if (image.source >= plan.descriptorSources.size()) {
+            throw std::runtime_error("ResourceMaterializer::ExtractPlan image references an unknown descriptor source");
+        }
+        if (plan.descriptorSources[image.source].indirectImage.has_value()) {
+            plan.requiresSpecializationMemory = true;
+        } else {
+            addSource(image.source);
+        }
+    }
+    for (const auto& sampler : plan.info.samplers) addSource(sampler.source);
     return plan;
 }
 

@@ -36,6 +36,9 @@ IrShaderStage toIrShaderStage(ShaderStageKind stage) {
 }
 
 void validateTranslateOptions(const TranslateOptions& options) {
+    if (options.userDataBaseRegister >= NumScalarRegs || options.userDataCount > NumScalarRegs - options.userDataBaseRegister) {
+        throw std::runtime_error("shader user data exceeds the scalar register bank");
+    }
     if (options.waveSize != 32u && options.waveSize != 64u) {
         throw std::runtime_error("shader translation requires wave32 or wave64, got " + std::to_string(options.waveSize));
     }
@@ -183,9 +186,6 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
 
     for (std::uint32_t index = 0; index < options.userDataCount; index++) {
         const auto reg = static_cast<ScalarReg>(options.userDataBaseRegister + index);
-        if (RegIndex(reg) >= NumScalarRegs) {
-            break;
-        }
         IrValue& value = entryIr.GetUserData(reg);
         entryIr.SetScalarReg(reg, value);
         entryIr.SetScalarMaskTag(reg, entryIr.ConstantBool(false));
