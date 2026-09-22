@@ -72,11 +72,16 @@ struct Module {
         return location + 1;
     }
 
-    void Builtin(std::uint32_t value, std::uint32_t type, std::uint32_t storage, ShaderRecompiler::ShaderStage stage) {
+    void Builtin(std::uint32_t value, std::uint32_t type, std::uint32_t storage, ShaderRecompiler::ShaderStage stage, const VkPhysicalDeviceSubgroupProperties& subgroup) {
         using Stage = ShaderRecompiler::ShaderStage;
         const bool vertex = stage == Stage::Vertex || stage == Stage::Local;
         const bool input = storage == spv::StorageClassInput;
         const auto& raw = Type(type);
+        if (value == spv::BuiltInSubgroupLocalInvocationId) {
+            Require(input && Signature(type) == "u32", "invalid subgroup local invocation ID input");
+            Require((subgroup.supportedStages & VulkanStage(stage)) != 0 && (subgroup.supportedOperations & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0, "subgroup local invocation ID is unsupported for this shader stage");
+            return;
+        }
         if ((value == spv::BuiltInTessLevelOuter || value == spv::BuiltInTessLevelInner) && (stage == Stage::TessellationControl || stage == Stage::TessellationEvaluation)) {
             Require(raw.size() == 4 && (raw[0] & 0xffffu) == spv::OpTypeArray && Signature(raw[2]) == "f32", "invalid tessellation level type");
             const auto count = constants.find(raw[3]);
@@ -111,7 +116,7 @@ struct Module {
     }
 };
 
-Module Inspect(const CompiledShader& compiled, const State& state) {
+Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup) {
     using Stage = ShaderRecompiler::ShaderStage;
     Require(compiled.program != nullptr, "missing compiled shader");
     const auto& shader = *compiled.program;
@@ -136,16 +141,60 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
         const auto op = static_cast<spv::Op>(words[cursor] & 0xffffu);
         const auto instruction = std::span(words).subspan(cursor, count);
         switch (op) {
-            case spv::OpCapability:
-                Require(count == 2 && (instruction[1] == spv::CapabilityShader || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (instruction[1] == spv::CapabilityInt64 || instruction[1] == spv::CapabilityPhysicalStorageBufferAddresses || instruction[1] == spv::CapabilityStorageBuffer8BitAccess)) || ((control || evaluation) && instruction[1] == spv::CapabilityTessellation) || (mesh && instruction[1] == spv::CapabilityMeshShadingEXT)), "SPIR-V requires an unsupported device capability");
+            case spv::OpCapability: {
+                Require(count == 2, "invalid OpCapability instruction");
+
+                const auto capability = static_cast<spv::Capability>(instruction[1]);
+                VkSubgroupFeatureFlags subgroupOperations = 0;
+                switch (capability) {
+                    case spv::CapabilityGroupNonUniform: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT; break;
+                    case spv::CapabilityGroupNonUniformBallot: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT; break;
+                    case spv::CapabilityGroupNonUniformShuffle: subgroupOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT; break;
+                    default: break;
+                }
+                const bool isSubgroupCapability = subgroupOperations != 0;
+                if (isSubgroupCapability) {
+                    Require((subgroup.supportedStages & VulkanStage(stage)) != 0, "subgroup capability " + std::to_string(instruction[1]) + " is unsupported for shader stage " + std::to_string(VulkanStage(stage)));
+                    Require((subgroup.supportedOperations & subgroupOperations) == subgroupOperations, "device lacks operations for subgroup capability " + std::to_string(instruction[1]));
+                }
+
+                const bool isBaseCapability =
+                    capability == spv::CapabilityShader ||
+                    capability == spv::CapabilitySignedZeroInfNanPreserve;
+
+                const bool isBdaCapability =
+                    shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version &&
+                    (capability == spv::CapabilityInt64 ||
+                     capability == spv::CapabilityPhysicalStorageBufferAddresses ||
+                     capability == spv::CapabilityStorageBuffer8BitAccess);
+
+                const bool isTessellationCapability =
+                    (control || evaluation) &&
+                    capability == spv::CapabilityTessellation;
+
+                const bool isMeshCapability =
+                    mesh &&
+                    capability == spv::CapabilityMeshShadingEXT;
+
+                Require(
+                    isBaseCapability ||
+                    isSubgroupCapability ||
+                    isBdaCapability ||
+                    isTessellationCapability ||
+                    isMeshCapability,
+                    std::string("SPIR-V requires unsupported device capability ") +
+                        std::to_string(static_cast<std::uint32_t>(capability)));
+
                 break;
+            }
+
             case spv::OpExtension: {
                 const auto bytes = std::as_bytes(instruction.subspan(1));
                 const auto* text = reinterpret_cast<const char*>(bytes.data());
                 const auto end = std::find(text, text + bytes.size(), '\0');
                 Require(end != text + bytes.size(), "unterminated SPIR-V extension");
                 const std::string_view extension(text, static_cast<std::size_t>(end - text));
-                Require((mesh && extension == "SPV_EXT_mesh_shader") || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (extension == "SPV_KHR_physical_storage_buffer" || extension == "SPV_KHR_8bit_storage")), "unsupported SPIR-V extension");
+                Require(extension == "SPV_KHR_float_controls" || (mesh && extension == "SPV_EXT_mesh_shader") || (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && (extension == "SPV_KHR_physical_storage_buffer" || extension == "SPV_KHR_8bit_storage")), "unsupported SPIR-V extension");
                 break;
             }
             case spv::OpDecorateId:
@@ -223,6 +272,10 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
     Require(entries == 1 && memoryModels == 1, "SPIR-V must contain one entry point and memory model");
     Require(entryPoint != 0 && std::all_of(executionModeTargets.begin(), executionModeTargets.end(), [&](auto target) { return target == entryPoint; }), "execution mode refers to a different entry point");
     Require(!fragment || upperLeft, "fragment coordinates must use an upper-left origin");
+    if (const auto preserve = module.modes.find(spv::ExecutionModeSignedZeroInfNanPreserve); preserve != module.modes.end()) {
+        Require(preserve->second == std::vector<std::uint32_t>{32u}, "SignedZeroInfNanPreserve requires Float32");
+        module.modes.erase(preserve);
+    }
     const auto mode = [&](std::uint32_t name, std::vector<std::uint32_t> operands) {
         const auto it = module.modes.find(name);
         Require(it != module.modes.end() && it->second == operands, "missing or incompatible shader execution mode");
@@ -283,13 +336,13 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
                 auto& locations = variable.storage == spv::StorageClassInput ? module.inputs : module.outputs;
                 module.AddLocations(locations, *decoration.location, typeId, decoration.patch);
             } else if (decoration.builtin) {
-                module.Builtin(*decoration.builtin, typeId, variable.storage, stage);
+                module.Builtin(*decoration.builtin, typeId, variable.storage, stage, subgroup);
             } else {
                 Require((type[0] & 0xffffu) == spv::OpTypeStruct, "shader interface lacks a location or built-in");
                 for (std::size_t i = 2; i < type.size(); ++i) {
                     const auto builtin = module.builtins.find({typeId, static_cast<std::uint32_t>(i - 2)});
                     Require(builtin != module.builtins.end(), "interface blocks with non-built-in members are unsupported");
-                    module.Builtin(builtin->second, type[i], variable.storage, stage);
+                    module.Builtin(builtin->second, type[i], variable.storage, stage, subgroup);
                 }
             }
         } else if (variable.storage == spv::StorageClassPushConstant) {
@@ -343,7 +396,7 @@ Module Inspect(const CompiledShader& compiled, const State& state) {
 
 }
 
-void ValidateShaders(std::span<const CompiledShader> shaders, const State& state) {
+void ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup) {
     using Stage = ShaderRecompiler::ShaderStage;
     const bool tessellation = state.stages.path == ShaderPath::Tessellation;
     const bool mesh = state.stages.path == ShaderPath::Geometry;
@@ -358,7 +411,7 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
         Require(shaders[i].program != nullptr, "missing compiled shader");
         Require(shaders[i].stage == expected, "graphics stage order disagrees");
         for (const auto& binding : shaders[i].program->bindings) Require(binding.descriptorSet == 0, "graphics resource uses a descriptor set other than zero");
-        const auto current = Inspect(shaders[i], state);
+        const auto current = Inspect(shaders[i], state, subgroup);
         if (i != 0) {
             for (const auto& [location, signature] : current.inputs) {
                 const auto output = previous.outputs.find(location);
@@ -374,7 +427,7 @@ void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const S
     const std::array<CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, static_cast<std::uint32_t>(vertex.pushConstants.size())}}};
     State state{};
     state.stages.path = ShaderPath::Vertex;
-    ValidateShaders(shaders, state);
+    ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES});
 }
 
 }

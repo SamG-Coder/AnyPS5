@@ -35,6 +35,7 @@ struct Context {
     bool depthClipControl = false;
     bool depthRangeUnrestricted = false;
     bool bufferDeviceAddress = false;
+    VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

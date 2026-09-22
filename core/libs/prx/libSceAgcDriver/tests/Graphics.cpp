@@ -719,10 +719,25 @@ void validationTests() {
     state.stages.path = AgcDriver::Graphics::ShaderPath::Vertex;
     ShaderRecompiler::RecompileResult fragment;
     fragment.spirv = makeModule({.fragment = true});
+    for (const auto capability : {spv::CapabilityGroupNonUniform, spv::CapabilityGroupNonUniformBallot, spv::CapabilityGroupNonUniformShuffle}) {
+        ShaderRecompiler::RecompileResult vertex;
+        vertex.spirv = makeModule({});
+        vertex.spirv.insert(vertex.spirv.begin() + 5, {(2u << 16u) | spv::OpCapability, static_cast<std::uint32_t>(capability)});
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}}};
+        VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        subgroup.supportedStages = VK_SHADER_STAGE_VERTEX_BIT;
+        subgroup.supportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_SHUFFLE_BIT;
+        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup);
+        subgroup.supportedStages = VK_SHADER_STAGE_FRAGMENT_BIT;
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "unsupported for shader stage");
+        subgroup.supportedStages = VK_SHADER_STAGE_VERTEX_BIT;
+        subgroup.supportedOperations = capability == spv::CapabilityGroupNonUniform ? 0u : VK_SUBGROUP_FEATURE_BASIC_BIT;
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "device lacks operations");
+    }
     const std::vector<std::uint32_t> words(8, 0);
     const auto validate = [&](const ShaderRecompiler::RecompileResult& vertex, std::uint32_t fragmentOffset) {
         const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, fragmentOffset}}};
-        AgcDriver::Graphics::ValidateShaders(shaders, state);
+        AgcDriver::Graphics::ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES});
     };
     const auto pushed = [&](const ModuleShape& shape) {
         ShaderRecompiler::RecompileResult vertex;

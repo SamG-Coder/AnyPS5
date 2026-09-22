@@ -9,7 +9,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
     Require((target != nullptr) == state.hasColorTarget, "render target does not match decoded color state");
     Require(state.renderExtent.width != 0 && state.renderExtent.height != 0 && state.renderExtent.width <= context.limits.maxFramebufferWidth && state.renderExtent.height <= context.limits.maxFramebufferHeight, "framebuffer extent exceeds device limits");
     Require(state.hasColorTarget || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
-    ValidateShaders(shaders, state);
+    ValidateShaders(shaders, state, context.subgroup);
     Require(!state.negativeOneToOne || context.depthClipControl, "negative-one-to-one depth clipping requires VK_EXT_depth_clip_control with depthClipControl enabled");
     if (state.stages.tessellation) {
         Require(context.tessellationShader, "device does not support tessellation shaders");
