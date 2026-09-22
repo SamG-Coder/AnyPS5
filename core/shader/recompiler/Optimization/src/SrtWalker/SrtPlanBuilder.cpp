@@ -45,11 +45,8 @@ void PlanBuilder::Run() {
 
 void PlanBuilder::Collect(IrValue* raw, std::uint32_t usePc) {
     IrValue* value = raw->Resolve();
-    if (value->HasImmediate()) {
-        return;
-    }
     if (value->Opcode() == IrOpcode::Void) {
-        Fail(_program.Resources(), usePc, "invalid typed planning value");
+        return;
     }
     IrValue* inst = value;
     const auto cycle = std::find(_visiting.begin(), _visiting.end(), inst);
