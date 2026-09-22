@@ -72,6 +72,7 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
     translateOptions.userDataBaseRegister = request.context.userDataBaseRegister;
     translateOptions.userDataCount = static_cast<std::uint32_t>(request.context.userData.size());
     translateOptions.embeddedFetch = nullptr;
+    translateOptions.fragmentShaderBarycentricEnabled = request.target.fragmentShaderBarycentricEnabled;
     translateOptions.inputInfo = inputInfo;
 
     constexpr InstructionTranslator translator;

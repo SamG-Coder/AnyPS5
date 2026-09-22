@@ -43,6 +43,7 @@ void RunBdaContractTests() {
     request.target.bdaAbiVersion = BdaAbi::Version;
     request.target.supportedCapabilities = capabilities;
     request.target.supportedExtensions = extensions;
+    request.target.fragmentShaderBarycentricEnabled = false;
     const RequestSerializer serializer;
     const auto encoded = serializer.Serialize(request);
     const auto decoded = serializer.Deserialize(encoded);

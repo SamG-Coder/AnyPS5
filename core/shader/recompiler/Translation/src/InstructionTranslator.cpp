@@ -297,7 +297,7 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
         entryIr.SetVectorReg(static_cast<VectorReg>(8), builtin(StageInputKind::PrimitiveId));
     } else if (options.stage == ShaderStageKind::Pixel) {
         const auto* ps = options.inputInfo.pixel;
-        if (ps->psPerspectiveCenterVgpr != std::numeric_limits<std::uint32_t>::max()) {
+        if (options.fragmentShaderBarycentricEnabled && ps->psPerspectiveCenterVgpr != std::numeric_limits<std::uint32_t>::max()) {
             entryIr.SetVectorReg(static_cast<VectorReg>(ps->psPerspectiveCenterVgpr), builtin(StageInputKind::BaryCoordSmooth, 0u));
             entryIr.SetVectorReg(static_cast<VectorReg>(ps->psPerspectiveCenterVgpr + 1u), builtin(StageInputKind::BaryCoordSmooth, 1u));
         }

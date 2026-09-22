@@ -126,6 +126,7 @@ struct SpirvTarget {
     std::uint32_t bdaAbiVersion;
     std::span<const std::uint32_t> supportedCapabilities;
     std::span<const std::string_view> supportedExtensions;
+    bool fragmentShaderBarycentricEnabled;
     std::array<std::uint32_t, 3> maxWorkgroupSize;
     std::uint32_t maxWorkgroupInvocations;
     std::uint32_t maxWorkgroupSharedMemoryBytes;
