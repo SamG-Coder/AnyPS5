@@ -308,7 +308,7 @@ std::vector<std::uint32_t> CollectVerneedNameOffsets(const std::vector<std::uint
 
 }
 
-void ElfNidPatcher::PatchNids(std::vector<std::uint8_t>& elf, const std::string& libraryName) const {
+void ElfNidPatcher::PatchNids(std::vector<std::uint8_t>& elf, const std::string& libraryName, const std::unordered_set<std::string>& excludedExports) const {
     using namespace Internal;
 
     if (elf.size() < sizeof(Elf64_Ehdr)) throw std::runtime_error("file too small");
@@ -379,7 +379,7 @@ void ElfNidPatcher::PatchNids(std::vector<std::uint8_t>& elf, const std::string&
         exportedNames.push_back(symName);
     }
 
-    const auto nidMap = ResolveNids(exportedNames, libraryName);
+    const auto nidMap = ResolveNids(exportedNames, libraryName, excludedExports);
 
     struct SymbolNameUse {
         std::size_t symIndex;

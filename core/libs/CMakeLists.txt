@@ -2,6 +2,7 @@ add_executable(nid_patcher
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/Sha1.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/NidCompute.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/NidResolver.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/ExportExclusions.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/ElfNidPatcher.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/PeNidPatcher.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/BinaryPatcherFactory.cpp
@@ -91,8 +92,8 @@ foreach(LIB_DIR ${LIBS_DIRS})
         add_custom_command(
                 OUTPUT ${PATCHED_FILE}
                 COMMAND ${CMAKE_COMMAND} -E copy ${UNPATCHED_FILE} ${PATCHED_FILE}
-                COMMAND $<TARGET_FILE:nid_patcher> ${LIB_NAME} ${PATCHED_FILE}
-                DEPENDS nid_patcher ${LIB_NAME} ${UNPATCHED_FILE}
+                COMMAND $<TARGET_FILE:nid_patcher> ${LIB_NAME} --preserve-exports "${LIBC_UNPATCHED}" "${PATCHED_FILE}"
+                DEPENDS nid_patcher ${LIB_NAME} ${UNPATCHED_FILE} ${LIBC_UNPATCHED}
                 COMMENT "Patching NIDs for ${LIB_NAME}"
         )
 
