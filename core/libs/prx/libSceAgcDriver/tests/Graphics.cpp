@@ -1,5 +1,6 @@
 #include "BdaTests.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <array>
 #include <bit>
@@ -627,6 +628,7 @@ struct ModuleShape {
     std::uint32_t bufferArray = 0;
     bool plainBuffer = false;
     bool shaderData = false;
+    bool vertexInput = false;
 };
 
 void emit(std::vector<std::uint32_t>& out, spv::Op op, std::initializer_list<std::uint32_t> operands) {
@@ -649,6 +651,8 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     const auto output = id();
     const auto main = id();
     const auto label = id();
+    const auto inputPointer = id();
+    const auto input = id();
     emit(declarations, spv::OpTypeVoid, {voidType});
     emit(declarations, spv::OpTypeFunction, {functionType, voidType});
     emit(declarations, spv::OpTypeFloat, {floatType, 32});
@@ -656,6 +660,11 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     emit(declarations, spv::OpTypeInt, {uintType, 32, 0});
     emit(declarations, spv::OpTypePointer, {outputPointer, spv::StorageClassOutput, vectorType});
     emit(declarations, spv::OpVariable, {outputPointer, output, spv::StorageClassOutput});
+    if (shape.vertexInput) {
+        emit(declarations, spv::OpTypePointer, {inputPointer, spv::StorageClassInput, vectorType});
+        emit(declarations, spv::OpVariable, {inputPointer, input, spv::StorageClassInput});
+        emit(annotations, spv::OpDecorate, {input, spv::DecorationLocation, 0});
+    }
     if (shape.fragment) emit(annotations, spv::OpDecorate, {output, spv::DecorationLocation, 0});
     else emit(annotations, spv::OpDecorate, {output, spv::DecorationBuiltIn, spv::BuiltInPosition});
     if (shape.push) {
@@ -706,7 +715,8 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     std::vector<std::uint32_t> words{spv::MagicNumber, 0x10300, 0, next, 0};
     emit(words, spv::OpCapability, {spv::CapabilityShader});
     emit(words, spv::OpMemoryModel, {spv::AddressingModelLogical, spv::MemoryModelGLSL450});
-    emit(words, spv::OpEntryPoint, {shape.fragment ? spv::ExecutionModelFragment : spv::ExecutionModelVertex, main, 0x6e69616du, 0, output});
+    if (shape.vertexInput) emit(words, spv::OpEntryPoint, {spv::ExecutionModelVertex, main, 0x6e69616du, 0, output, input});
+    else emit(words, spv::OpEntryPoint, {shape.fragment ? spv::ExecutionModelFragment : spv::ExecutionModelVertex, main, 0x6e69616du, 0, output});
     if (shape.fragment) emit(words, spv::OpExecutionMode, {main, spv::ExecutionModeOriginUpperLeft});
     words.insert(words.end(), annotations.begin(), annotations.end());
     words.insert(words.end(), declarations.begin(), declarations.end());
@@ -719,6 +729,48 @@ void validationTests() {
     state.stages.path = AgcDriver::Graphics::ShaderPath::Vertex;
     ShaderRecompiler::RecompileResult fragment;
     fragment.spirv = makeModule({.fragment = true});
+    {
+        ShaderRecompiler::RecompileResult vertex;
+        vertex.spirv = makeModule({.vertexInput = true});
+        ShaderRecompiler::VertexAttribute attribute{0, 4, {{0x1000, 32u << 16u, 3, 77u << 12u}}, 0};
+        const std::array<AgcDriver::Graphics::CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, 0}}};
+        const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "missing attribute metadata");
+        vertex.vertexAttributes.push_back(attribute);
+        AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup);
+        vertex.vertexAttributes[0].components = 2;
+        expectFailure([&] { AgcDriver::Graphics::ValidateShaders(shaders, state, subgroup); }, "metadata disagrees");
+        Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 2, 1) == 80, "incorrect strided vertex range");
+        expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 3, 1); }, "record count");
+        attribute.fetchIndex = 1;
+        Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 100, 2) == 48, "instance attributes used the vertex index");
+        expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 0, 4); }, "record count");
+        attribute.resource.fields[1] = 0;
+        attribute.resource.fields[2] = 16;
+        Require(AgcDriver::Graphics::VertexBufferReadSize(attribute, 100, 2) == 16, "zero stride must repeat one value");
+        attribute.resource.fields[2] = 8;
+        expectFailure([&] { AgcDriver::Graphics::VertexBufferReadSize(attribute, 0, 1); }, "byte range");
+        attribute.resource.fields[3] = 113u << 12u;
+        expectFailure([&] { AgcDriver::Graphics::DecodeVertexFormat(attribute); }, "unsupported vertex format");
+        attribute.resource.fields = {0x1000, 32u << 16u, 3, 77u << 12u};
+        attribute.components = 2;
+        AgcDriver::Graphics::Context context{};
+        context.limits.maxVertexInputBindings = 16;
+        context.limits.maxVertexInputAttributes = 16;
+        context.limits.maxVertexInputBindingStride = 2048;
+        context.formatProperties = [](VkPhysicalDevice, VkFormat format, VkFormatProperties* properties) {
+            *properties = {};
+            if (format == VK_FORMAT_R32G32_SFLOAT) properties->bufferFeatures = VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
+        };
+        const auto layout = AgcDriver::Graphics::BuildVertexInputLayout(context, std::span(&attribute, 1));
+        Require(layout.bindings.size() == 1 && layout.bindings[0].stride == 32 && layout.bindings[0].inputRate == VK_VERTEX_INPUT_RATE_INSTANCE, "incorrect instance input binding");
+        Require(layout.attributes[0].format == VK_FORMAT_R32G32_SFLOAT && layout.attributes[0].offset == 0 && layout.attributes[0].location == 0, "incorrect vertex attribute format or offset");
+        attribute.components = 4;
+        expectFailure([&] { AgcDriver::Graphics::BuildVertexInputLayout(context, std::span(&attribute, 1)); }, "device does not support vertex format");
+        attribute.components = 2;
+        attribute.resource.fields[1] |= 0x80000000u;
+        expectFailure([&] { AgcDriver::Graphics::BuildVertexInputLayout(context, std::span(&attribute, 1)); }, "descriptor flags");
+    }
     for (const auto capability : {spv::CapabilityGroupNonUniform, spv::CapabilityGroupNonUniformBallot, spv::CapabilityGroupNonUniformShuffle}) {
         ShaderRecompiler::RecompileResult vertex;
         vertex.spirv = makeModule({});

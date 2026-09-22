@@ -162,6 +162,14 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
+    if (request.shader.stage == ShaderStage::Vertex || request.shader.stage == ShaderStage::Local) {
+        if (inputInfo.vertex == nullptr) throw std::runtime_error("vertex input metadata is missing");
+        for (const auto& input : program.Info().inputs) {
+            if (input.kind != StageInputKind::Parameter) continue;
+            if (input.location >= static_cast<std::uint32_t>(inputInfo.vertex->resourcesNum)) throw std::runtime_error("vertex attribute location exceeds resource count");
+            result.vertexAttributes.push_back({input.location, input.componentCount, {inputInfo.vertex->resources[input.location].fields}, inputInfo.vertex->resourcesDst[input.location].fetchIndex});
+        }
+    }
 
     std::fprintf(stdout, "[RecompileImpl] shader recompiled\n");
     std::fflush(stdout);

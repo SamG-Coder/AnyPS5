@@ -230,11 +230,19 @@ struct DescriptorBinding {
     bool readOnly = false;
 };
 
+struct VertexAttribute {
+    std::uint32_t location;
+    std::uint32_t components;
+    ShaderVertexBufferResource resource;
+    std::uint32_t fetchIndex;
+};
+
 struct RecompileResult {
     std::vector<std::uint32_t> spirv;
     std::vector<DescriptorBinding> bindings;
     std::vector<std::byte> pushConstants;
     std::uint32_t bdaAbiVersion = 0;
+    std::vector<VertexAttribute> vertexAttributes;
 };
 
 [[nodiscard]] RecompileResult Recompile(const RecompileRequest& request);

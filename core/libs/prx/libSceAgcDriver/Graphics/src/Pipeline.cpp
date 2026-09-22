@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -82,6 +83,11 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         framebufferInfo.layers = 1;
         Check(context.Function<PFN_vkCreateFramebuffer>("vkCreateFramebuffer")(context.device, &framebufferInfo, nullptr, &framebuffer), "vkCreateFramebuffer");
         VkPipelineVertexInputStateCreateInfo input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+        const auto vertexInput = BuildVertexInputLayout(context, shaders.front().program->vertexAttributes);
+        input.vertexBindingDescriptionCount = static_cast<std::uint32_t>(vertexInput.bindings.size());
+        input.pVertexBindingDescriptions = vertexInput.bindings.data();
+        input.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(vertexInput.attributes.size());
+        input.pVertexAttributeDescriptions = vertexInput.attributes.data();
         VkPipelineInputAssemblyStateCreateInfo assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         assembly.topology = state.topology;
         VkPipelineViewportStateCreateInfo viewports{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};

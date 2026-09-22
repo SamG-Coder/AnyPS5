@@ -1,5 +1,6 @@
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <map>
@@ -332,7 +333,7 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
             if (decoration.location) {
                 Require(!vertexArray || (outer[0] & 0xffffu) == spv::OpTypeArray, "per-vertex interface lacks a control-point or mesh-output dimension");
                 Require(!decoration.perPrimitive, "per-primitive user outputs are unsupported");
-                Require(!decoration.builtin && !(vertex && variable.storage == spv::StorageClassInput), "vertex attributes require unsupported vertex input bindings");
+                Require(!decoration.builtin, "shader input cannot have both location and built-in decorations");
                 auto& locations = variable.storage == spv::StorageClassInput ? module.inputs : module.outputs;
                 module.AddLocations(locations, *decoration.location, typeId, decoration.patch);
             } else if (decoration.builtin) {
@@ -385,6 +386,17 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
             const auto member = module.offsets.find({blockId, 0});
             Require(member != module.offsets.end() && member->second == 0, "descriptor block member must have offset zero");
         }
+    }
+    if (vertex) {
+        std::set<std::uint32_t> locations;
+        for (const auto& attribute : shader.vertexAttributes) {
+            Require(locations.insert(attribute.location).second, "duplicate vertex attribute metadata");
+            const auto input = module.inputs.find(attribute.location);
+            Require(input != module.inputs.end() && input->second == "vertex:" + VertexAttributeSignature(attribute), "vertex attribute metadata disagrees with shader input");
+        }
+        Require(locations.size() == module.inputs.size(), "vertex input is missing attribute metadata");
+    } else {
+        Require(shader.vertexAttributes.empty(), "vertex attribute metadata is invalid for this stage");
     }
     Require(descriptors.size() == shader.bindings.size(), "recompiler binding metadata contains undeclared resources");
     Require(push == !shader.pushConstants.empty(), "recompiler push constant metadata disagrees with SPIR-V");

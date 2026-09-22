@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
 #include <cstring>
@@ -60,6 +61,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     Buffer indices(context, static_cast<std::size_t>(indexBytes), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
     GuestMemory::Read(draw.indexAddress, indices.Bytes(), draw.indexSize);
     APS5_LOG_CHARS_OUT("Index buffer uploaded");
+    std::uint32_t maxIndex = 0;
     for (std::size_t offset = 0; offset < indexBytes; offset += draw.indexSize) {
         std::uint32_t index = 0;
         if (draw.indexSize == 2) {
@@ -70,8 +72,25 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
             std::memcpy(&index, indices.Bytes().data() + offset, sizeof(index));
         }
         Require(index <= context.limits.maxDrawIndexedIndexValue, "index exceeds the device's indexed draw limit");
+        maxIndex = std::max(maxIndex, index);
     }
     APS5_LOG_CHARS_OUT("Index validation OK");
+    const auto& attributes = shaders.front().program->vertexAttributes;
+    static_cast<void>(BuildVertexInputLayout(context, attributes));
+    std::vector<std::unique_ptr<Buffer>> vertexBuffers;
+    std::vector<VkBuffer> vertexHandles;
+    std::vector<VkDeviceSize> vertexOffsets(attributes.size(), 0);
+    for (const auto& attribute : attributes) {
+        const auto bytes = VertexBufferReadSize(attribute, maxIndex, draw.instanceCount);
+        const auto& fields = attribute.resource.fields;
+        const auto address = fields[0] | (static_cast<std::uint64_t>(fields[1] & 0xffffu) << 32u);
+        Require(!state.hasColorTarget || address + bytes <= state.color.address || state.color.address + state.color.bytes <= address, "vertex buffer aliases the render target");
+        GuestMemory::CheckRange(reinterpret_cast<const void*>(address), bytes, 1);
+        auto buffer = std::make_unique<Buffer>(context, bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+        GuestMemory::Read(address, buffer->Bytes(), 1);
+        vertexHandles.push_back(buffer->Handle());
+        vertexBuffers.push_back(std::move(buffer));
+    }
     std::unique_ptr<Buffer> transfer;
     std::unique_ptr<RenderTarget> target;
     if (state.hasColorTarget) {
@@ -96,7 +115,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
     APS5_LOG_CHARS_OUT("CommandBatch created");
     VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-    upload.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    upload.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | shaderStages, 0, 1, &upload, 0, nullptr, 0, nullptr);
     APS5_LOG_CHARS_OUT("Upload barrier recorded");
     VkBufferImageCopy copy{};
@@ -121,6 +140,7 @@ void DrawIndexed(const Context& context, const State& state, const Pm4::IndexedD
         context.Function<PFN_vkCmdDrawMeshTasksEXT>("vkCmdDrawMeshTasksEXT")(commands, meshGroups, draw.instanceCount, 1);
     } else {
         APS5_LOG_OUT("vkCmdBindIndexBuffer indexSize=%u", draw.indexSize);
+        if (!vertexHandles.empty()) context.Function<PFN_vkCmdBindVertexBuffers>("vkCmdBindVertexBuffers")(commands, 0, static_cast<std::uint32_t>(vertexHandles.size()), vertexHandles.data(), vertexOffsets.data());
         context.Function<PFN_vkCmdBindIndexBuffer>("vkCmdBindIndexBuffer")(commands, indices.Handle(), 0, draw.indexSize == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
         APS5_LOG_OUT("vkCmdDrawIndexed indices=%u instances=%u", draw.indexCount, draw.instanceCount);
         context.Function<PFN_vkCmdDrawIndexed>("vkCmdDrawIndexed")(commands, draw.indexCount, draw.instanceCount, 0, 0, 0);
