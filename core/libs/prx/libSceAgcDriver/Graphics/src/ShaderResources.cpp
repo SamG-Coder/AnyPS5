@@ -1,6 +1,9 @@
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libc/include/General.hpp"
+#include "Optimization/include/Optimization/ShaderStageInputInfo.hpp"
 #include <cstring>
+#include <limits>
 #include <set>
 #include <string>
 
@@ -164,13 +167,16 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
 
 std::size_t ShaderResources::addGuestBuffer(std::span<const std::uint32_t> words, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes) {
     Require(words.size() == 4, "buffer descriptor must contain four DWORDs");
-    Require((words[1] & 0xffff0000u) == 0, "strided or swizzled buffer descriptors are unsupported");
-    Require((words[3] & ~0x0007ffffu) == 0x31000000u, "only raw buffer bounds with resource level one and no index stride or add-TID addressing are supported");
-    const auto address = static_cast<std::uint64_t>(words[0]) | (static_cast<std::uint64_t>(words[1] & 0xffffu) << 32u);
-    const auto size = static_cast<std::size_t>(words[2]);
+    Require((words[1] & 0x40000000u) == 0, "buffer descriptor has reserved bits set");
+    const ShaderRecompiler::ShaderBufferResource descriptor{{words[0], words[1], words[2], words[3]}};
+    Require(descriptor.Type() == 0u, "buffer descriptor uses an unsupported type");
+    const auto address = descriptor.Base48();
+    const auto byteSize = descriptor.GetSize();
     Require(address != 0, "null shader buffer descriptor address");
-    Require(size != 0, "empty shader buffer descriptor");
-    Require(size <= context.limits.maxStorageBufferRange, "shader buffer exceeds descriptor range limit");
+    Require(byteSize != 0, "empty shader buffer descriptor");
+    Require(byteSize <= context.limits.maxStorageBufferRange, "shader buffer exceeds descriptor range limit");
+    Require(byteSize <= std::numeric_limits<std::size_t>::max(), "shader buffer size exceeds host address space");
+    const auto size = static_cast<std::size_t>(byteSize);
     GuestMemory::CheckRange(reinterpret_cast<const void*>(address), size, 1, true);
     Require(target == nullptr || !overlap(address, size, target->address, target->bytes), "shader buffer aliases the render target");
     Require(!overlap(address, size, indexAddress, indexBytes), "writable shader buffer aliases the index buffer");

@@ -212,6 +212,9 @@ target_include_directories(agc_driver_graphics_tests PRIVATE
         ${LIBS_INCLUDE_DIR}
         ${agcTextureDetileGeneratedRoot}
         ${CMAKE_SOURCE_DIR}/core/shader/recompiler
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler/IntermediateRepresentation/include
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler/ControlFlow/include
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler/RdnaDecoder/include
         ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
         ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
 )
@@ -297,6 +300,9 @@ if(AGC_BUILD_VISUAL_TEST)
             ${LIBS_INCLUDE_DIR}
             ${agcTextureDetileGeneratedRoot}
             ${CMAKE_SOURCE_DIR}/core/shader/recompiler
+            ${CMAKE_SOURCE_DIR}/core/shader/recompiler/IntermediateRepresentation/include
+            ${CMAKE_SOURCE_DIR}/core/shader/recompiler/ControlFlow/include
+            ${CMAKE_SOURCE_DIR}/core/shader/recompiler/RdnaDecoder/include
             ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
             ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
     )

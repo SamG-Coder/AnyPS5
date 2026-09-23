@@ -640,6 +640,26 @@ void resourceTests() {
         guestThird = {0xaaaaaaaa, 0xbbbbbbbb};
     }
     Require(mock.live == 0, "compute resources leaked Vulkan objects");
+    mock = MockVulkan{};
+    {
+        auto descriptor = vsharp(guestSecond.data(), 2);
+        descriptor[1] |= 16u << 16u;
+        descriptor[3] = 0x0004dfacu;
+        ShaderRecompiler::RecompileResult compute;
+        compute.bindings.push_back(makeBinding(Role::GuestBuffers, 3, 1, descriptor));
+        const AgcDriver::Graphics::CompiledShader shader{ShaderRecompiler::ShaderStage::Compute, &compute, 0};
+        AgcDriver::Graphics::ShaderResources resources(context, shader);
+        const auto& buffer = findWrite(3).buffers.at(0);
+        Require(buffer.range == sizeof(guestSecond), "strided buffer range does not cover every record");
+        Require(sameBytes(bufferBytes(buffer.buffer), guestSecond.data(), sizeof(guestSecond)), "strided buffer contents were not uploaded");
+        const std::uint32_t changed = 0x12345678u;
+        auto& bytes = mock.memories.at(mock.bufferMemory.at(buffer.buffer));
+        std::memcpy(bytes.data() + 16, &changed, sizeof(changed));
+        resources.WriteBack();
+        Require(guestSecond[4] == changed && guestSecond[0] == 1 && guestSecond[7] == 8, "strided buffer write back changed the wrong record");
+        guestSecond[4] = 5;
+    }
+    Require(mock.live == 0, "strided buffer resources leaked Vulkan objects");
     {
         ShaderRecompiler::RecompileResult vertex;
         const AgcDriver::Graphics::CompiledShader shader{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0};
@@ -670,8 +690,9 @@ void resourceTests() {
     expectSingleFailure(changed([](auto& binding) { binding.role = Role::FlattenedSrt; binding.guestDescriptor.clear(); }), "empty shader data descriptor");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[0] = 0; binding.guestDescriptor[1] = 0; }), "null shader buffer descriptor address");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[2] = 0; }), "empty shader buffer descriptor");
-    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 16u << 16u; }), "strided");
-    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[3] = 0; }), "only raw buffer bounds");
+    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x40000000u; }), "reserved bits");
+    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[3] |= 0x40000000u; }), "unsupported type");
+    expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[1] |= 0x3fffu << 16u; binding.guestDescriptor[2] = 0xffffffffu; }), "descriptor range limit");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor[2] = 8192; }), "descriptor range limit");
     expectSingleFailure(changed([](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(0x1000), 8); }), "not readable");
     expectSingleFailure(changed([&](auto& binding) { binding.guestDescriptor = vsharp(reinterpret_cast<const void*>(state.color.address), 64); }), "aliases the render target");
