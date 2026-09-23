@@ -1,7 +1,14 @@
 #include "prx/libc/include/GuestAllocations.hpp"
 #include <limits>
+#include <iterator>
 #include <map>
 #include <stdexcept>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace GuestAllocations {
 namespace {
@@ -9,6 +16,7 @@ namespace {
 struct Registry {
     std::mutex mutex;
     std::map<std::uint64_t, std::shared_ptr<const Range>> ranges;
+    bool mainImageRegistered = false;
 };
 
 Registry& registry() {
@@ -29,6 +37,44 @@ void* GuestAllocationsBegin_nid_postfix() {
 void GuestAllocationsEnd_nid_postfix(void* mutation) noexcept {
     delete static_cast<std::unique_lock<std::mutex>*>(mutation);
 }
+
+#ifdef _WIN32
+void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
+    auto& state = registry();
+    if (state.mainImageRegistered) return;
+    const auto image = GetModuleHandleW(nullptr);
+    require(image != nullptr, "cannot locate the main guest image");
+    auto replacement = state.ranges;
+    auto cursor = reinterpret_cast<std::uintptr_t>(image);
+    bool registered = false;
+    for (;;) {
+        MEMORY_BASIC_INFORMATION memory{};
+        require(VirtualQuery(reinterpret_cast<const void*>(cursor), &memory, sizeof(memory)) == sizeof(memory), "cannot query the main guest image");
+        if (memory.AllocationBase != image) break;
+        require(memory.Type == MEM_IMAGE && (memory.State == MEM_COMMIT || memory.State == MEM_RESERVE), "unsupported guest image mapping");
+        require(reinterpret_cast<std::uintptr_t>(memory.BaseAddress) == cursor && memory.RegionSize != 0 && memory.RegionSize <= std::numeric_limits<std::uintptr_t>::max() - cursor, "invalid guest image range");
+        if (memory.State == MEM_COMMIT) {
+            require((memory.Protect & PAGE_GUARD) == 0, "guarded guest image pages are not supported");
+            const auto protection = memory.Protect & 0xffu;
+            const bool writable = protection == PAGE_READWRITE || protection == PAGE_WRITECOPY || protection == PAGE_EXECUTE_READWRITE || protection == PAGE_EXECUTE_WRITECOPY;
+            const bool readable = writable || protection == PAGE_READONLY || protection == PAGE_EXECUTE_READ;
+            require(readable || protection == PAGE_NOACCESS || protection == PAGE_EXECUTE, "unsupported guest image protection");
+            const auto next = replacement.lower_bound(cursor);
+            require(next == replacement.end() || cursor + memory.RegionSize <= next->first, "guest image overlaps a registered allocation");
+            if (next != replacement.begin()) {
+                const auto& previous = *std::prev(next)->second;
+                require(previous.address + previous.bytes <= cursor, "guest image overlaps a registered allocation");
+            }
+            replacement.emplace(cursor, std::make_shared<const Range>(Range{cursor, memory.RegionSize, readable, writable, cursor, memory.RegionSize, false}));
+            registered = true;
+        }
+        cursor += memory.RegionSize;
+    }
+    require(registered, "main guest image has no committed pages");
+    state.ranges.swap(replacement);
+    state.mainImageRegistered = true;
+}
+#endif
 
 void GuestAllocationsAdd_nid_postfix(void*, void* pointer, std::size_t bytes, bool readable, bool writable) {
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
@@ -66,7 +112,10 @@ void GuestAllocationsRequireAvailable_nid_postfix(void*, const void* pointer, st
 Range GuestAllocationsFind_nid_postfix(void*, const void* pointer) {
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     for (const auto& [base, range] : registry().ranges) {
-        if (range->allocationAddress == address) return {address, range->allocationBytes, range->readable, range->writable, address, range->allocationBytes};
+        if (range->allocationAddress == address) {
+            require(range->releasable, "guest image memory is not a releasable allocation");
+            return {address, range->allocationBytes, range->readable, range->writable, address, range->allocationBytes, range->releasable};
+        }
     }
     throw std::runtime_error("guest allocation is not registered");
 }
@@ -94,7 +143,7 @@ std::map<std::uint64_t, std::shared_ptr<const Range>> replaceRange(const void* p
         require(base <= cursor, "guest protection or unmap range has a hole");
         replacement.erase(base);
         const auto insert = [&](std::uint64_t first, std::uint64_t last, bool canRead, bool canWrite) {
-            if (first < last) replacement.emplace(first, std::make_shared<const Range>(Range{first, static_cast<std::size_t>(last - first), canRead, canWrite, range.allocationAddress, range.allocationBytes}));
+            if (first < last) replacement.emplace(first, std::make_shared<const Range>(Range{first, static_cast<std::size_t>(last - first), canRead, canWrite, range.allocationAddress, range.allocationBytes, range.releasable}));
         };
         insert(base, std::max(base, address), range.readable, range.writable);
         if (!remove) insert(std::max(base, address), std::min(finish, end), readable, writable);
@@ -120,6 +169,7 @@ void GuestAllocationsUnmap_nid_postfix(void* mutation, const void* pointer, std:
     const auto found = registry().ranges.upper_bound(address);
     require(found != registry().ranges.begin(), "unmap address is not registered");
     const auto& range = *std::prev(found)->second;
+    require(range.releasable, "guest image memory cannot be unmapped");
     require(address >= range.address && address - range.allocationAddress <= range.allocationBytes && bytes <= range.allocationBytes - (address - range.allocationAddress), "unmap crosses allocation boundaries");
     auto replacement = replaceRange(pointer, bytes, true, false, false);
     bool last = true;

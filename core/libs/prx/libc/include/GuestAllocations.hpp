@@ -17,12 +17,16 @@ struct Range {
     bool writable;
     std::uint64_t allocationAddress;
     std::size_t allocationBytes;
+    bool releasable = true;
 };
 
 using Lease = std::vector<std::shared_ptr<const Range>>;
 
 extern "C" {
 void* GuestAllocationsBegin_nid_postfix();
+#ifdef _WIN32
+void GuestAllocationsRegisterMainImage_nid_postfix(void* mutation);
+#endif
 void GuestAllocationsEnd_nid_postfix(void* mutation) noexcept;
 void GuestAllocationsAdd_nid_postfix(void* mutation, void* pointer, std::size_t bytes, bool readable, bool writable);
 void GuestAllocationsRequireUnpinned_nid_postfix(void* mutation, const void* pointer, std::size_t bytes);
@@ -40,6 +44,9 @@ public:
     ~Mutation() { GuestAllocationsEnd_nid_postfix(handle); }
     Mutation(const Mutation&) = delete;
     Mutation& operator=(const Mutation&) = delete;
+#ifdef _WIN32
+    void RegisterMainImage() { GuestAllocationsRegisterMainImage_nid_postfix(handle); }
+#endif
     void Add(void* pointer, std::size_t bytes, bool readable, bool writable) { GuestAllocationsAdd_nid_postfix(handle, pointer, bytes, readable, writable); }
     void RequireUnpinned(const void* pointer, std::size_t bytes) const { GuestAllocationsRequireUnpinned_nid_postfix(handle, pointer, bytes); }
     void RequireAvailable(const void* pointer, std::size_t bytes) const { GuestAllocationsRequireAvailable_nid_postfix(handle, pointer, bytes); }

@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/GuestBufferMemory.hpp"
 #include <cstring>
 #include <array>
+#include <algorithm>
 
 namespace {
 
@@ -75,4 +76,43 @@ void RunGuestAllocationTests() {
         });
     }
     Require(GuestAllocations::GuestAllocationsAcquire_nid_postfix().empty(), "unmapped fragments remain registered");
+#ifdef _WIN32
+    static std::byte imageProbe{};
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.RegisterMainImage();
+        mutation.RegisterMainImage();
+    }
+    const auto imageAddress = reinterpret_cast<std::uintptr_t>(&imageProbe);
+    std::uint64_t allocationAddress = 0;
+    std::size_t imageRangeCount = 0;
+    {
+        const auto lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
+        imageRangeCount = lease.size();
+        const auto found = std::find_if(lease.begin(), lease.end(), [&](const auto& range) { return imageAddress >= range->address && imageAddress - range->address < range->bytes; });
+        Require(found != lease.end() && (*found)->writable && !(*found)->releasable, "main image registration is missing or releasable");
+        allocationAddress = (*found)->allocationAddress;
+        GuestAllocations::Mutation mutation;
+        bool applied = false;
+        reject([&] { mutation.Protect(&imageProbe, 1, true, false, [&] { applied = true; }); });
+        Require(!applied, "pinned image protection changed");
+    }
+    {
+        GuestAllocations::Mutation mutation;
+        reject([&] { mutation.Find(reinterpret_cast<void*>(allocationAddress)); });
+        reject([&] { mutation.Remove(reinterpret_cast<void*>(allocationAddress)); });
+        bool applied = false;
+        reject([&] { mutation.Unmap(&imageProbe, 1, [&](const void*, bool) { applied = true; }); });
+        Require(!applied, "image memory was unmapped");
+        reject([&] { mutation.Protect(&imageProbe, 1, true, false, [] { throw std::runtime_error("host protection failure"); }); });
+    }
+    Require(GuestAllocations::GuestAllocationsAcquire_nid_postfix().size() == imageRangeCount, "failed image protection changed registry ranges");
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Protect(&imageProbe, 1, true, true, [] {});
+        bool applied = false;
+        reject([&] { mutation.Unmap(&imageProbe, 1, [&](const void*, bool) { applied = true; }); });
+        Require(!applied, "split image memory became releasable");
+    }
+#endif
 }

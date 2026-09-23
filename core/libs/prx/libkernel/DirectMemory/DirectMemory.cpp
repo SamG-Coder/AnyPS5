@@ -201,11 +201,26 @@ int DoMapAnon(void** addr, size_t len, int prot, int flags) {
 }
 
 int DoMprotect(const void* addr, size_t len, int prot) {
-    if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0 || !addr) return SCE_KERNEL_ERROR_EINVAL;
+    const auto address = reinterpret_cast<std::uintptr_t>(addr);
+    constexpr auto pageMask = static_cast<std::uintptr_t>(PS5_PAGE_SIZE - 1);
+    const auto limit = std::numeric_limits<std::uintptr_t>::max();
+    if (address == 0 || len == 0 || len > limit - address || address + len > limit - pageMask) throw std::invalid_argument("Invalid guest memory protection range");
+    const auto first = address & ~pageMask;
+    const auto end = (address + len + pageMask) & ~pageMask;
+    const auto bytes = static_cast<std::size_t>(end - first);
+    const auto* pointer = reinterpret_cast<const void*>(first);
     const auto nativeProtection = LinuxProtFromSce(prot);
     GuestAllocations::Mutation mutation;
-    mutation.Protect(addr, len, (prot & 3) != 0, (prot & 2) != 0, [&] {
-        if (mprotect(const_cast<void*>(addr), len, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
+#ifdef _WIN32
+    MEMORY_BASIC_INFORMATION memory{};
+    if (VirtualQuery(pointer, &memory, sizeof(memory)) != sizeof(memory)) throw std::runtime_error("Cannot query guest memory protection range");
+    if (memory.Type == MEM_IMAGE) {
+        if (memory.AllocationBase != GetModuleHandleW(nullptr)) throw std::invalid_argument("Memory protection of a foreign image is not supported");
+        mutation.RegisterMainImage();
+    }
+#endif
+    mutation.Protect(pointer, bytes, (prot & 3) != 0, (prot & 2) != 0, [&] {
+        if (mprotect(const_cast<void*>(pointer), bytes, nativeProtection) != 0) throw std::system_error(errno, std::generic_category(), "mprotect failed");
     });
     return 0;
 }
