@@ -1,5 +1,6 @@
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
@@ -534,10 +535,12 @@ void VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t height, std:
 }
 
 void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
+    PerformanceTimer timing("Vulkan.Present");
     APS5_LOG_OUT_DEBUG("present begin width=%u height=%u opaque=%u pixels=%zu", width, height, static_cast<unsigned>(opaque), pixels.size());
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
     if (!pixels.empty()) state->Upload(pixels);
+    timing.Mark("pixel_upload");
     APS5_LOG_OUT_DEBUG("present source=%s bytes=%zu", pixels.empty() ? "clear" : "pixels", pixels.size());
     auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
     auto reset = state->DeviceFunction<PFN_vkResetFences>("vkResetFences");
@@ -545,9 +548,12 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     check(reset(state->device, static_cast<std::uint32_t>(fences.size()), fences.data()), "vkResetFences");
     APS5_LOG_CHARS_OUT_DEBUG("present fences reset");
     std::uint32_t index = 0;
+    timing.Mark("fence_reset");
     check(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR");
+    timing.Mark("acquire_image");
     APS5_LOG_OUT_DEBUG("vkAcquireNextImageKHR index=%u imageCount=%zu", index, state->images.size());
     check(wait(state->device, 1, &state->acquireFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences acquire");
+    timing.Mark("acquire_fence_wait");
     APS5_LOG_OUT_DEBUG("Acquire fence complete index=%u", index);
     require(index < state->images.size() && index < state->rendered.size(), "acquired image index is out of range");
     auto& rendered = state->rendered[index];
@@ -558,6 +564,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         check(state->DeviceFunction<PFN_vkCreateSemaphore>("vkCreateSemaphore")(state->device, &semaphore, nullptr, &rendered), "vkCreateSemaphore presentation");
     }
     auto commands = state->clearCommands;
+    timing.Mark("retired_swapchains");
     check(state->DeviceFunction<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(commands, 0), "vkResetCommandBuffer");
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -610,9 +617,12 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     submit.pCommandBuffers = &commands;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &rendered;
+    timing.Mark("command_record_scale");
     check(state->DeviceFunction<PFN_vkQueueSubmit>("vkQueueSubmit")(state->queue, 1, &submit, state->renderFence), "vkQueueSubmit clear");
+    timing.Mark("queue_submit");
     APS5_LOG_CHARS_OUT_DEBUG("Presentation vkQueueSubmit OK");
     check(wait(state->device, 1, &state->renderFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences clear");
+    timing.Mark("render_fence_wait");
     APS5_LOG_CHARS_OUT_DEBUG("Presentation render fence complete");
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     present.waitSemaphoreCount = 1;
@@ -621,6 +631,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     present.pSwapchains = &state->swapchain;
     present.pImageIndices = &index;
     check(state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present), "vkQueuePresentKHR");
+    timing.Mark("queue_present");
     APS5_LOG_OUT_DEBUG("vkQueuePresentKHR queued imageIndex=%u", index);
 }
 
@@ -668,6 +679,7 @@ void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParamete
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    PerformanceTimer timing("Vulkan.Dispatch");
     APS5_LOG_OUT_DEBUG("Dispatch groups=%ux%ux%u spirvWords=%zu bindings=%zu pushConstants=%zu", x, y, z, shader.spirv.size(), shader.bindings.size(), shader.pushConstants.size());
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
@@ -707,7 +719,9 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         moduleInfo.codeSize = shader.spirv.size() * sizeof(std::uint32_t);
         moduleInfo.pCode = shader.spirv.data();
         check(state->DeviceFunction<PFN_vkCreateShaderModule>("vkCreateShaderModule")(state->device, &moduleInfo, nullptr, &module), "vkCreateShaderModule");
+        timing.Mark("validate_shader_module");
         Graphics::ShaderResources resources(context, shaders[0], snapshots);
+        timing.Mark("shader_resources");
         const auto setLayout = resources.Layout();
         const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, Graphics::PipelinePushConstantBytes};
         VkPipelineLayoutCreateInfo layoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -723,6 +737,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         pipelineInfo.stage.pName = "main";
         pipelineInfo.layout = layout;
         check(state->DeviceFunction<PFN_vkCreateComputePipelines>("vkCreateComputePipelines")(state->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline), "vkCreateComputePipelines");
+        timing.Mark("pipeline_create");
         VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         allocation.commandPool = state->pool;
         allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -751,15 +766,19 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         VkSubmitInfo submission{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         submission.commandBufferCount = 1;
         submission.pCommandBuffers = &commands;
+        timing.Mark("command_record");
         check(submit(state->queue, 1, &submission, fence), "vkQueueSubmit");
+        timing.Mark("queue_submit");
         APS5_LOG_OUT_DEBUG("Dispatch submitted groups=%ux%ux%u", x, y, z);
         const auto result = wait(state->device, 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
+        timing.Mark("fence_wait");
         if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) {
             const auto idle = state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device);
             check(idle, "vkDeviceWaitIdle after fence failure");
         }
         check(result, "vkWaitForFences");
         resources.WriteBack();
+        timing.Mark("resources_writeback");
         APS5_LOG_OUT_DEBUG("Dispatch complete groups=%ux%ux%u", x, y, z);
     } catch (...) {
         cleanup();

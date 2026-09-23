@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <string>
 
+static constexpr int SCE_KERNEL_ERROR_ENOENT = -2147352574;
+
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -92,7 +94,11 @@ int APS5_VABI sceKernelOpen(const char* path, int flags, std::uint16_t mode) {
     auto native = ResolvePath_nid_no_patch(path);
     int fd = NativeOpen(native, MapFlags(flags), mode);
     if (fd < 0) {
-        throw std::runtime_error(std::string(__func__) + ": failed to open " + native.string() + ", errno=" + std::to_string(errno));
+        const int error = errno;
+        if (error == ENOENT) {
+            return SCE_KERNEL_ERROR_ENOENT;
+        }
+        throw std::runtime_error(std::string(__func__) + ": failed to open " + native.string() + ", errno=" + std::to_string(error));
     }
     return fd;
 }

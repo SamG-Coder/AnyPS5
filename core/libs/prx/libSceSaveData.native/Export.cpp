@@ -9,17 +9,13 @@
 #include "prx/libc/include/General.hpp"
 #include "SaveData.hpp"
 
-static constexpr char SAVE_DIR[] = "_SaveData";
+static constexpr char SAVE_DIR[] = "_sd";
 
 static std::atomic<std::int32_t> g_transaction_counter{1};
 static bool g_initialized = false;
 
 static std::string save_root() {
     return std::string(SAVE_DIR);
-}
-
-static std::string slot_mount_point(int slot) {
-    return std::string("/savedata") + std::to_string(slot);
 }
 
 static bool dir_name_match(const char* str, const char* pattern) {
@@ -199,8 +195,22 @@ int APS5_VABI sceSaveDataMount3(const SaveDataMount3* mount, SaveDataMountResult
     if (!create && !create2 && !open) {
         throw std::runtime_error("sceSaveDataMount3: unknown mount_mode");
     }
-    const std::string dir_name = mount->dir_name->data;
-    const std::string real_path = save_root() + "/" + dir_name;
+    const auto* nameEnd = static_cast<const char*>(std::memchr(mount->dir_name->data, '\0', sizeof(mount->dir_name->data)));
+    if (nameEnd == nullptr) {
+        throw std::runtime_error("sceSaveDataMount3: unterminated directory name");
+    }
+    const std::string dirName(mount->dir_name->data, static_cast<std::size_t>(nameEnd - mount->dir_name->data));
+    if (dirName.empty() || dirName == "." || dirName == ".." || dirName.find_first_of("/\\:") != std::string::npos) {
+        throw std::runtime_error("sceSaveDataMount3: invalid directory name");
+    }
+    const std::string real_path = save_root() + "/" + dirName;
+    const std::string mountPoint = "/" + real_path;
+    if (mountPoint.size() >= sizeof(mount_result->mount_point.data)) {
+        throw std::runtime_error("sceSaveDataMount3: directory path exceeds mount point capacity");
+    }
+    if (find_slot_by_mount_point(mountPoint.c_str()) != -1) {
+        return SAVE_DATA_ERROR_BUSY;
+    }
     const bool exists = std::filesystem::is_directory(real_path);
     if (create && exists) {
         return SAVE_DATA_ERROR_EXISTS;
@@ -215,11 +225,10 @@ int APS5_VABI sceSaveDataMount3(const SaveDataMount3* mount, SaveDataMountResult
     if (create || create2) {
         std::filesystem::create_directories(real_path);
     }
-    const std::string mp = slot_mount_point(slot);
     g_slots[slot].used = true;
-    g_slots[slot].mount_point = mp;
+    g_slots[slot].mount_point = mountPoint;
     g_slots[slot].real_path = real_path;
-    std::snprintf(mount_result->mount_point.data, sizeof(mount_result->mount_point.data), "%s", mp.c_str());
+    std::memcpy(mount_result->mount_point.data, mountPoint.c_str(), mountPoint.size() + 1);
     mount_result->required_blocks = 0;
     mount_result->mount_status = (create || create2) ? 1u : 0u;
     return SAVE_DATA_OK;

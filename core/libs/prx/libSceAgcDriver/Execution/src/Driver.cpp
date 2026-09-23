@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
@@ -184,35 +185,45 @@ public:
     }
 
     void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context) {
+        PerformanceTimer timing("Driver.Present");
         CheckFailure();
         require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
         require(window.getDrawableSize != nullptr, "missing window drawable size query");
         std::shared_ptr<VulkanDevice> presenting;
+        timing.Mark("validate");
         try {
             {
                 std::lock_guard lock(gpuMutex);
+                timing.Mark("gpu_mutex_wait");
                 if (device == nullptr || device->Window() == nullptr) {
                     if (device) device->WaitIdle();
                     device = std::make_shared<VulkanDevice>(&window);
                 }
                 require(device->Window() == window.context, "presentation window does not match device surface");
                 presenting = device;
+                timing.Mark("device_setup");
                 std::uint32_t drawableWidth = 0;
                 std::uint32_t drawableHeight = 0;
                 window.getDrawableSize(window.context, &drawableWidth, &drawableHeight);
                 presenting->Resize(drawableWidth, drawableHeight);
+                timing.Mark("resize");
                 if (presenting->Presentable()) {
                     if (buffer != nullptr) {
                         require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
                         presenting->WaitIdle();
+                        timing.Mark("device_idle_wait");
                         const auto pixels = ReadDisplayBuffer(*buffer);
+                        timing.Mark("display_read_detile");
                         presenting->PresentPixels(window.width, window.height, pixels);
+                        timing.Mark("present_pixels");
                     } else {
                         presenting->PresentClear(window.width, window.height, opaque);
+                        timing.Mark("present_clear");
                     }
                 }
             }
             gpuReady(context);
+            timing.Mark("release_and_callback");
             CheckFailure();
         } catch (...) {
             ReportFailure(std::current_exception());
@@ -329,6 +340,7 @@ private:
     }
 
     void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
+        PerformanceTimer timing("Driver.Draw");
         auto drawParameters = Pm4::ResolveDraw(packet, queue);
         if (!drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return;
         const auto graphics = Graphics::DecodeState(queue);
@@ -416,8 +428,11 @@ private:
             memory.insert(memory.end(), program.memory.begin(), program.memory.end());
             linked.push_back({roles[i], program.binary, program.userDataBase, program.firstUserSgpr, program.userData});
         }
+        timing.Mark("prepare");
         std::lock_guard gpuLock(gpuMutex);
+        timing.Mark("gpu_mutex_wait");
         if (device == nullptr) device = std::make_shared<VulkanDevice>();
+        timing.Mark("device_setup");
         ShaderMemory shaderMemory(memory);
         std::vector<ShaderRecompiler::RecompileResult> results;
         std::vector<Graphics::CompiledShader> stages;
@@ -454,6 +469,7 @@ private:
             stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
             pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
         }
+        timing.Mark("shader_compile_and_link");
         if (graphics.rectList) {
             require(stages.size() == 2, "rect-list requires vertex and fragment programs");
             auto rectangle = ShaderRecompiler::BuildRectListShaders(results[0], results[1], device->Target());
@@ -463,7 +479,9 @@ private:
         }
         std::vector<Graphics::GuestMemorySnapshot> snapshots;
         for (const auto& region : memory) snapshots.push_back({region.guestAddress, region.bytes});
+        timing.Mark("post_compile_prepare");
         device->Draw(graphics, drawParameters, stages, snapshots);
+        timing.Mark("draw_and_resource_release");
     }
 
     void execute(const Submission& submission) {

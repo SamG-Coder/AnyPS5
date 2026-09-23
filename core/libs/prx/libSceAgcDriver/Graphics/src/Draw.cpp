@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetTransfer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libc/include/General.hpp"
 #include <cstring>
 #include <limits>
@@ -26,6 +27,7 @@ void imageBarrier(const Context& context, VkCommandBuffer commands, VkImage imag
 }
 
 void Draw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots) {
+    PerformanceTimer timing("Graphics.Draw");
     APS5_LOG_OUT("Draw indices=%u instances=%u indexSize=%u flags=%u indexAddress=0x%llx", draw.indexCount, draw.instanceCount, draw.indexSize, draw.flags, static_cast<unsigned long long>(draw.indexAddress));
     APS5_LOG_OUT_DEBUG("State colorTarget=%u render=%ux%u colorAddress=0x%llx colorBytes=%llu colorExtent=%ux%u", state.hasColorTarget ? 1u : 0u, state.renderExtent.width, state.renderExtent.height, static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes), state.color.extent.width, state.color.extent.height);
     APS5_LOG_OUT_DEBUG("Viewport x=%f y=%f w=%f h=%f minDepth=%f maxDepth=%f", state.viewport.x, state.viewport.y, state.viewport.width, state.viewport.height, state.viewport.minDepth, state.viewport.maxDepth);
@@ -68,6 +70,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         Require(meshGroups <= context.meshLimits.maxMeshWorkGroupCount[0] && draw.instanceCount <= context.meshLimits.maxMeshWorkGroupCount[1] && static_cast<std::uint64_t>(meshGroups) * draw.instanceCount <= context.meshLimits.maxMeshWorkGroupTotalCount, "mesh draw exceeds workgroup count limits");
     }
     if (state.stages.tessellation) Require(draw.indexCount % state.stages.tessellation->inputControlPoints == 0, "incomplete tessellation patch");
+    timing.Mark("validate");
     std::unique_ptr<Buffer> indices;
     std::uint32_t maxIndex = draw.indexed ? 0u : draw.firstVertex + draw.indexCount - 1u;
     if (draw.indexed) {
@@ -87,6 +90,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         }
     }
     APS5_LOG_CHARS_OUT_DEBUG("Index validation OK");
+    timing.Mark("index_upload");
     const auto& attributes = shaders.front().program->vertexAttributes;
     static_cast<void>(BuildVertexInputLayout(context, attributes));
     std::vector<std::unique_ptr<Buffer>> vertexBuffers;
@@ -103,6 +107,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         vertexHandles.push_back(buffer->Handle());
         vertexBuffers.push_back(std::move(buffer));
     }
+    timing.Mark("vertex_upload");
     std::unique_ptr<Buffer> transfer;
     std::unique_ptr<RenderTarget> target;
     if (state.hasColorTarget) {
@@ -110,17 +115,22 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         const ColorTargetLayout colorLayout(state.color.extent.width, state.color.extent.height, state.color.tileMode);
         transfer = std::make_unique<Buffer>(context, colorLayout.LinearBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         APS5_LOG_CHARS_OUT_DEBUG("Transfer buffer created");
+        timing.Mark("color_transfer_allocate");
         ReadColorTarget(state.color, transfer->Bytes());
+        timing.Mark("color_read_detile");
         APS5_LOG_CHARS_OUT_DEBUG("Color target read from guest memory");
         target = std::make_unique<RenderTarget>(context, state.color, state.blend.blendEnable != 0);
+        timing.Mark("render_target_create");
         APS5_LOG_CHARS_OUT_DEBUG("RenderTarget created");
     }
     APS5_LOG_OUT_DEBUG("Color target object=%u", target ? 1u : 0u);
     APS5_LOG_CHARS_OUT_DEBUG("Creating ShaderResources");
     ShaderResources resources(context, shaders, state.color, draw.indexAddress, static_cast<std::size_t>(indexBytes), snapshots);
+    timing.Mark("shader_resources");
     APS5_LOG_CHARS_OUT_DEBUG("ShaderResources created");
     APS5_LOG_CHARS_OUT_DEBUG("Creating Pipeline");
     Pipeline pipeline(context, state, target.get(), resources, shaders);
+    timing.Mark("pipeline_create");
     APS5_LOG_CHARS_OUT_DEBUG("Pipeline created");
     APS5_LOG_CHARS_OUT_DEBUG("Creating CommandBatch");
     CommandBatch batch(context);
@@ -183,14 +193,19 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
     APS5_LOG_CHARS_OUT_DEBUG("Download barrier recorded");
     APS5_LOG_CHARS_OUT_DEBUG("SubmitAndWait");
+    timing.Mark("command_record");
     batch.SubmitAndWait();
+    timing.Mark("submit_wait");
     APS5_LOG_CHARS_OUT_DEBUG("SubmitAndWait OK");
     if (state.hasColorTarget) GuestMemory::CheckRange(reinterpret_cast<const void*>(state.color.address), state.color.bytes, 256, true);
     if (state.hasColorTarget) APS5_LOG_CHARS_OUT_DEBUG("Color target guest range OK");
+    timing.Mark("color_range_check");
     APS5_LOG_CHARS_OUT_DEBUG("Shader resources WriteBack");
     resources.WriteBack();
+    timing.Mark("resources_writeback");
     APS5_LOG_CHARS_OUT_DEBUG("Shader resources WriteBack OK");
     if (state.hasColorTarget) WriteColorTarget(state.color, transfer->Bytes());
+    timing.Mark("color_tile_writeback");
     if (state.hasColorTarget) APS5_LOG_OUT_DEBUG("Color target written to guest address=0x%llx bytes=%llu", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes));
     APS5_LOG_CHARS_OUT("Draw finished");
 }

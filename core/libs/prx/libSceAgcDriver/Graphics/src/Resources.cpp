@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <exception>
 
 namespace AgcDriver::Graphics {
@@ -144,15 +145,19 @@ VkCommandBuffer CommandBatch::Handle() const {
 }
 
 void CommandBatch::SubmitAndWait() {
+    PerformanceTimer timing("Graphics.SubmitAndWait");
     Require(!submitted, "command batch has already been submitted");
     Check(context.Function<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
     VkSubmitInfo submission{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submission.commandBufferCount = 1;
     submission.pCommandBuffers = &commands;
+    timing.Mark("command_end");
     Check(context.Function<PFN_vkQueueSubmit>("vkQueueSubmit")(context.queue, 1, &submission, fence), "vkQueueSubmit graphics");
+    timing.Mark("queue_submit");
     pending = true;
     submitted = true;
     const auto result = context.Function<PFN_vkWaitForFences>("vkWaitForFences")(context.device, 1, &fence, VK_TRUE, 5'000'000'000ULL);
+    timing.Mark("fence_wait");
     if (result == VK_SUCCESS || result == VK_ERROR_DEVICE_LOST) pending = false;
     Check(result, "vkWaitForFences graphics");
 }

@@ -29,6 +29,8 @@
 *.app
 
 _SaveData/
+_sd/
+
 build/
 b/
 Build/

@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <cstring>
 #include <limits>
 #include <stdexcept>
@@ -27,10 +28,12 @@ std::size_t DisplayBufferSize(const DisplayBuffer& buffer) {
 }
 
 std::vector<std::byte> DecodeDisplayBuffer(const DisplayBuffer& buffer, std::span<const std::byte> source) {
+    PerformanceTimer timing("DisplayBuffer.Decode");
     require(source.size() == DisplayBufferSize(buffer), "VideoOut: invalid tiled display buffer size");
     std::vector<std::byte> pixels(static_cast<std::size_t>(buffer.width) * buffer.height * 4);
     const auto blocksPerRow = (buffer.width + 127u) / 128u;
     const bool rgba = buffer.pixelFormat == 0x8000000022000000ull;
+    timing.Mark("validate_allocate");
     for (std::uint32_t y = 0; y < buffer.height; ++y) {
         for (std::uint32_t x = 0; x < buffer.width; ++x) {
             const auto tiled = (static_cast<std::size_t>(y / 128u) * blocksPerRow + x / 128u) * 65536u + tileOffset(x, y);
@@ -41,6 +44,7 @@ std::vector<std::byte> DecodeDisplayBuffer(const DisplayBuffer& buffer, std::spa
             pixels[linear + 3] = source[tiled + 3];
         }
     }
+    timing.Mark("detile_convert");
     return pixels;
 }
 
