@@ -13,7 +13,8 @@ Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/U
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
 The application reaches the render loop and **successfully presents its first frame** (logo).
-Current exception: `AGC graphics: unsupported primitive type 17`.
+
+Current exception: `AGC graphics: unsupported SPIR-V memory model` on 6 frame.
 
 
 ## Build

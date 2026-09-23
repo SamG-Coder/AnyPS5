@@ -116,6 +116,27 @@ void stateTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "non-finite");
 }
 
+void hardwareScreenOffsetTests() {
+    auto queue = makeState();
+    queue.context[0x90] = 0x80010003;
+    queue.context[0x91] = 0x30020;
+    const auto reference = AgcDriver::Graphics::DecodeState(queue);
+    for (const auto offset : {0u, 1u, 0x10000u, 0x0020003cu, 0x01ff0000u, 0x000001ffu, 0x01ff01ffu}) {
+        queue.context[0x8d] = offset;
+        const auto state = AgcDriver::Graphics::DecodeState(queue);
+        Require(state.viewport.x == reference.viewport.x && state.viewport.y == reference.viewport.y && state.viewport.width == reference.viewport.width && state.viewport.height == reference.viewport.height && state.viewport.minDepth == reference.viewport.minDepth && state.viewport.maxDepth == reference.viewport.maxDepth, "hardware guard-band offset changed the viewport");
+        Require(state.scissor.offset.x == reference.scissor.offset.x && state.scissor.offset.y == reference.scissor.offset.y && state.scissor.extent.width == reference.scissor.extent.width && state.scissor.extent.height == reference.scissor.extent.height, "hardware guard-band offset changed the scissor");
+        Require(state.renderExtent.width == reference.renderExtent.width && state.renderExtent.height == reference.renderExtent.height, "hardware guard-band offset changed the framebuffer extent");
+    }
+    for (std::uint32_t bit = 0; bit < 32; ++bit) {
+        if (bit < 9 || (bit >= 16 && bit < 25)) continue;
+        queue.context[0x8d] = 1u << bit;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "reserved PA_SU_HARDWARE_SCREEN_OFFSET bits");
+    }
+    queue.context.erase(0x8d);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+}
+
 void ShaderStageTests() {
     auto queue = makeState();
     for (const auto routing : {0x2000u, 0x2010u, 0x02002000u, 0x02002010u}) {
@@ -1121,6 +1142,7 @@ int main() {
             expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
         }
         stateTests();
+        hardwareScreenOffsetTests();
         DepthClipTests();
         DisabledColorTests();
         ShaderStageTests();
