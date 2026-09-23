@@ -4,8 +4,11 @@
 #include "SpirvBackend/SpirvEmitterState.hpp"
 #include "IntermediateRepresentation/IrProgram.hpp"
 #include <cstdint>
+#include "Recompiler.hpp"
 
 namespace ShaderRecompiler {
+
+std::vector<FragmentParameter> DescribeFragmentParameters(const IrProgram& program, const ShaderStageInputInfo& inputInfo);
 
 std::uint32_t PixelParameterLocation(const SpirvEmitterState& state, std::uint32_t attr);
 bool PixelParameterIsFlat(const SpirvEmitterState& state, std::uint32_t attr);

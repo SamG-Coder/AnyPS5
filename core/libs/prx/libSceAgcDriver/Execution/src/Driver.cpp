@@ -425,7 +425,7 @@ private:
         ShaderMemory shaderMemory(memory);
         std::vector<ShaderRecompiler::RecompileResult> results;
         std::vector<Graphics::CompiledShader> stages;
-        results.reserve(programs.size());
+        results.reserve(programs.size() + (graphics.rectList ? 2u : 0u));
         stages.reserve(programs.size());
         std::uint32_t pushCursorBytes = 0;
         for (std::size_t i = 0; i < programs.size(); ++i) {
@@ -457,6 +457,13 @@ private:
             require(result.pushConstants.size() <= Graphics::PipelinePushConstantBytes - pushCursorBytes, "stage push constants exceed the pipeline push constant block");
             stages.push_back({program.binary.stage, &result, result.pushConstants.empty() ? 0u : pushCursorBytes});
             pushCursorBytes += static_cast<std::uint32_t>(result.pushConstants.size());
+        }
+        if (graphics.rectList) {
+            require(stages.size() == 2, "rect-list requires vertex and fragment programs");
+            auto rectangle = ShaderRecompiler::BuildRectListShaders(results[0], results[1], device->Target());
+            results.push_back(std::move(rectangle.control));
+            results.push_back(std::move(rectangle.evaluation));
+            stages.insert(stages.begin() + 1, {{Stage::TessellationControl, &results[2], 0}, {Stage::TessellationEvaluation, &results[3], 0}});
         }
         std::vector<Graphics::GuestMemorySnapshot> snapshots;
         for (const auto& region : memory) snapshots.push_back({region.guestAddress, region.bytes});

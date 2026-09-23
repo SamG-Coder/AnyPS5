@@ -47,6 +47,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     if (draw.indexed) GuestMemory::CheckRange(reinterpret_cast<const void*>(draw.indexAddress), static_cast<std::size_t>(indexBytes), draw.indexSize);
     APS5_LOG_CHARS_OUT("Index buffer range OK");
     Require(!draw.indexed || !state.hasColorTarget || draw.indexAddress + indexBytes <= state.color.address || state.color.address + state.color.bytes <= draw.indexAddress, "index buffer aliases the render target");
+    if (state.rectList) Require(draw.indexCount % 3 == 0, "incomplete rect-list primitive");
     APS5_LOG_CHARS_OUT("ValidateShaders");
     ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     APS5_LOG_CHARS_OUT("ValidateShaders OK");

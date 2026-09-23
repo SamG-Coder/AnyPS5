@@ -40,6 +40,7 @@ struct State {
     ShaderStages stages;
     ColorTarget color;
     bool hasColorTarget;
+    bool rectList = false;
     VkExtent2D renderExtent;
     VkPrimitiveTopology topology;
     VkViewport viewport;

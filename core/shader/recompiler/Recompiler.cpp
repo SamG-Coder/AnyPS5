@@ -17,6 +17,7 @@
 #include "Optimization/include/Optimization/SsaBuilder.hpp"
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
 #include "SpirvBackend/SpirvOptimizer.hpp"
+#include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
 #include <exception>
@@ -165,6 +166,10 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     result.pushConstants = bindings.pushConstants;
     result.vertexOffsetSgpr = program.Info().vertexOffsetSgpr;
     result.instanceOffsetSgpr = program.Info().instanceOffsetSgpr;
+    for (const auto& output : program.Info().outputs) {
+        if (output.kind == StageOutputKind::Parameter) result.parameterExports.push_back(output.location);
+    }
+    if (request.shader.stage == ShaderStage::Fragment) result.fragmentParameters = DescribeFragmentParameters(program, inputInfo);
     if (request.shader.stage == ShaderStage::Vertex || request.shader.stage == ShaderStage::Local) {
         if (inputInfo.vertex == nullptr) throw std::runtime_error("vertex input metadata is missing");
         for (const auto& input : program.Info().inputs) {

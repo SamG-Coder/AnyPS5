@@ -248,6 +248,13 @@ struct VertexAttribute {
     std::uint32_t fetchIndex;
 };
 
+struct FragmentParameter {
+    std::uint32_t location;
+    std::uint32_t sourceLocation;
+    bool flat;
+    bool perVertex;
+};
+
 struct RecompileResult {
     std::vector<std::uint32_t> spirv;
     std::vector<DescriptorBinding> bindings;
@@ -256,9 +263,18 @@ struct RecompileResult {
     std::vector<VertexAttribute> vertexAttributes;
     std::int32_t vertexOffsetSgpr = -1;
     std::int32_t instanceOffsetSgpr = -1;
+    std::vector<std::uint32_t> parameterExports;
+    std::vector<FragmentParameter> fragmentParameters;
 };
 
 [[nodiscard]] RecompileResult Recompile(const RecompileRequest& request);
+
+struct RectListShaders {
+    RecompileResult control;
+    RecompileResult evaluation;
+};
+
+[[nodiscard]] RectListShaders BuildRectListShaders(const RecompileResult& vertex, const RecompileResult& fragment, const SpirvTarget& target);
 
 }
 

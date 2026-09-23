@@ -13,9 +13,10 @@ void ShaderResources::prepareAddressBindings(std::span<const CompiledShader> sha
             if (binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable) ++tables;
             else ++faults;
         }
-        Require(tables == faults && tables <= 1, "BDA table and fault descriptors must form one pair per shader");
-        Require(shader.program->bdaAbiVersion == (tables == 0 ? 0u : ShaderRecompiler::BdaAbi::Version), "incompatible BDA ABI version");
-        usesBda = usesBda || tables != 0;
+        const bool rectListFault = shader.stage == ShaderRecompiler::ShaderStage::TessellationControl && tables == 0 && faults == 1;
+        Require((tables == faults || rectListFault) && tables <= 1 && faults <= 1, "invalid BDA table and fault descriptors");
+        Require(shader.program->bdaAbiVersion == (faults == 0 ? 0u : ShaderRecompiler::BdaAbi::Version), "incompatible BDA ABI version");
+        usesBda = usesBda || faults != 0;
     }
     if (usesBda) {
         Require(context.bufferDeviceAddress, "buffer device address is not enabled");

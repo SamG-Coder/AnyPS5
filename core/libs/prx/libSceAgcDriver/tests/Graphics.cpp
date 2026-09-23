@@ -725,6 +725,7 @@ struct ModuleShape {
     bool perVertex = false;
     std::uint32_t perVertexLength = 3;
     bool parameterOutput = false;
+    bool rectParameters = false;
 };
 
 void emit(std::vector<std::uint32_t>& out, spv::Op op, std::initializer_list<std::uint32_t> operands) {
@@ -762,6 +763,17 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
         emit(declarations, spv::OpVariable, {outputPointer, parameter, spv::StorageClassOutput});
         emit(annotations, spv::OpDecorate, {parameter, spv::DecorationLocation, 0});
         extraInterface.push_back(parameter);
+    }
+    if (shape.rectParameters) {
+        const auto pointer = id();
+        emit(declarations, spv::OpTypePointer, {pointer, spv::StorageClassInput, vectorType});
+        for (std::uint32_t location = 0; location < 2; ++location) {
+            const auto parameter = id();
+            emit(declarations, spv::OpVariable, {pointer, parameter, spv::StorageClassInput});
+            emit(annotations, spv::OpDecorate, {parameter, spv::DecorationLocation, location});
+            if (location == 1) emit(annotations, spv::OpDecorate, {parameter, spv::DecorationFlat});
+            extraInterface.push_back(parameter);
+        }
     }
     if (shape.barycentric) {
         const auto vector = id();
@@ -860,6 +872,64 @@ std::vector<std::uint32_t> makeModule(const ModuleShape& shape) {
     words.insert(words.end(), declarations.begin(), declarations.end());
     words.insert(words.end(), function.begin(), function.end());
     return words;
+}
+
+void rectListTests() {
+    using namespace ShaderRecompiler;
+    using namespace AgcDriver::Graphics;
+    RecompileResult vertex;
+    vertex.spirv = makeModule({});
+    RecompileResult fragment;
+    fragment.spirv = makeModule({.fragment = true});
+    const std::array<std::uint32_t, 2> capabilities{spv::CapabilityShader, spv::CapabilityTessellation};
+    SpirvTarget target{};
+    target.vulkanVersion = VK_API_VERSION_1_1;
+    target.spirvVersion = 0x00010300u;
+    target.supportedCapabilities = capabilities;
+    target.tessellation = TessellationTargetLimits{32, 128, 128, 120, 4096, 128, 128};
+    for (const auto version : {0x00010300u, 0x00010400u}) {
+        target.spirvVersion = version;
+        auto auxiliary = BuildRectListShaders(vertex, fragment, target);
+        const std::array<CompiledShader, 4> shaders{{{ShaderStage::Vertex, &vertex, 0}, {ShaderStage::TessellationControl, &auxiliary.control, 0}, {ShaderStage::TessellationEvaluation, &auxiliary.evaluation, 0}, {ShaderStage::Fragment, &fragment, 0}}};
+        for (const auto primitive : {7u, 17u}) {
+            auto queue = makeState();
+            queue.userConfig[0x242] = primitive;
+            queue.context[0x205] = 3;
+            auto state = DecodeState(queue);
+            Require(state.rectList && state.topology == VK_PRIMITIVE_TOPOLOGY_PATCH_LIST && state.cullMode == VK_CULL_MODE_NONE, "rect-list state was not decoded");
+            Require(!state.stages.tessellation && state.stages.path == ShaderPath::Vertex, "rect-list changed guest shader routing");
+            ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false);
+            state.rectList = false;
+            expectFailure([&] { ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false); }, "stage count");
+        }
+    }
+    vertex.spirv = makeModule({.parameterOutput = true});
+    fragment.spirv = makeModule({.fragment = true, .rectParameters = true});
+    vertex.parameterExports = {0};
+    fragment.fragmentParameters = {{0, 0, false, false}, {1, 0, true, false}};
+    auto auxiliary = BuildRectListShaders(vertex, fragment, target);
+    Require(!auxiliary.control.spirv.empty() && !auxiliary.evaluation.spirv.empty(), "rect-list parameter shaders are empty");
+    auto parameterQueue = makeState();
+    parameterQueue.userConfig[0x242] = 17;
+    const auto parameterState = DecodeState(parameterQueue);
+    const std::array<CompiledShader, 4> parameterShaders{{{ShaderStage::Vertex, &vertex, 0}, {ShaderStage::TessellationControl, &auxiliary.control, 0}, {ShaderStage::TessellationEvaluation, &auxiliary.evaluation, 0}, {ShaderStage::Fragment, &fragment, 0}}};
+    ValidateShaders(parameterShaders, parameterState, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false);
+    fragment.fragmentParameters[0].perVertex = true;
+    expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "per-vertex interpolation");
+    fragment.fragmentParameters[0].perVertex = false;
+    vertex.parameterExports.clear();
+    expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "no vertex export");
+    fragment.fragmentParameters.clear();
+    target.tessellation->maxPatchSize = 3;
+    expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "device limits");
+    target.tessellation.reset();
+    expectFailure([&] { static_cast<void>(BuildRectListShaders(vertex, fragment, target)); }, "unavailable");
+    auto queue = makeState();
+    queue.userConfig[0x242] = 17;
+    const auto state = DecodeState(queue);
+    const Context context{};
+    const AgcDriver::Pm4::DrawParameters draw{0, 4, 0, 1, 0, false};
+    expectFailure([&] { Draw(context, state, draw, {}); }, "incomplete rect-list");
 }
 
 void validationTests() {
@@ -1058,6 +1128,7 @@ int main() {
         pushConstantTests();
         resourceTests();
         validationTests();
+        rectListTests();
         mock = MockVulkan{};
         auto bdaContext = mockContext();
         bdaContext.bufferDeviceAddress = true;

@@ -12,6 +12,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
     Require(state.hasColorTarget || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
     ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     Require(!state.negativeOneToOne || context.depthClipControl, "negative-one-to-one depth clipping requires VK_EXT_depth_clip_control with depthClipControl enabled");
+    if (state.rectList) Require(context.tessellationShader && context.limits.maxTessellationPatchSize >= 4, "rect-list requires tessellation with four output control points");
     if (state.stages.tessellation) {
         Require(context.tessellationShader, "device does not support tessellation shaders");
         Require(state.stages.tessellation->inputControlPoints <= context.limits.maxTessellationPatchSize && state.stages.tessellation->outputControlPoints <= context.limits.maxTessellationPatchSize, "tessellation patch exceeds device limits");
@@ -113,8 +114,8 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
         pipelineInfo.pStages = stages.data();
         VkPipelineTessellationStateCreateInfo tessellation{VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO};
-        if (state.stages.tessellation) {
-            tessellation.patchControlPoints = state.stages.tessellation->inputControlPoints;
+        if (state.rectList || state.stages.tessellation) {
+            tessellation.patchControlPoints = state.rectList ? 3u : state.stages.tessellation->inputControlPoints;
             pipelineInfo.pTessellationState = &tessellation;
         }
         pipelineInfo.pVertexInputState = state.stages.mesh ? nullptr : &input;

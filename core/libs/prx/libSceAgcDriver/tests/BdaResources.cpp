@@ -81,6 +81,10 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
         const ShaderRecompiler::BdaAbi::Fault report{ShaderRecompiler::BdaAbi::FaultState::Ready, ShaderRecompiler::BdaAbi::FaultReason::Unmapped, 0x7fff99880000ULL, 4, 0, 0x44, 0};
         std::memcpy(access.bytes(access.descriptor(5).buffer).data(), &report, sizeof(report));
         reject([&] { resources.WriteBack(); }, "BDA access failed");
+        auto invalidRectangle = report;
+        invalidRectangle.reason = ShaderRecompiler::BdaAbi::FaultReason::InvalidRectangle;
+        std::memcpy(access.bytes(access.descriptor(5).buffer).data(), &invalidRectangle, sizeof(invalidRectangle));
+        reject([&] { resources.WriteBack(); }, "rect-list requires");
         Require(guest[0] == 123, "failed GPU command published writes");
     }
     {
