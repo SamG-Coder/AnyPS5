@@ -100,8 +100,8 @@ void stateTests() {
     queue.context.erase(0x3b8);
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
     queue = makeState();
-    queue.context[0x3b8] |= 27u << 14u;
-    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "only linear");
+    queue.context[0x3b8] |= 5u << 14u;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported color tile mode");
     queue = makeState();
     queue.context[0x3b0] = (62u << 14u) | 3u;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "pitch");
@@ -1072,6 +1072,7 @@ int main() {
         });
         Require(mock.live == 0, "BDA resources leaked Vulkan objects");
         RunGuestAllocationTests();
+        RunColorTargetLayoutTests();
         RunTextureFormatTests();
         RunTextureTilingTests();
         RunGuestTextureResourceTests();

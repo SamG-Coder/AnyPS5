@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_STATE_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include <array>
 #include <cstddef>
@@ -32,6 +33,7 @@ struct ColorTarget {
     VkFormat format;
     std::size_t bytes;
     std::uint8_t componentMapping;
+    ColorTileMode tileMode = ColorTileMode::Linear;
 };
 
 struct State {

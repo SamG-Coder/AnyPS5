@@ -55,6 +55,8 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/VulkanDevice.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetLayout.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetTransfer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Pipeline.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Resources.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderInputState.cpp
@@ -182,6 +184,7 @@ configure_windows_unwind(agc_driver_pm4_tests)
 
 add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         tests/Graphics.cpp
+        tests/ColorTargetLayout.cpp
         tests/BdaResources.cpp
         tests/GuestAllocations.cpp
         tests/TextureFormat.cpp
@@ -190,6 +193,8 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         tests/GuestSamplerResource.cpp
         tests/TextureDetiler.cpp
         Graphics/src/State.cpp
+        Graphics/src/ColorTargetLayout.cpp
+        Graphics/src/ColorTargetTransfer.cpp
         Graphics/src/Resources.cpp
         Graphics/src/ShaderResources.cpp
         Graphics/src/ShaderAddressResources.cpp
@@ -277,6 +282,8 @@ if(AGC_BUILD_VISUAL_TEST)
             Execution/src/GuestMemory.cpp
             Execution/src/BdaFeatures.cpp
             Graphics/src/Draw.cpp
+            Graphics/src/ColorTargetLayout.cpp
+            Graphics/src/ColorTargetTransfer.cpp
             Graphics/src/Pipeline.cpp
             Graphics/src/Resources.cpp
             Graphics/src/ShaderResources.cpp

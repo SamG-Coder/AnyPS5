@@ -12,5 +12,6 @@ struct BdaTestAccess {
 
 void RunBdaResourceTests(const AgcDriver::Graphics::Context& context, const BdaTestAccess& access);
 void RunGuestAllocationTests();
+void RunColorTargetLayoutTests();
 
 #endif

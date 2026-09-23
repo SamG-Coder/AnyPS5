@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/ColorTargetTransfer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
@@ -105,9 +106,10 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     std::unique_ptr<RenderTarget> target;
     if (state.hasColorTarget) {
         APS5_LOG_OUT("Creating color target address=0x%llx bytes=%llu extent=%ux%u", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes), state.color.extent.width, state.color.extent.height);
-        transfer = std::make_unique<Buffer>(context, state.color.bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        const ColorTargetLayout colorLayout(state.color.extent.width, state.color.extent.height, state.color.tileMode);
+        transfer = std::make_unique<Buffer>(context, colorLayout.LinearBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         APS5_LOG_CHARS_OUT("Transfer buffer created");
-        GuestMemory::Read(state.color.address, transfer->Bytes(), 256);
+        ReadColorTarget(state.color, transfer->Bytes());
         APS5_LOG_CHARS_OUT("Color target read from guest memory");
         target = std::make_unique<RenderTarget>(context, state.color, state.blend.blendEnable != 0);
         APS5_LOG_CHARS_OUT("RenderTarget created");
@@ -169,7 +171,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         reuse.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         reuse.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         reuse.buffer = transfer->Handle();
-        reuse.size = state.color.bytes;
+        reuse.size = transfer->Bytes().size();
         context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &reuse, 0, nullptr);
         context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, transfer->Handle(), 1, &copy);
         APS5_LOG_CHARS_OUT("Color target copy-back recorded");
@@ -187,7 +189,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     APS5_LOG_CHARS_OUT("Shader resources WriteBack");
     resources.WriteBack();
     APS5_LOG_CHARS_OUT("Shader resources WriteBack OK");
-    if (state.hasColorTarget) GuestMemory::Write(state.color.address, transfer->Bytes(), 256);
+    if (state.hasColorTarget) WriteColorTarget(state.color, transfer->Bytes());
     if (state.hasColorTarget) APS5_LOG_OUT("Color target written to guest address=0x%llx bytes=%llu", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes));
     APS5_LOG_CHARS_OUT("Draw finished");
 }
