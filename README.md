@@ -13,7 +13,7 @@ Audio output and video output initialization pass.
 Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
 
 A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.cpp) passes GPU readback checks and presents a frame through the [libSceAgcDriver](core/libs/prx/libSceAgcDriver). The first application draw passes driver state validation and reaches shader recompilation.
-Application shader execution remains unverified without completed [recompiler](core/shader/recompiler/Recompiler.cpp).
+The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces SPIR-V. The first application draw currently stops in [libSceAgcDriver](core/libs/prx/libSceAgcDriver), where support for shaders using textures is not implemented.
 
 Now: `libSceAgcDriver: TextureDetiler not implemented`.
 
