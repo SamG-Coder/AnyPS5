@@ -10,25 +10,26 @@
 
 namespace AgcDriver::Graphics {
 
-class TextureDetiler {
-public:
-    explicit TextureDetiler(const Context& context);
-    ~TextureDetiler();
-    TextureDetiler(const TextureDetiler&) = delete;
-    TextureDetiler& operator=(const TextureDetiler&) = delete;
+    class TextureDetiler {
+    public:
+        explicit TextureDetiler(const Context& context);
+        ~TextureDetiler();
+        TextureDetiler(const TextureDetiler&) = delete;
+        TextureDetiler& operator=(const TextureDetiler&) = delete;
 
-    void Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout);
+        void Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout);
 
-private:
-    VkPipeline pipeline(TextureTileMode tileMode, std::uint32_t elementBytes);
-    void release() noexcept;
+    private:
+        VkPipeline pipeline(TextureTileMode tileMode, std::uint32_t elementBytes);
+        void release() noexcept;
 
-    const Context& context;
-    VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkShaderModule module = VK_NULL_HANDLE;
-    std::vector<std::pair<std::uint32_t, VkPipeline>> pipelines;
-};
+        const Context& context;
+        VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
+        VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+        VkShaderModule module = VK_NULL_HANDLE;
+        std::vector<std::pair<std::uint32_t, VkPipeline>> pipelines;
+        VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    };
 
 }
 

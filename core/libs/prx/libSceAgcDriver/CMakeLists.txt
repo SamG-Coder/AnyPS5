@@ -32,7 +32,8 @@ endfunction()
 ensure_agc_glslang()
 
 set(agcTextureDetileShaderSource ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/shaders/TextureDetile.comp)
-set(agcTextureDetileGeneratedDir ${CMAKE_CURRENT_BINARY_DIR}/Graphics/shaders)
+set(agcTextureDetileGeneratedRoot ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(agcTextureDetileGeneratedDir ${agcTextureDetileGeneratedRoot}/prx/libSceAgcDriver/Graphics/shaders)
 set(agcTextureDetileShaderSpv ${agcTextureDetileGeneratedDir}/TextureDetile.spv)
 set(agcTextureDetileShaderHeader ${agcTextureDetileGeneratedDir}/TextureDetile_spv.h)
 add_custom_command(
@@ -40,7 +41,7 @@ add_custom_command(
         COMMAND ${CMAKE_COMMAND} -E make_directory "${agcTextureDetileGeneratedDir}"
         COMMAND "$<TARGET_FILE:glslang-standalone>" -V --target-env vulkan1.1 -o "${agcTextureDetileShaderSpv}" "${agcTextureDetileShaderSource}"
         COMMAND ${CMAKE_COMMAND} -DINPUT=${agcTextureDetileShaderSpv} -DOUTPUT=${agcTextureDetileShaderHeader}
-                -DSYMBOL=TEXTURE_DETILE_SPV -P "${CMAKE_CURRENT_SOURCE_DIR}/embed_spirv.cmake"
+        -DSYMBOL=TEXTURE_DETILE_SPV -P "${CMAKE_CURRENT_SOURCE_DIR}/embed_spirv.cmake"
         DEPENDS "${agcTextureDetileShaderSource}" glslang-standalone
         VERBATIM
 )
@@ -85,6 +86,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
 
 target_include_directories(libSceAgcDriver PRIVATE
         ${LIBS_INCLUDE_DIR}
+        ${agcTextureDetileGeneratedRoot}
         ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
         ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
 )
@@ -203,6 +205,7 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
 
 target_include_directories(agc_driver_graphics_tests PRIVATE
         ${LIBS_INCLUDE_DIR}
+        ${agcTextureDetileGeneratedRoot}
         ${CMAKE_SOURCE_DIR}/core/shader/recompiler
         ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
         ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
@@ -287,6 +290,7 @@ if(AGC_BUILD_VISUAL_TEST)
 
     target_include_directories(agc_driver_visual_test PRIVATE
             ${LIBS_INCLUDE_DIR}
+            ${agcTextureDetileGeneratedRoot}
             ${CMAKE_SOURCE_DIR}/core/shader/recompiler
             ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include
             ${CMAKE_SOURCE_DIR}/3rdparty/SPIRV-Headers/include
