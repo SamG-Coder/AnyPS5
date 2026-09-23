@@ -23,7 +23,7 @@ namespace AgcDriver::Graphics {
         VkPipeline pipeline(TextureTileMode tileMode, std::uint32_t elementBytes);
         void release() noexcept;
 
-        const Context& context;
+        const Context context;
         VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkShaderModule module = VK_NULL_HANDLE;
