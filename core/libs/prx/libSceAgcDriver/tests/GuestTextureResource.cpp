@@ -181,9 +181,18 @@ void RunGuestTextureResourceTests() {
     badMinLodWarn.minLodWarn = 1;
     rejectFields(badMinLodWarn, "minimum LOD warning threshold");
 
-    Fields badPerfMod = base;
-    badPerfMod.perfMod = 1;
-    rejectFields(badPerfMod, "performance modulation");
+    const auto unmodulated = DecodeTextureResource(pack(base));
+    for (std::uint32_t perfMod = 0; perfMod < 8; ++perfMod) {
+        Fields modulated = base;
+        modulated.perfMod = perfMod;
+        const auto decoded = DecodeTextureResource(pack(modulated));
+        Require(decoded.baseAddress == unmodulated.baseAddress && decoded.width == unmodulated.width && decoded.height == unmodulated.height, "performance modulation changed texture storage");
+        Require(decoded.depthOrLastArray == unmodulated.depthOrLastArray && decoded.baseArray == unmodulated.baseArray && decoded.mipCount == unmodulated.mipCount && decoded.baseLevel == unmodulated.baseLevel, "performance modulation changed texture subresources");
+        Require(decoded.tileMode == unmodulated.tileMode && decoded.dimension == unmodulated.dimension && decoded.format == unmodulated.format, "performance modulation changed texture format or layout");
+        Require(decoded.dstSelX == unmodulated.dstSelX && decoded.dstSelY == unmodulated.dstSelY && decoded.dstSelZ == unmodulated.dstSelZ && decoded.dstSelW == unmodulated.dstSelW, "performance modulation changed texture channel selectors");
+        modulated.cornerSample = true;
+        rejectFields(modulated, "corner sampling");
+    }
 
     Fields badMipStats = base;
     badMipStats.mipStatsCntId = 1;

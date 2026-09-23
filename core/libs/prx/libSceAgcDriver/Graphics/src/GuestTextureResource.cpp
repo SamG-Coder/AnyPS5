@@ -61,7 +61,6 @@ GuestTextureResource DecodeTextureResource(std::span<const std::uint32_t> words)
     const auto arrayPitch = (words[5] >> 0u) & 0xfu;
     const auto maxMip = (words[5] >> 4u) & 0xfu;
     const auto minLodWarn = (words[5] >> 8u) & 0xfffu;
-    const auto perfMod = (words[5] >> 20u) & 0x7u;
     const auto cornerSample = ((words[5] >> 23u) & 0x1u) != 0;
     const auto mipStatsCntEn = ((words[5] >> 25u) & 0x1u) != 0;
     const auto prtDefColor = ((words[5] >> 26u) & 0x1u) != 0;
@@ -84,7 +83,6 @@ GuestTextureResource DecodeTextureResource(std::span<const std::uint32_t> words)
 
     Require(minLod == 0, "guest texture descriptor uses a nonzero minimum LOD clamp which is not implemented");
     Require(minLodWarn == 0, "guest texture descriptor uses a minimum LOD warning threshold which is not implemented");
-    Require(perfMod == 0, "guest texture descriptor uses a performance modulation value which is not implemented");
     Require(mipStatsCntId == 0 && !mipStatsCntEn, "guest texture descriptor uses mip statistics counters which are not implemented");
     Require(!cornerSample, "guest texture descriptor uses corner sampling which is not implemented");
     Require(!prtDefColor, "guest texture descriptor uses a partially resident default color which is not implemented");
