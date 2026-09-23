@@ -465,9 +465,9 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
 VulkanDevice::~VulkanDevice() = default;
 
 void VulkanDevice::WaitIdle() {
-    APS5_LOG_CHARS_OUT("VulkanDevice::WaitIdle begin");
+    APS5_LOG_CHARS_OUT_DEBUG("VulkanDevice::WaitIdle begin");
     check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
-    APS5_LOG_CHARS_OUT("VulkanDevice::WaitIdle complete");
+    APS5_LOG_CHARS_OUT_DEBUG("VulkanDevice::WaitIdle complete");
 }
 
 void* VulkanDevice::Window() const {
@@ -475,7 +475,7 @@ void* VulkanDevice::Window() const {
 }
 
 void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
-    APS5_LOG_OUT("Resize requested=%ux%u current=%ux%u", width, height, state->extent.width, state->extent.height);
+    APS5_LOG_OUT_DEBUG("Resize requested=%ux%u current=%ux%u", width, height, state->extent.width, state->extent.height);
     require(state->swapchain != VK_NULL_HANDLE, "cannot resize an unavailable swapchain");
     if (width == 0 || height == 0) {
         state->extent = {0, 0};
@@ -514,7 +514,7 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     check(getImages(state->device, replacement, &count, state->images.data()), "vkGetSwapchainImagesKHR resize");
     state->images.resize(count);
     state->rendered.assign(count, VK_NULL_HANDLE);
-    APS5_LOG_OUT("Resize complete swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count);
+    APS5_LOG_OUT_DEBUG("Resize complete swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count);
 }
 
 bool VulkanDevice::Presentable() const {
@@ -522,7 +522,7 @@ bool VulkanDevice::Presentable() const {
 }
 
 void VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t height, bool opaque) {
-    APS5_LOG_OUT("PresentClear width=%u height=%u opaque=%u", width, height, static_cast<unsigned>(opaque));
+    APS5_LOG_OUT_DEBUG("PresentClear width=%u height=%u opaque=%u", width, height, static_cast<unsigned>(opaque));
     present(width, height, opaque, {});
 }
 
@@ -534,21 +534,21 @@ void VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t height, std:
 }
 
 void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
-    APS5_LOG_OUT("present begin width=%u height=%u opaque=%u pixels=%zu", width, height, static_cast<unsigned>(opaque), pixels.size());
+    APS5_LOG_OUT_DEBUG("present begin width=%u height=%u opaque=%u pixels=%zu", width, height, static_cast<unsigned>(opaque), pixels.size());
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
     if (!pixels.empty()) state->Upload(pixels);
-    APS5_LOG_OUT("present source=%s bytes=%zu", pixels.empty() ? "clear" : "pixels", pixels.size());
+    APS5_LOG_OUT_DEBUG("present source=%s bytes=%zu", pixels.empty() ? "clear" : "pixels", pixels.size());
     auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
     auto reset = state->DeviceFunction<PFN_vkResetFences>("vkResetFences");
     const std::array<VkFence, 2> fences{state->acquireFence, state->renderFence};
     check(reset(state->device, static_cast<std::uint32_t>(fences.size()), fences.data()), "vkResetFences");
-    APS5_LOG_CHARS_OUT("present fences reset");
+    APS5_LOG_CHARS_OUT_DEBUG("present fences reset");
     std::uint32_t index = 0;
     check(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR");
-    APS5_LOG_OUT("vkAcquireNextImageKHR index=%u imageCount=%zu", index, state->images.size());
+    APS5_LOG_OUT_DEBUG("vkAcquireNextImageKHR index=%u imageCount=%zu", index, state->images.size());
     check(wait(state->device, 1, &state->acquireFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences acquire");
-    APS5_LOG_OUT("Acquire fence complete index=%u", index);
+    APS5_LOG_OUT_DEBUG("Acquire fence complete index=%u", index);
     require(index < state->images.size() && index < state->rendered.size(), "acquired image index is out of range");
     auto& rendered = state->rendered[index];
     if (rendered != VK_NULL_HANDLE) {
@@ -562,7 +562,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(state->DeviceFunction<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer");
-    APS5_LOG_OUT("Presentation command buffer begin commands=%p image=%p", reinterpret_cast<void*>(commands), reinterpret_cast<void*>(state->images[index]));
+    APS5_LOG_OUT_DEBUG("Presentation command buffer begin commands=%p image=%p", reinterpret_cast<void*>(commands), reinterpret_cast<void*>(state->images[index]));
     VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -574,12 +574,12 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     if (pixels.empty()) {
-        APS5_LOG_OUT("Recording swapchain clear opaque=%u image=%p", static_cast<unsigned>(opaque), reinterpret_cast<void*>(barrier.image));
+        APS5_LOG_OUT_DEBUG("Recording swapchain clear opaque=%u image=%p", static_cast<unsigned>(opaque), reinterpret_cast<void*>(barrier.image));
         VkClearColorValue clear{};
         clear.float32[3] = opaque ? 1.0f : 0.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
     } else {
-        APS5_LOG_OUT("Recording swapchain scaled blit width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
+        APS5_LOG_OUT_DEBUG("Recording swapchain scaled blit width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
         require(state->scaler != nullptr, "presentation scaler is unavailable");
         state->scaler->EnsureSourceImage(width, height);
         state->scaler->RecordUpload(commands, state->uploadBuffer);
@@ -604,16 +604,16 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
     check(state->DeviceFunction<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
-    APS5_LOG_CHARS_OUT("Presentation command buffer recorded");
+    APS5_LOG_CHARS_OUT_DEBUG("Presentation command buffer recorded");
     VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &commands;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores = &rendered;
     check(state->DeviceFunction<PFN_vkQueueSubmit>("vkQueueSubmit")(state->queue, 1, &submit, state->renderFence), "vkQueueSubmit clear");
-    APS5_LOG_CHARS_OUT("Presentation vkQueueSubmit OK");
+    APS5_LOG_CHARS_OUT_DEBUG("Presentation vkQueueSubmit OK");
     check(wait(state->device, 1, &state->renderFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences clear");
-    APS5_LOG_CHARS_OUT("Presentation render fence complete");
+    APS5_LOG_CHARS_OUT_DEBUG("Presentation render fence complete");
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     present.waitSemaphoreCount = 1;
     present.pWaitSemaphores = &rendered;
@@ -621,7 +621,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     present.pSwapchains = &state->swapchain;
     present.pImageIndices = &index;
     check(state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present), "vkQueuePresentKHR");
-    APS5_LOG_OUT("vkQueuePresentKHR queued imageIndex=%u", index);
+    APS5_LOG_OUT_DEBUG("vkQueuePresentKHR queued imageIndex=%u", index);
 }
 
 ShaderRecompiler::SpirvTarget VulkanDevice::Target() const {
@@ -668,7 +668,7 @@ void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParamete
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
-    APS5_LOG_OUT("Dispatch groups=%ux%ux%u spirvWords=%zu bindings=%zu pushConstants=%zu", x, y, z, shader.spirv.size(), shader.bindings.size(), shader.pushConstants.size());
+    APS5_LOG_OUT_DEBUG("Dispatch groups=%ux%ux%u spirvWords=%zu bindings=%zu pushConstants=%zu", x, y, z, shader.spirv.size(), shader.bindings.size(), shader.pushConstants.size());
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
     }
@@ -752,7 +752,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         submission.commandBufferCount = 1;
         submission.pCommandBuffers = &commands;
         check(submit(state->queue, 1, &submission, fence), "vkQueueSubmit");
-        APS5_LOG_OUT("Dispatch submitted groups=%ux%ux%u", x, y, z);
+        APS5_LOG_OUT_DEBUG("Dispatch submitted groups=%ux%ux%u", x, y, z);
         const auto result = wait(state->device, 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
         if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) {
             const auto idle = state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device);
@@ -760,7 +760,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         }
         check(result, "vkWaitForFences");
         resources.WriteBack();
-        APS5_LOG_OUT("Dispatch complete groups=%ux%ux%u", x, y, z);
+        APS5_LOG_OUT_DEBUG("Dispatch complete groups=%ux%ux%u", x, y, z);
     } catch (...) {
         cleanup();
         throw;

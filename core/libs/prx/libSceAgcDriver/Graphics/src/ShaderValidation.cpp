@@ -133,6 +133,13 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
     const bool mesh = stage == Stage::Mesh;
     const bool control = stage == Stage::TessellationControl;
     const bool evaluation = stage == Stage::TessellationEvaluation;
+    const bool rectListControl = state.rectList && control;
+    if (rectListControl) {
+        Require(shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version, "incompatible rect-list fault ABI version");
+        Require(shader.bindings.size() == 1, "rect-list control shader must declare exactly one fault buffer");
+        const auto& binding = shader.bindings.front();
+        Require(binding.role == ShaderRecompiler::DescriptorRole::FaultBuffer && binding.kind == ShaderRecompiler::DescriptorKind::StorageBuffer && binding.descriptorSet == 0 && binding.count == 1 && binding.guestDescriptor.empty() && !binding.readOnly, "invalid rect-list fault buffer contract");
+    }
     const auto model = mesh ? spv::ExecutionModelMeshEXT : control ? spv::ExecutionModelTessellationControl : evaluation ? spv::ExecutionModelTessellationEvaluation : vertex ? spv::ExecutionModelVertex : spv::ExecutionModelFragment;
     const auto& words = shader.spirv;
     Require(words.size() >= 5 && words[0] == spv::MagicNumber && words[1] >= 0x10000u && words[1] <= 0x10400u && words[3] != 0 && words[4] == 0, "invalid or unsupported SPIR-V header");
@@ -225,10 +232,16 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
             case spv::OpSpecConstantComposite:
             case spv::OpSpecConstantOp:
                 throw std::runtime_error("AGC graphics: unsupported SPIR-V extension, grouped decoration or specialization constant");
-            case spv::OpMemoryModel:
-                Require(count == 3 && instruction[1] == (shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version ? spv::AddressingModelPhysicalStorageBuffer64 : spv::AddressingModelLogical) && instruction[2] == spv::MemoryModelGLSL450, "unsupported SPIR-V memory model");
+            case spv::OpMemoryModel: {
+                const auto addressingModel = shader.bdaAbiVersion == ShaderRecompiler::BdaAbi::Version && !rectListControl
+                    ? spv::AddressingModelPhysicalStorageBuffer64
+                    : spv::AddressingModelLogical;
+                Require(count == 3, "invalid SPIR-V OpMemoryModel word count: " + std::to_string(count));
+                Require(instruction[1] == addressingModel, "unsupported SPIR-V addressing model: " + std::to_string(instruction[1]));
+                Require(instruction[2] == spv::MemoryModelGLSL450, "unsupported SPIR-V memory model: " + std::to_string(instruction[2]));
                 ++memoryModels;
                 break;
+            }
             case spv::OpEntryPoint:
                 Require(count >= 5 && instruction[1] == model && instruction[3] == 0x6e69616du && instruction[4] == 0, "expected a main entry point for the assigned graphics stage");
                 entryPoint = instruction[2];

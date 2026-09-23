@@ -20,6 +20,7 @@
 #include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
+#include <chrono>
 #include <exception>
 #include <cstdio>
 #include <stdexcept>
@@ -121,6 +122,8 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
 namespace {
 
 RecompileResult RecompileImpl(const RecompileRequest& request) {
+    const auto recompileStart = std::chrono::steady_clock::now();
+
     auto program = PrepareResourceProgram(request);
     const auto inputInfo = BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context);
     constexpr DeadCodeEliminator deadCodeEliminator;
@@ -160,7 +163,11 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     const auto spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
 
     RecompileResult result;
+
+    const auto validationStart = std::chrono::steady_clock::now();
     result.spirv = ValidateAndOptimizeSpirv(spirv, request.target.vulkanVersion, request.target.spirvVersion);
+    const auto validationEnd = std::chrono::steady_clock::now();
+
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
     result.pushConstants = bindings.pushConstants;
@@ -179,7 +186,11 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
         }
     }
 
-    std::fprintf(stdout, "[RecompileImpl] shader recompiled\n");
+    const auto recompileEnd = std::chrono::steady_clock::now();
+    const auto recompileTime = std::chrono::duration<double, std::milli>(recompileEnd - recompileStart).count();
+    const auto validationTime = std::chrono::duration<double, std::milli>(validationEnd - validationStart).count();
+
+    std::fprintf(stdout, "[RecompileImpl] shader recompiled in %.3f ms, ValidateAndOptimizeSpirv %.3f ms\n", recompileTime, validationTime);
     std::fflush(stdout);
     return result;
 }

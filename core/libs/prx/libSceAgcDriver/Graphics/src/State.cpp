@@ -95,7 +95,7 @@ ShaderStages DecodeShaderStages(const QueueState& queue) {
     validate(!tessellation || !geometry, "combined tessellation and geometry is unsupported by the reference path");
     const auto path = tessellation ? ShaderPath::Tessellation : geometry ? ShaderPath::Geometry : ShaderPath::Vertex;
     ShaderStages result{path, value, (value & 0x00400000u) != 0 ? 32u : 64u, (read(queue.context, 0x1b6) & 0x8000u) != 0 ? 32u : 64u, {}, {}};
-    APS5_LOG_OUT("DecodeShaderStages value=0x%x primitive=%u path=%u vertexWave=%u", value, primitive, static_cast<unsigned>(result.path), result.vertexWaveSize);
+    APS5_LOG_OUT_DEBUG("DecodeShaderStages value=0x%x primitive=%u path=%u vertexWave=%u", value, primitive, static_cast<unsigned>(result.path), result.vertexWaveSize);
     if (path == ShaderPath::Vertex) {
         validate((value & 0x2000u) != 0, "legacy vertex routing without PRIMGEN_EN is unsupported");
         validate((value & ~0x02402010u) == 0, "unsupported vertex routing, scheduling or wave-ID state");
@@ -133,7 +133,7 @@ State DecodeState(const QueueState& queue) {
     State result{};
     result.stages = DecodeShaderStages(queue);
     const auto primitive = read(queue.userConfig, 0x242, "user-config");
-    APS5_LOG_OUT("DecodeState primitive=%u path=%u vertexWave=%u", primitive, static_cast<unsigned>(result.stages.path), result.stages.vertexWaveSize);
+    APS5_LOG_OUT_DEBUG("DecodeState primitive=%u path=%u vertexWave=%u", primitive, static_cast<unsigned>(result.stages.path), result.stages.vertexWaveSize);
     switch (primitive) {
         case 1: Require(result.stages.mesh.has_value(), "point-list vertex rendering requires point-size output support"); result.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST; break;
         case 2: result.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST; break;
@@ -149,7 +149,7 @@ State DecodeState(const QueueState& queue) {
         case 6: result.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP; break;
         default: throw std::runtime_error("AGC graphics: unsupported primitive type " + std::to_string(primitive));
     }
-    APS5_LOG_OUT("Topology=%u", static_cast<unsigned>(result.topology));
+    APS5_LOG_OUT_DEBUG("Topology=%u", static_cast<unsigned>(result.topology));
     zero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)", "user-config");
     zero(cx, 0x207, ~0u, "clip distances, layer, viewport or auxiliary vertex exports");
     zero(cx, 0x200, ~0x007007f0u, "depth, stencil or conditional color writes");
@@ -193,11 +193,11 @@ State DecodeState(const QueueState& queue) {
     Require(read(cx, 0x202) == 0xcc0010u, "only normal color rendering with copy ROP is supported");
     zero(cx, 0x1c4, ~0u, "depth or sample-mask export");
     const auto exportFormat = read(cx, 0x1c5);
-    APS5_LOG_OUT("Export format=%u", exportFormat);
+    APS5_LOG_OUT_DEBUG("Export format=%u", exportFormat);
     Require(exportFormat == 4 || exportFormat == 9, "only FP16_ABGR or 32_ABGR color export is supported");
     Require(read(cx, 0x1c3) == 4, "additional position exports are unsupported");
     if (result.hasColorTarget) {
-        APS5_LOG_CHARS_OUT("Decoding color target");
+        APS5_LOG_CHARS_OUT_DEBUG("Decoding color target");
         const auto info = read(cx, 0x31c);
         const auto number = (info >> 8u) & 7u;
         const auto swap = (info >> 11u) & 3u;
@@ -212,25 +212,25 @@ State DecodeState(const QueueState& queue) {
         const auto attrib3 = read(cx, 0x3b8);
         result.color.tileMode = DecodeColorTileMode(attrib3);
         result.color.extent = {((attrib2 >> 14u) & 0x3fffu) + 1u, (attrib2 & 0x3fffu) + 1u};
-        APS5_LOG_OUT("Color extent=%ux%u attrib2=0x%x attrib3=0x%x", result.color.extent.width, result.color.extent.height, attrib2, attrib3);
+        APS5_LOG_OUT_DEBUG("Color extent=%ux%u attrib2=0x%x attrib3=0x%x", result.color.extent.width, result.color.extent.height, attrib2, attrib3);
         const ColorTargetLayout colorLayout(result.color.extent.width, result.color.extent.height, result.color.tileMode);
         const auto high = read(cx, 0x390);
         Require((high & ~0xffu) == 0, "invalid color address extension");
         result.color.address = (static_cast<std::uint64_t>(high) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x318)) << 8u);
-        APS5_LOG_OUT("Color address=0x%llx high=0x%x low=0x%x", static_cast<unsigned long long>(result.color.address), high, read(cx, 0x318));
+        APS5_LOG_OUT_DEBUG("Color address=0x%llx high=0x%x low=0x%x", static_cast<unsigned long long>(result.color.address), high, read(cx, 0x318));
         result.color.bytes = colorLayout.Bytes();
-        APS5_LOG_OUT("Color bytes=%llu", static_cast<unsigned long long>(result.color.bytes));
+        APS5_LOG_OUT_DEBUG("Color bytes=%llu", static_cast<unsigned long long>(result.color.bytes));
         GuestMemory::CheckRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, colorLayout.Alignment(), true);
         result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
         result.color.componentMapping = 0xe4u;
-        APS5_LOG_OUT("Color VkFormat=%u", static_cast<unsigned>(result.color.format));
+        APS5_LOG_OUT_DEBUG("Color VkFormat=%u", static_cast<unsigned>(result.color.format));
         result.renderExtent = result.color.extent;
-        APS5_LOG_OUT("Render extent from color target=%ux%u", result.renderExtent.width, result.renderExtent.height);
+        APS5_LOG_OUT_DEBUG("Render extent from color target=%ux%u", result.renderExtent.width, result.renderExtent.height);
     } else {
         const auto screenBottomRight = read(cx, 0xd);
         APS5_LOG_OUT("No color target, screen BR register=0x%x", screenBottomRight);
         result.renderExtent = {screenBottomRight & 0xffffu, screenBottomRight >> 16u};
-        APS5_LOG_OUT("Render extent from screen=%ux%u", result.renderExtent.width, result.renderExtent.height);
+        APS5_LOG_OUT_DEBUG("Render extent from screen=%ux%u", result.renderExtent.width, result.renderExtent.height);
         Require(result.renderExtent.width != 0 && result.renderExtent.height != 0, "empty framebuffer extent for a draw without color writes");
     }
     const auto xs = readFloat(cx, 0x10f);
@@ -241,7 +241,7 @@ State DecodeState(const QueueState& queue) {
     const auto zo = readFloat(cx, 0x114);
     const auto minDepth = result.negativeOneToOne ? zo - zs : zo;
     const auto maxDepth = zo + zs;
-    APS5_LOG_OUT("Viewport transform scale=(%f,%f,%f) offset=(%f,%f,%f) depth=(%f,%f)", xs, ys, zs, xo, yo, zo, minDepth, maxDepth);
+    APS5_LOG_OUT_DEBUG("Viewport transform scale=(%f,%f,%f) offset=(%f,%f,%f) depth=(%f,%f)", xs, ys, zs, xo, yo, zo, minDepth, maxDepth);
     if (!(xs > 0 && ys != 0 && std::isfinite(minDepth) && std::isfinite(maxDepth))) {
         std::ostringstream message;
         message << "AGC graphics: unsupported viewport transform: scale=(" << xs << ", " << ys << ", " << zs << "), offset=(" << xo << ", " << yo << ", " << zo << "), depth=(" << minDepth << ", " << maxDepth << "), negativeOneToOne=" << result.negativeOneToOne;
@@ -249,20 +249,20 @@ State DecodeState(const QueueState& queue) {
     }
     Require(readFloat(cx, 0xb4) <= readFloat(cx, 0xb5), "inverted viewport depth clamp bounds");
     result.viewport = {xo - xs, yo - ys, 2 * xs, 2 * ys, minDepth, maxDepth};
-    APS5_LOG_OUT("Viewport x=%f y=%f w=%f h=%f minDepth=%f maxDepth=%f", result.viewport.x, result.viewport.y, result.viewport.width, result.viewport.height, result.viewport.minDepth, result.viewport.maxDepth);
+    APS5_LOG_OUT_DEBUG("Viewport x=%f y=%f w=%f h=%f minDepth=%f maxDepth=%f", result.viewport.x, result.viewport.y, result.viewport.width, result.viewport.height, result.viewport.minDepth, result.viewport.maxDepth);
     result.scissor = {{0, 0}, result.renderExtent};
     intersect(result.scissor, cx, 0xc, true);
     intersect(result.scissor, cx, 0x81, false);
     intersect(result.scissor, cx, 0x90, false);
     if ((read(cx, 0x292) & 2u) != 0) intersect(result.scissor, cx, 0x94, false);
-    APS5_LOG_OUT("Scissor offset=(%d,%d) extent=%ux%u", result.scissor.offset.x, result.scissor.offset.y, result.scissor.extent.width, result.scissor.extent.height);
+    APS5_LOG_OUT_DEBUG("Scissor offset=(%d,%d) extent=%ux%u", result.scissor.offset.x, result.scissor.offset.y, result.scissor.extent.width, result.scissor.extent.height);
     if (result.hasColorTarget) {
         const auto blend = read(cx, 0x1e0);
-        APS5_LOG_OUT("Blend control=0x%x", blend);
+        APS5_LOG_OUT_DEBUG("Blend control=0x%x", blend);
         Require((blend & 0x0000e000u) == 0, "reserved blend control bits");
         result.blend.colorWriteMask = targetMask;
         result.blend.blendEnable = (blend >> 30u) & 1u;
-        APS5_LOG_OUT("Blend enable=%u colorWriteMask=0x%x", result.blend.blendEnable ? 1u : 0u, result.blend.colorWriteMask);
+        APS5_LOG_OUT_DEBUG("Blend enable=%u colorWriteMask=0x%x", result.blend.blendEnable ? 1u : 0u, result.blend.colorWriteMask);
         if (result.blend.blendEnable) {
             Require((read(cx, 0x31c) & 0x10000u) == 0, "blend bypass conflicts with enabled blending");
             result.blend.srcColorBlendFactor = blendFactor(blend & 0x1fu);
@@ -275,7 +275,7 @@ State DecodeState(const QueueState& queue) {
             for (std::uint32_t i = 0; i < 4; ++i) result.blendConstants[i] = readFloat(cx, 0x105 + i);
         }
     }
-    APS5_LOG_OUT("DecodeState done colorTarget=%u render=%ux%u topology=%u", result.hasColorTarget ? 1u : 0u, result.renderExtent.width, result.renderExtent.height, static_cast<unsigned>(result.topology));
+    APS5_LOG_OUT_DEBUG("DecodeState done colorTarget=%u render=%ux%u topology=%u", result.hasColorTarget ? 1u : 0u, result.renderExtent.width, result.renderExtent.height, static_cast<unsigned>(result.topology));
     return result;
 }
 
