@@ -11,10 +11,17 @@ bool overlap(std::uint64_t first, std::size_t firstSize, std::uint64_t second, s
     return first < second + secondSize && second < first + firstSize;
 }
 
-struct Binding {
-    VkDescriptorSetLayoutBinding layout;
-    std::vector<std::size_t> allocations;
-};
+VkComponentSwizzle ComponentSwizzleFor(std::uint8_t dstSel) {
+    switch (dstSel) {
+        case 0: return VK_COMPONENT_SWIZZLE_ZERO;
+        case 1: return VK_COMPONENT_SWIZZLE_ONE;
+        case 4: return VK_COMPONENT_SWIZZLE_R;
+        case 5: return VK_COMPONENT_SWIZZLE_G;
+        case 6: return VK_COMPONENT_SWIZZLE_B;
+        case 7: return VK_COMPONENT_SWIZZLE_A;
+        default: throw std::runtime_error("AGC graphics: guest texture descriptor has an invalid destination channel selector " + std::to_string(dstSel));
+    }
+}
 
 const char* roleName(ShaderRecompiler::DescriptorRole role) {
     switch (role) {
@@ -75,7 +82,7 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
                 const bool bufferRole = addressRole || binding.role == ShaderRecompiler::DescriptorRole::GuestBuffers || binding.role == ShaderRecompiler::DescriptorRole::ShaderData || binding.role == ShaderRecompiler::DescriptorRole::FlattenedSrt;
                 const bool imageRole = binding.role == ShaderRecompiler::DescriptorRole::GuestImages || binding.role == ShaderRecompiler::DescriptorRole::GuestSamplers;
                 if (imageRole) {
-                    addImageBinding(binding, flags);
+                    addImageBinding(binding, flags, bindings);
                     continue;
                 }
                 Require(bufferRole, std::string("unsupported descriptor role ") + roleName(binding.role));
@@ -110,11 +117,14 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
         info.pBindings = description.data();
         Check(context.Function<PFN_vkCreateDescriptorSetLayout>("vkCreateDescriptorSetLayout")(context.device, &info, nullptr, &_layout), "vkCreateDescriptorSetLayout");
         if (bindings.empty()) return;
-        const VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<std::uint32_t>(storageBuffers)};
+        std::vector<VkDescriptorPoolSize> sizes;
+        if (storageBuffers != 0) sizes.push_back({VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<std::uint32_t>(storageBuffers)});
+        if (!textures.empty()) sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<std::uint32_t>(textures.size())});
+        if (!samplers.empty()) sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<std::uint32_t>(samplers.size())});
         VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.maxSets = 1;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &size;
+        poolInfo.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+        poolInfo.pPoolSizes = sizes.data();
         Check(context.Function<PFN_vkCreateDescriptorPool>("vkCreateDescriptorPool")(context.device, &poolInfo, nullptr, &pool), "vkCreateDescriptorPool");
         VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         allocation.descriptorPool = pool;
@@ -123,13 +133,27 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
         Check(context.Function<PFN_vkAllocateDescriptorSets>("vkAllocateDescriptorSets")(context.device, &allocation, &_set), "vkAllocateDescriptorSets");
         for (const auto& binding : bindings) {
             std::vector<VkDescriptorBufferInfo> buffers;
-            for (const auto index : binding.allocations) buffers.push_back(descriptor(allocations[index]));
+            std::vector<VkDescriptorImageInfo> images;
             VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             write.dstSet = _set;
             write.dstBinding = binding.layout.binding;
             write.descriptorCount = binding.layout.descriptorCount;
             write.descriptorType = binding.layout.descriptorType;
-            write.pBufferInfo = buffers.data();
+            switch (binding.layout.descriptorType) {
+                case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                    for (const auto index : binding.allocations) buffers.push_back(descriptor(allocations[index]));
+                    write.pBufferInfo = buffers.data();
+                    break;
+                case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                    for (const auto index : binding.imageAllocations) images.push_back({VK_NULL_HANDLE, textures[index]->View(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+                    write.pImageInfo = images.data();
+                    break;
+                case VK_DESCRIPTOR_TYPE_SAMPLER:
+                    for (const auto index : binding.imageAllocations) images.push_back({samplers[index]->Handle(), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED});
+                    write.pImageInfo = images.data();
+                    break;
+                default: throw std::runtime_error("AGC graphics: ShaderResources encountered an unknown descriptor type while writing the descriptor set");
+            }
             context.Function<PFN_vkUpdateDescriptorSets>("vkUpdateDescriptorSets")(context.device, 1, &write, 0, nullptr);
         }
     } catch (...) {
@@ -164,10 +188,44 @@ std::size_t ShaderResources::addDataBuffer(std::span<const std::uint32_t> words)
     return allocations.size() - 1;
 }
 
-void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding& binding, VkShaderStageFlags flags) {
-    static_cast<void>(binding);
-    static_cast<void>(flags);
-    throw std::runtime_error(std::string(__func__) + " not implemented");
+void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding& binding, VkShaderStageFlags flags, std::vector<Binding>& bindings) {
+    Require(binding.count != 0, "empty descriptor binding");
+    const bool sampledImage = binding.kind == ShaderRecompiler::DescriptorKind::SampledImage;
+    const bool samplerKind = binding.kind == ShaderRecompiler::DescriptorKind::Sampler;
+    Require(sampledImage || samplerKind, std::string("unsupported descriptor kind ") + kindName(binding.kind) + " for role " + roleName(binding.role));
+    Require((sampledImage && binding.role == ShaderRecompiler::DescriptorRole::GuestImages) || (samplerKind && binding.role == ShaderRecompiler::DescriptorRole::GuestSamplers), "guest image descriptor role disagrees with its kind");
+    Require(binding.guestDescriptor.size() % binding.count == 0, "guest image descriptor size is not a multiple of the binding count");
+    const auto elementWords = binding.guestDescriptor.size() / binding.count;
+
+    Binding item{{binding.binding, sampledImage ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLER, binding.count, flags, nullptr}, {}, {}};
+
+    if (sampledImage) {
+        Require(elementWords == 8, "guest texture descriptor must contain 8 dwords");
+        Require(binding.imageShape.has_value(), "guest image binding is missing an image shape");
+        Require(context.detiler != nullptr, "device texture detiler is unavailable");
+        Require(binding.count <= context.limits.maxPerStageDescriptorSampledImages, "shader sampled-image descriptors exceed per-stage limits");
+        for (std::uint32_t element = 0; element < binding.count; ++element) {
+            const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
+            const auto resource = DecodeTextureResource(words);
+            Require(MatchesGuestDimension(*binding.imageShape, resource.dimension), "guest texture dimension disagrees with the shader's declared image shape");
+            const VkComponentMapping components{ComponentSwizzleFor(resource.dstSelX), ComponentSwizzleFor(resource.dstSelY), ComponentSwizzleFor(resource.dstSelZ), ComponentSwizzleFor(resource.dstSelW)};
+            textures.push_back(std::make_unique<Texture>(context, *context.detiler, resource, components));
+            item.imageAllocations.push_back(textures.size() - 1);
+        }
+        Require(textures.size() <= context.limits.maxDescriptorSetSampledImages, "pipeline sampled-image descriptors exceed device limits");
+    } else {
+        Require(elementWords == 4, "guest sampler descriptor must contain 4 dwords");
+        Require(binding.count <= context.limits.maxPerStageDescriptorSamplers, "shader sampler descriptors exceed per-stage limits");
+        for (std::uint32_t element = 0; element < binding.count; ++element) {
+            const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
+            const auto resource = DecodeSamplerResource(words);
+            samplers.push_back(std::make_unique<Sampler>(context, resource));
+            item.imageAllocations.push_back(samplers.size() - 1);
+        }
+        Require(samplers.size() <= context.limits.maxDescriptorSetSamplers, "pipeline sampler descriptors exceed device limits");
+    }
+
+    bindings.push_back(std::move(item));
 }
 
 ShaderResources::~ShaderResources() {
