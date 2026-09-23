@@ -1,4 +1,5 @@
 #include "prx/libkernel/AppMetadata/include/AppMetadata.hpp"
+#include "prx/libkernel/AppMetadata/include/ParamJsonParser.hpp"
 #include "prx/libc/include/General.hpp"
 
 #include <cstdint>
@@ -20,16 +21,6 @@ std::vector<std::uint8_t> g_iconBytes;
 
 constexpr const char* AppMetadataParamJsonGuestPath = "/app0/sce_sys/param.json";
 constexpr const char* AppMetadataIconGuestPath = "/app0/sce_sys/icon0.png";
-
-struct ParsedParamJson {
-    std::string title;
-    std::string titleId;
-};
-
-ParsedParamJson parseParamJson(const std::filesystem::path& paramJsonPath) {
-    static_cast<void>(paramJsonPath);
-    throw std::runtime_error("param.json parsing is not implemented");
-}
 
 void copyToFixedBuffer(char* destination, std::size_t destinationSize, const std::string& source) {
     if (source.empty()) throw std::runtime_error("source string is empty");
