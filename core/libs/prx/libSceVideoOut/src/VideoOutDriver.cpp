@@ -354,6 +354,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     } else {
         AgcDriverPresentClear_nid_postfix(target, req.index == VIDEO_OUT_BUFFER_INDEX_BLACK, gpuReady, &req);
     }
+    window.UpdateTitle();
     std::lock_guard lock(req.cfg->mutex);
     checkConfig(*req.cfg);
     require(!req.terminal && req.cfg->generation == req.generation, "flip cancelled during presentation");

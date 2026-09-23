@@ -1,7 +1,9 @@
 #include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 #include "prx/libSceAgcDriver/Execution/include/AspectFit.hpp"
 #include "prx/libkernel/AppMetadata/include/AppMetadata.hpp"
+#include "prx/libkernel/Time/include/Time.hpp"
 #include "SDL_vulkan.h"
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -77,6 +79,27 @@ void DisplayWindow::DrawableSize(std::uint32_t& width, std::uint32_t& height) co
     SDL_Vulkan_GetDrawableSize(window, &drawableWidth, &drawableHeight);
     width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
     height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
+}
+
+void DisplayWindow::UpdateTitle() {
+    require(window != nullptr, "window must exist before updating title");
+    static const AppTitle title = GetAppTitle_nid_postfix();
+    static std::uint64_t fpsStart = sceKernelGetProcessTimeCounter();
+    static std::uint64_t frameNum = 0;
+    static std::uint64_t fpsFrames = 0;
+    static double currentFps = 0.0;
+    const auto now = sceKernelGetProcessTimeCounter();
+    const auto frequency = sceKernelGetProcessTimeCounterFrequency();
+    frameNum++;
+    fpsFrames++;
+    if (now - fpsStart >= frequency * 2) {
+        currentFps = static_cast<double>(fpsFrames) * static_cast<double>(frequency) / static_cast<double>(now - fpsStart);
+        fpsStart = now;
+        fpsFrames = 0;
+    }
+    char text[160];
+    std::snprintf(text, sizeof(text), "%s FPS: %.2f (%llu)", title.value, currentFps, static_cast<unsigned long long>(frameNum));
+    SDL_SetWindowTitle(window, text);
 }
 
 void DisplayWindow::installSubclass() {
