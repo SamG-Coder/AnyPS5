@@ -1,5 +1,6 @@
 #include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 #include "prx/libSceAgcDriver/Execution/include/AspectFit.hpp"
+#include "prx/libkernel/AppMetadata/include/AppMetadata.hpp"
 #include "SDL_vulkan.h"
 #include <stdexcept>
 #include <string>
@@ -42,7 +43,8 @@ void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight
         initialWidth = fitted.width;
         initialHeight = fitted.height;
     }
-    window = SDL_CreateWindow("PS5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialWidth), static_cast<int>(initialHeight), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    const auto title = GetAppTitle_nid_postfix();
+    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialWidth), static_cast<int>(initialHeight), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     require(window != nullptr, SDL_GetError());
     SDL_SetWindowMinimumSize(window, static_cast<int>(DisplayWindowMinimumWidth), static_cast<int>(DisplayWindowMinimumHeight));
     installSubclass();

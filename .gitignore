@@ -28,6 +28,7 @@
 *.out
 *.app
 
+_SaveData/
 build/
 b/
 Build/
