@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(Relinker CXX)
 
+option(ANYPS5_ENABLE_SPIRV_TOOLS "Enable SPIRV-Tools validation and optimization" OFF)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

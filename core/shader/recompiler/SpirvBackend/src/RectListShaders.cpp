@@ -1,7 +1,9 @@
 #include "Recompiler.hpp"
 #include "BdaAbi.hpp"
 #include "SpirvBackend/SpirvModule.hpp"
+#if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
+#endif
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -388,10 +390,14 @@ RectListShaders BuildRectListShaders(const RecompileResult& vertex, const Recomp
     RectListEmitter control(parameters, spv::ExecutionModelTessellationControl, target.spirvVersion, faultBinding);
     RectListEmitter evaluation(parameters, spv::ExecutionModelTessellationEvaluation, target.spirvVersion, faultBinding);
     RectListShaders shaders;
-    shaders.control.spirv = ValidateAndOptimizeSpirv(control.EmitControl(), target.vulkanVersion, target.spirvVersion);
+    shaders.control.spirv = control.EmitControl();
     shaders.control.bindings.push_back({DescriptorKind::StorageBuffer, DescriptorRole::FaultBuffer, 0, faultBinding, 1, {}});
     shaders.control.bdaAbiVersion = BdaAbi::Version;
-    shaders.evaluation.spirv = ValidateAndOptimizeSpirv(evaluation.EmitEvaluation(), target.vulkanVersion, target.spirvVersion);
+    shaders.evaluation.spirv = evaluation.EmitEvaluation();
+#if ANYPS5_ENABLE_SPIRV_TOOLS
+    shaders.control.spirv = ValidateAndOptimizeSpirv(shaders.control.spirv, target.vulkanVersion, target.spirvVersion);
+    shaders.evaluation.spirv = ValidateAndOptimizeSpirv(shaders.evaluation.spirv, target.vulkanVersion, target.spirvVersion);
+#endif
     return shaders;
 }
 

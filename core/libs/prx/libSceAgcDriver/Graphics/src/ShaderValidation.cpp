@@ -142,7 +142,13 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
     }
     const auto model = mesh ? spv::ExecutionModelMeshEXT : control ? spv::ExecutionModelTessellationControl : evaluation ? spv::ExecutionModelTessellationEvaluation : vertex ? spv::ExecutionModelVertex : spv::ExecutionModelFragment;
     const auto& words = shader.spirv;
-    Require(words.size() >= 5 && words[0] == spv::MagicNumber && words[1] >= 0x10000u && words[1] <= 0x10400u && words[3] != 0 && words[4] == 0, "invalid or unsupported SPIR-V header");
+
+    Require(words.size() >= 5, "SPIR-V header is truncated: " + std::to_string(words.size()) + " words");
+    Require(words[0] == spv::MagicNumber, "invalid SPIR-V magic number: " + std::to_string(words[0]));
+    Require(words[1] >= 0x10000u && words[1] <= 0x10400u, "unsupported SPIR-V version: " + std::to_string(words[1]));
+    Require(words[3] != 0, "invalid SPIR-V bound: 0");
+    Require(words[4] == 0, "unsupported SPIR-V schema: " + std::to_string(words[4]));
+
     Module module;
     std::uint32_t entries = 0;
     std::uint32_t memoryModels = 0;

@@ -16,7 +16,9 @@
 #include "Optimization/include/Optimization/SrtWalker.hpp"
 #include "Optimization/include/Optimization/SsaBuilder.hpp"
 #include "SpirvBackend/include/SpirvBackend/SpirvEmitter.hpp"
+#if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
+#endif
 #include "SpirvBackend/SpirvMemory/SpirvInputOutput.hpp"
 #include "Translation/include/Translation/InstructionTranslator.hpp"
 #include "Translation/include/Translation/ShaderInputInfoBuilder.hpp"
@@ -160,13 +162,14 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
     targetOptions.supportedExtensions = request.target.supportedExtensions;
 
     constexpr SpirvEmitter spirvEmitter;
-    const auto spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
-
     RecompileResult result;
+    result.spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
 
+#if ANYPS5_ENABLE_SPIRV_TOOLS
     const auto validationStart = std::chrono::steady_clock::now();
-    result.spirv = ValidateAndOptimizeSpirv(spirv, request.target.vulkanVersion, request.target.spirvVersion);
+    result.spirv = ValidateAndOptimizeSpirv(result.spirv, request.target.vulkanVersion, request.target.spirvVersion);
     const auto validationEnd = std::chrono::steady_clock::now();
+#endif
 
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
     result.bindings = bindings.bindings;
@@ -188,9 +191,12 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
 
     const auto recompileEnd = std::chrono::steady_clock::now();
     const auto recompileTime = std::chrono::duration<double, std::milli>(recompileEnd - recompileStart).count();
+#if ANYPS5_ENABLE_SPIRV_TOOLS
     const auto validationTime = std::chrono::duration<double, std::milli>(validationEnd - validationStart).count();
-
     std::fprintf(stdout, "[RecompileImpl] shader recompiled in %.3f ms, ValidateAndOptimizeSpirv %.3f ms\n", recompileTime, validationTime);
+#else
+    std::fprintf(stdout, "[RecompileImpl] shader recompiled in %.3f ms, SPIRV-Tools disabled\n", recompileTime);
+#endif
     std::fflush(stdout);
     return result;
 }

@@ -2,7 +2,9 @@
 #include "ControlFlow/RequestSerializer.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/ResourceProgram.hpp"
+#if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
+#endif
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -69,6 +71,7 @@ int main() {
     try {
         using namespace ShaderRecompiler;
         verifyRegisterSources();
+#if ANYPS5_ENABLE_SPIRV_TOOLS
         const std::vector<std::uint32_t> minimalSpirv{
             0x07230203u, 0x00010000u, 0u, 5u, 0u,
             0x00020011u, 1u,
@@ -86,6 +89,7 @@ int main() {
         const auto optimizedSpirv = ValidateAndOptimizeSpirv(minimalSpirv, 0x00401001u, 0x00010000u);
         require(optimizedSpirv.size() < minimalSpirv.size(), "SPIR-V optimization did not remove the no-op");
         require(optimizedSpirv == ValidateAndOptimizeSpirv(minimalSpirv, 0x00401001u, 0x00010000u), "SPIR-V optimization is not deterministic");
+#endif
         const std::array<std::uint32_t, 8> code{0xf4040004u, 0xfa000000u, 0xf4000080u, 0xfa000000u, 0x7e000202u, 0xf80008cfu, 0u, 0xbf810000u};
         std::uint32_t payload = 0x3f800000u;
         std::uint64_t table = reinterpret_cast<std::uintptr_t>(&payload);
@@ -111,11 +115,13 @@ int main() {
         request.context.memory = regions;
         const auto first = Recompile(request);
         require(!first.spirv.empty(), "empty compiled shader");
+#if ANYPS5_ENABLE_SPIRV_TOOLS
         auto invalidSpirv = first.spirv;
         invalidSpirv[0] = 0;
         expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(invalidSpirv, request.target.vulkanVersion, request.target.spirvVersion)); }, "SPIR-V validation before optimization failed", "invalid SPIR-V passed validation");
         expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00400000u, 0x00010600u)); }, "unsupported Vulkan/SPIR-V target", "incompatible target accepted");
         expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00405000u, 0x00010600u)); }, "unsupported Vulkan target", "unknown Vulkan target accepted");
+#endif
         const auto serialized = RequestSerializer{}.Serialize(request);
         table = 0;
         payload = 0xdeadbeefu;

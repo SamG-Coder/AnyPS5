@@ -3,7 +3,7 @@ function(add_shader_recompiler target runtimeTarget)
         message(FATAL_ERROR "Shader recompiler requires an existing runtime target: ${runtimeTarget}")
     endif()
 
-    if(NOT TARGET SPIRV-Tools-opt)
+    if(ANYPS5_ENABLE_SPIRV_TOOLS AND NOT TARGET SPIRV-Tools-opt)
         set(SPIRV-Headers_SOURCE_DIR "${PROJECT_SOURCE_DIR}/3rdparty/SPIRV-Headers")
         set(SPIRV_SKIP_EXECUTABLES ON)
         set(SPIRV_SKIP_TESTS ON)
@@ -22,6 +22,7 @@ function(add_shader_recompiler target runtimeTarget)
         set(ENABLE_SPIRV ON)
         set(ENABLE_SPVREMAPPER OFF)
         set(ENABLE_OPT OFF)
+        set(ALLOW_EXTERNAL_SPIRV_TOOLS OFF)
 
         add_subdirectory(
                 "${PROJECT_SOURCE_DIR}/3rdparty/glslang"
@@ -119,7 +120,6 @@ function(add_shader_recompiler target runtimeTarget)
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvBdaFault.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvBdaRead.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvEmitter.cpp
-            ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvOptimizer.cpp
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvBufferFormat.cpp
 
             ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvMemory/SpirvBufferAccess.cpp
@@ -159,7 +159,11 @@ function(add_shader_recompiler target runtimeTarget)
             ${runtimeTarget}
             glslang
             SPIRV
-            SPIRV-Tools-opt
-            SPIRV-Tools-static
     )
+
+    if(ANYPS5_ENABLE_SPIRV_TOOLS)
+        target_sources(${target} PRIVATE ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/SpirvBackend/src/SpirvOptimizer.cpp)
+        target_link_libraries(${target} PRIVATE SPIRV-Tools-opt SPIRV-Tools-static)
+    endif()
+    target_compile_definitions(${target} PUBLIC ANYPS5_ENABLE_SPIRV_TOOLS=$<BOOL:${ANYPS5_ENABLE_SPIRV_TOOLS}>)
 endfunction()
