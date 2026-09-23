@@ -1,5 +1,7 @@
 #include "BdaTests.hpp"
+#include "GraphicsTests.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include <spirv/unified1/spirv.hpp>
@@ -269,6 +271,12 @@ struct MockVulkan {
     std::uint32_t boundSets = 0;
     std::uint32_t boundFirst = 0;
     VkPipelineBindPoint boundPoint = VK_PIPELINE_BIND_POINT_MAX_ENUM;
+    std::map<VkPipelineLayout, VkDeviceSize> pipelineLayoutPushConstantSize;
+    std::uint32_t pipelineCreateCount = 0;
+    std::vector<std::array<std::uint32_t, 3>> pipelineSpecializations;
+    VkPipeline boundPipeline = VK_NULL_HANDLE;
+    std::vector<std::byte> lastPushConstants;
+    struct { std::uint32_t x = 0, y = 0, z = 0; } lastDispatchGroups;
 };
 
 MockVulkan mock;
@@ -377,6 +385,57 @@ VKAPI_ATTR VkDeviceAddress VKAPI_CALL mockGetBufferDeviceAddress(VkDevice, const
     return 0x100000000000ULL + reinterpret_cast<std::uintptr_t>(info->buffer) * 0x10000;
 }
 
+VKAPI_ATTR VkResult VKAPI_CALL mockCreatePipelineLayout(VkDevice, const VkPipelineLayoutCreateInfo* info, const VkAllocationCallbacks*, VkPipelineLayout* layout) {
+    *layout = makeHandle<VkPipelineLayout>();
+    mock.pipelineLayoutPushConstantSize[*layout] = info->pushConstantRangeCount > 0 ? info->pPushConstantRanges[0].size : 0;
+    ++mock.live;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL mockDestroyPipelineLayout(VkDevice, VkPipelineLayout, const VkAllocationCallbacks*) {
+    --mock.live;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL mockCreateShaderModule(VkDevice, const VkShaderModuleCreateInfo*, const VkAllocationCallbacks*, VkShaderModule* module) {
+    *module = makeHandle<VkShaderModule>();
+    ++mock.live;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL mockDestroyShaderModule(VkDevice, VkShaderModule, const VkAllocationCallbacks*) {
+    --mock.live;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL mockCreateComputePipelines(VkDevice, VkPipelineCache, std::uint32_t count, const VkComputePipelineCreateInfo* infos, const VkAllocationCallbacks*, VkPipeline* pipelines) {
+    Require(count == 1, "mock expects exactly one compute pipeline per call");
+    Require(infos[0].stage.pSpecializationInfo != nullptr, "compute pipeline must provide specialization data");
+    std::array<std::uint32_t, 3> values{};
+    Require(infos[0].stage.pSpecializationInfo->dataSize == sizeof(values), "compute pipeline specialization data has an unexpected size");
+    std::memcpy(values.data(), infos[0].stage.pSpecializationInfo->pData, sizeof(values));
+    *pipelines = makeHandle<VkPipeline>();
+    mock.pipelineSpecializations.push_back(values);
+    ++mock.pipelineCreateCount;
+    ++mock.live;
+    return VK_SUCCESS;
+}
+
+VKAPI_ATTR void VKAPI_CALL mockDestroyPipeline(VkDevice, VkPipeline, const VkAllocationCallbacks*) {
+    --mock.live;
+}
+
+VKAPI_ATTR void VKAPI_CALL mockCmdBindPipeline(VkCommandBuffer, VkPipelineBindPoint, VkPipeline pipeline) {
+    mock.boundPipeline = pipeline;
+}
+
+VKAPI_ATTR void VKAPI_CALL mockCmdPushConstants(VkCommandBuffer, VkPipelineLayout, VkShaderStageFlags, std::uint32_t, std::uint32_t size, const void* values) {
+    const auto* bytes = static_cast<const std::byte*>(values);
+    mock.lastPushConstants.assign(bytes, bytes + size);
+}
+
+VKAPI_ATTR void VKAPI_CALL mockCmdDispatch(VkCommandBuffer, std::uint32_t x, std::uint32_t y, std::uint32_t z) {
+    mock.lastDispatchGroups = {x, y, z};
+}
+
 PFN_vkVoidFunction VKAPI_CALL mockProc(VkDevice, const char* name) {
     static const std::map<std::string_view, PFN_vkVoidFunction> table{
         {"vkGetBufferDeviceAddressKHR", reinterpret_cast<PFN_vkVoidFunction>(mockGetBufferDeviceAddress)},
@@ -394,7 +453,16 @@ PFN_vkVoidFunction VKAPI_CALL mockProc(VkDevice, const char* name) {
         {"vkDestroyDescriptorPool", reinterpret_cast<PFN_vkVoidFunction>(mockDestroyDescriptorPool)},
         {"vkAllocateDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(mockAllocateDescriptorSets)},
         {"vkUpdateDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(mockUpdateDescriptorSets)},
-        {"vkCmdBindDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(mockCmdBindDescriptorSets)}
+        {"vkCmdBindDescriptorSets", reinterpret_cast<PFN_vkVoidFunction>(mockCmdBindDescriptorSets)},
+        {"vkCreatePipelineLayout", reinterpret_cast<PFN_vkVoidFunction>(mockCreatePipelineLayout)},
+        {"vkDestroyPipelineLayout", reinterpret_cast<PFN_vkVoidFunction>(mockDestroyPipelineLayout)},
+        {"vkCreateShaderModule", reinterpret_cast<PFN_vkVoidFunction>(mockCreateShaderModule)},
+        {"vkDestroyShaderModule", reinterpret_cast<PFN_vkVoidFunction>(mockDestroyShaderModule)},
+        {"vkCreateComputePipelines", reinterpret_cast<PFN_vkVoidFunction>(mockCreateComputePipelines)},
+        {"vkDestroyPipeline", reinterpret_cast<PFN_vkVoidFunction>(mockDestroyPipeline)},
+        {"vkCmdBindPipeline", reinterpret_cast<PFN_vkVoidFunction>(mockCmdBindPipeline)},
+        {"vkCmdPushConstants", reinterpret_cast<PFN_vkVoidFunction>(mockCmdPushConstants)},
+        {"vkCmdDispatch", reinterpret_cast<PFN_vkVoidFunction>(mockCmdDispatch)}
     };
     const auto it = table.find(name);
     return it == table.end() ? nullptr : it->second;
@@ -983,6 +1051,50 @@ int main() {
         });
         Require(mock.live == 0, "BDA resources leaked Vulkan objects");
         RunGuestAllocationTests();
+        RunTextureFormatTests();
+        RunTextureTilingTests();
+        RunGuestTextureResourceTests();
+        RunGuestSamplerResourceTests();
+        mock = MockVulkan{};
+        auto textureDetilerContext = mockContext();
+        textureDetilerContext.limits.minStorageBufferOffsetAlignment = 16;
+        textureDetilerContext.limits.maxStorageBufferRange = 256;
+        RunTextureDetilerTests(textureDetilerContext, {
+            [](std::uint64_t size) {
+                VkBuffer buffer{};
+                VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                bufferInfo.size = size;
+                bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                mockCreateBuffer(VK_NULL_HANDLE, &bufferInfo, nullptr, &buffer);
+                VkMemoryRequirements requirements{};
+                mockGetBufferMemoryRequirements(VK_NULL_HANDLE, buffer, &requirements);
+                VkMemoryAllocateInfo allocationInfo{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+                allocationInfo.allocationSize = requirements.size;
+                VkDeviceMemory memory{};
+                mockAllocateMemory(VK_NULL_HANDLE, &allocationInfo, nullptr, &memory);
+                mockBindBufferMemory(VK_NULL_HANDLE, buffer, memory, 0);
+                return buffer;
+            },
+            [](VkBuffer buffer) -> std::vector<std::byte>& { return mock.memories.at(mock.bufferMemory.at(buffer)); },
+            [] {
+                Require(mock.writes.size() >= 2, "expected texture detiling descriptor writes");
+                const auto& destinationWrite = mock.writes.back();
+                const auto& sourceWrite = mock.writes[mock.writes.size() - 2];
+                DetilerCapture capture{};
+                capture.groupsX = mock.lastDispatchGroups.x;
+                capture.groupsY = mock.lastDispatchGroups.y;
+                capture.groupsZ = mock.lastDispatchGroups.z;
+                capture.pushConstants = mock.lastPushConstants;
+                capture.sourceBuffer = sourceWrite.buffers.at(0).buffer;
+                capture.sourceOffset = sourceWrite.buffers.at(0).offset;
+                capture.sourceRange = sourceWrite.buffers.at(0).range;
+                capture.destinationBuffer = destinationWrite.buffers.at(0).buffer;
+                capture.destinationOffset = destinationWrite.buffers.at(0).offset;
+                capture.destinationRange = destinationWrite.buffers.at(0).range;
+                return capture;
+            },
+            [] { return mock.pipelineCreateCount; }
+        });
         std::cout << "Graphics validation tests passed\n";
         return 0;
     } catch (const std::exception& error) {

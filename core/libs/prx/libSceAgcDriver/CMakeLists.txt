@@ -184,6 +184,11 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         tests/Graphics.cpp
         tests/BdaResources.cpp
         tests/GuestAllocations.cpp
+        tests/TextureFormat.cpp
+        tests/TextureTiling.cpp
+        tests/GuestTextureResource.cpp
+        tests/GuestSamplerResource.cpp
+        tests/TextureDetiler.cpp
         Graphics/src/State.cpp
         Graphics/src/Resources.cpp
         Graphics/src/ShaderResources.cpp
