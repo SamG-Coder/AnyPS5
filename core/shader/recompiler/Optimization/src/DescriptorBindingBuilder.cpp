@@ -1,4 +1,6 @@
 #include "Optimization/DescriptorBindingBuilder.hpp"
+#include "SpirvBackend/SpirvEmitterHelpers.hpp"
+#include <spirv/unified1/spirv.hpp>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -54,10 +56,45 @@ DescriptorRole RoleFor(DescriptorBindingKind kind) {
     fail("DescriptorBindingBuilder::Populate binding kind has no descriptor role");
 }
 
+DescriptorImageShape ImageShapeForResource(const ImageResource& image) {
+    const RdnaImageDimensionInfo& info = RdnaImageDimensionInfoFor(image.dimension);
+    if (info.multisampled != 0u) {
+        fail("DescriptorBindingBuilder::Populate multisampled image resources have no descriptor image shape");
+    }
+    if (info.spirvDimension == spv::Dim1D) {
+        if (info.arrayed != 0u) {
+            fail("DescriptorBindingBuilder::Populate 1D array image resources have no descriptor image shape");
+        }
+        return DescriptorImageShape::Image1D;
+    }
+    if (info.spirvDimension == spv::Dim3D) {
+        return DescriptorImageShape::Image3D;
+    }
+    if (info.spirvDimension == spv::Dim2D) {
+        if (image.cube) {
+            if (info.arrayed == 0u) {
+                fail("DescriptorBindingBuilder::Populate cube image resource is not arrayed");
+            }
+            return DescriptorImageShape::ImageCube;
+        }
+        return info.arrayed != 0u ? DescriptorImageShape::Image2DArray : DescriptorImageShape::Image2D;
+    }
+    fail("DescriptorBindingBuilder::Populate image resource dimension has no descriptor image shape");
+}
+
 DescriptorImageShape ImageShapeFor(const std::vector<ImageResource>& images, const std::vector<std::uint32_t>& resources) {
-    static_cast<void>(images);
-    static_cast<void>(resources);
-    throw std::runtime_error(std::string(__func__) + " not implemented");
+    if (resources.empty()) {
+        fail("DescriptorBindingBuilder::Populate guest image binding has no resources");
+    }
+    std::optional<DescriptorImageShape> shape;
+    for (const std::uint32_t r : resources) {
+        const DescriptorImageShape current = ImageShapeForResource(images.at(r));
+        if (shape.has_value() && *shape != current) {
+            fail("DescriptorBindingBuilder::Populate guest image array elements disagree on image shape");
+        }
+        shape = current;
+    }
+    return *shape;
 }
 
 std::vector<std::uint32_t> GuestBuffersDescriptor(const std::vector<std::uint32_t>& resources, const ResourceSnapshot& snapshot) {
