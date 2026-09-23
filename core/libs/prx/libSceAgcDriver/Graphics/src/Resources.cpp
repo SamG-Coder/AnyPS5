@@ -1,13 +1,23 @@
 #include "prx/libSceAgcDriver/Graphics/include/Resources.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/BufferPool.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <exception>
 
 namespace AgcDriver::Graphics {
 
-Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usage) : context(context), size(size) {
+Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usage) : context(context), size(size), usage(usage) {
     Require(size != 0, "zero-sized GPU buffer");
     const bool addressable = (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0;
     Require(!addressable || context.bufferDeviceAddress, "buffer device address is not enabled");
+    cache = GetBufferPool(context);
+    if (const auto allocation = cache->Take(size, usage)) {
+        buffer = allocation->buffer;
+        memory = allocation->memory;
+        mapping = allocation->mapping;
+        deviceAddress = allocation->address;
+        allocationBytes = allocation->allocationBytes;
+        return;
+    }
     try {
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         info.size = size;
@@ -20,6 +30,7 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         const VkMemoryAllocateFlagsInfo flags{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, nullptr, VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, 0};
         if (addressable) allocation.pNext = &flags;
         allocation.allocationSize = requirements.size;
+        allocationBytes = requirements.size;
         allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory buffer");
         Check(context.Function<PFN_vkBindBufferMemory>("vkBindBufferMemory")(context.device, buffer, memory, 0), "vkBindBufferMemory");
@@ -36,6 +47,10 @@ Buffer::~Buffer() {
 }
 
 void Buffer::release() noexcept {
+    if (mapping && buffer && memory && cache) {
+        cache->Put({buffer, memory, mapping, deviceAddress, allocationBytes, size, usage});
+        return;
+    }
     if (mapping) context.Function<PFN_vkUnmapMemory>("vkUnmapMemory")(context.device, memory);
     if (buffer) context.Function<PFN_vkDestroyBuffer>("vkDestroyBuffer")(context.device, buffer, nullptr);
     if (memory) context.Function<PFN_vkFreeMemory>("vkFreeMemory")(context.device, memory, nullptr);

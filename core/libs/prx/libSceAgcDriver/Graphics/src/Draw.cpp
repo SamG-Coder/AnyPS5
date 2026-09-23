@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetTransfer.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GpuColorTransfer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
@@ -108,18 +109,16 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         vertexBuffers.push_back(std::move(buffer));
     }
     timing.Mark("vertex_upload");
-    std::unique_ptr<Buffer> transfer;
-    std::unique_ptr<RenderTarget> target;
+    RenderTarget* target = nullptr;
     if (state.hasColorTarget) {
         APS5_LOG_OUT_DEBUG("Creating color target address=0x%llx bytes=%llu extent=%ux%u", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes), state.color.extent.width, state.color.extent.height);
         const ColorTargetLayout colorLayout(state.color.extent.width, state.color.extent.height, state.color.tileMode);
-        transfer = std::make_unique<Buffer>(context, colorLayout.LinearBytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        APS5_LOG_CHARS_OUT_DEBUG("Transfer buffer created");
-        timing.Mark("color_transfer_allocate");
-        ReadColorTarget(state.color, transfer->Bytes());
-        timing.Mark("color_read_detile");
+        Require(context.colorTransfer != nullptr, "device color transfer is unavailable");
+        Require(state.color.bytes == colorLayout.Bytes(), "color target transfer size mismatch");
+        context.colorTransfer->Upload(state.color.address, state.color.extent.width, state.color.extent.height, state.color.tileMode);
+        timing.Mark("color_upload");
         APS5_LOG_CHARS_OUT_DEBUG("Color target read from guest memory");
-        target = std::make_unique<RenderTarget>(context, state.color, state.blend.blendEnable != 0);
+        target = &context.colorTransfer->Target(state.color, state.blend.blendEnable != 0);
         timing.Mark("render_target_create");
         APS5_LOG_CHARS_OUT_DEBUG("RenderTarget created");
     }
@@ -129,7 +128,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     timing.Mark("shader_resources");
     APS5_LOG_CHARS_OUT_DEBUG("ShaderResources created");
     APS5_LOG_CHARS_OUT_DEBUG("Creating Pipeline");
-    Pipeline pipeline(context, state, target.get(), resources, shaders);
+    Pipeline pipeline(context, state, target, resources, shaders);
     timing.Mark("pipeline_create");
     APS5_LOG_CHARS_OUT_DEBUG("Pipeline created");
     APS5_LOG_CHARS_OUT_DEBUG("Creating CommandBatch");
@@ -146,8 +145,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     copy.imageExtent = {state.color.extent.width, state.color.extent.height, 1};
     if (state.hasColorTarget) {
         APS5_LOG_CHARS_OUT_DEBUG("Copying guest color target to Vulkan image");
+        context.colorTransfer->Detile(commands);
         imageBarrier(context, commands, target->Image(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
-        context.Function<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, transfer->Handle(), target->Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        context.Function<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, context.colorTransfer->LinearBuffer(), target->Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         imageBarrier(context, commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
         APS5_LOG_CHARS_OUT_DEBUG("Guest color target upload recorded");
     }
@@ -181,10 +181,11 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         reuse.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         reuse.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         reuse.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        reuse.buffer = transfer->Handle();
-        reuse.size = transfer->Bytes().size();
+        reuse.buffer = context.colorTransfer->LinearBuffer();
+        reuse.size = VK_WHOLE_SIZE;
         context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &reuse, 0, nullptr);
-        context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, transfer->Handle(), 1, &copy);
+        context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, context.colorTransfer->LinearBuffer(), 1, &copy);
+        context.colorTransfer->Tile(commands);
         APS5_LOG_CHARS_OUT_DEBUG("Color target copy-back recorded");
     }
     VkMemoryBarrier download{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -204,8 +205,8 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     resources.WriteBack();
     timing.Mark("resources_writeback");
     APS5_LOG_CHARS_OUT_DEBUG("Shader resources WriteBack OK");
-    if (state.hasColorTarget) WriteColorTarget(state.color, transfer->Bytes());
-    timing.Mark("color_tile_writeback");
+    if (state.hasColorTarget) context.colorTransfer->WriteBack(state.color.address);
+    timing.Mark("color_writeback");
     if (state.hasColorTarget) APS5_LOG_OUT_DEBUG("Color target written to guest address=0x%llx bytes=%llu", static_cast<unsigned long long>(state.color.address), static_cast<unsigned long long>(state.color.bytes));
     APS5_LOG_CHARS_OUT("Draw finished");
 }

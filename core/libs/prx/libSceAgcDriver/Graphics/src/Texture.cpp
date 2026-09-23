@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -45,7 +46,7 @@ std::uint64_t SliceLinearBytes(const std::vector<TileMipLayout>& mips) {
 
 }
 
-Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTextureResource& descriptor, VkComponentMapping components) : context(context) {
+Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTextureResource& descriptor, VkComponentMapping components, std::span<const std::byte> snapshot) : context(context) {
     try {
         const auto vkFormat = ResolveTextureFormat(descriptor.format);
         if (IsBlockCompressed(descriptor.format)) {
@@ -58,7 +59,7 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
 
         const auto guestBytes = ComputeSurfaceSize(mips, arrayLayers);
         const auto guestSliceBytes = guestBytes / arrayLayers;
-        GuestMemory::CheckRange(reinterpret_cast<const void*>(descriptor.baseAddress), static_cast<std::size_t>(guestBytes), 1);
+        Require(snapshot.size() == guestBytes, "texture snapshot size mismatch");
 
         const auto sliceLinearBytes = SliceLinearBytes(mips);
         Require(arrayLayers == 0 || sliceLinearBytes <= UINT64_MAX / arrayLayers, "detiled texture buffer size overflows");
@@ -82,15 +83,17 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
         context.Function<PFN_vkGetImageMemoryRequirements>("vkGetImageMemoryRequirements")(context.device, image, &requirements);
         VkMemoryAllocateInfo allocation{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
         allocation.allocationSize = requirements.size;
+        allocationBytes = requirements.size;
         allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory texture");
         Check(context.Function<PFN_vkBindImageMemory>("vkBindImageMemory")(context.device, image, memory, 0), "vkBindImageMemory");
 
         {
             Buffer staging(context, static_cast<std::size_t>(guestBytes), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            GuestMemory::Read(descriptor.baseAddress, staging.Bytes(), 1);
+            std::memcpy(staging.Bytes().data(), snapshot.data(), snapshot.size());
             Buffer linear(context, static_cast<std::size_t>(linearBytes), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
+            detiler.BeginBatch();
             CommandBatch batch(context);
             const auto commands = batch.Handle();
 

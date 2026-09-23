@@ -126,7 +126,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         pipelineInfo.pColorBlendState = &blend;
         pipelineInfo.layout = layout;
         pipelineInfo.renderPass = renderPass;
-        Check(context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline), "vkCreateGraphicsPipelines");
+        Check(context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, context.pipelineCache, 1, &pipelineInfo, nullptr, &pipeline), "vkCreateGraphicsPipelines");
     } catch (...) {
         release();
         throw;

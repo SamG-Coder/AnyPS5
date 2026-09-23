@@ -6,19 +6,27 @@
 #endif
 #include <vulkan/vulkan.h>
 #include <cstdint>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
 namespace AgcDriver::Graphics {
 
 class TextureDetiler;
+class GpuColorTransfer;
+class BufferPool;
+class TextureCache;
 
 inline void Require(bool condition, const std::string& reason) {
     if (!condition) throw std::runtime_error("AGC graphics: " + reason);
 }
 
 inline void Check(VkResult result, const char* operation) {
-    Require(result == VK_SUCCESS, std::string(operation) + ": Vulkan result " + std::to_string(result));
+    if (result != VK_SUCCESS) throw std::runtime_error(std::string("AGC graphics: ") + operation + ": Vulkan result " + std::to_string(result));
+}
+
+inline void Require(bool condition, const char* reason) {
+    if (!condition) throw std::runtime_error(std::string("AGC graphics: ") + reason);
 }
 
 struct Context {
@@ -42,12 +50,16 @@ struct Context {
     bool samplerAnisotropy = false;
     bool textureCompressionBC = false;
     TextureDetiler* detiler = nullptr;
+    GpuColorTransfer* colorTransfer = nullptr;
+    mutable std::shared_ptr<BufferPool> bufferPool;
+    TextureCache* textureCache = nullptr;
+    VkPipelineCache pipelineCache = VK_NULL_HANDLE;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {
         Require(deviceProc != nullptr, "missing Vulkan device function resolver");
         const auto function = reinterpret_cast<TFunction>(deviceProc(device, name));
-        Require(function != nullptr, std::string("missing Vulkan function: ") + name);
+        if (function == nullptr) throw std::runtime_error(std::string("AGC graphics: missing Vulkan function: ") + name);
         return function;
     }
 

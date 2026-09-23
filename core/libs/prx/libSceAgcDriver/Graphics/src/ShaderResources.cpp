@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/TextureCache.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
 #include "Optimization/include/Optimization/ShaderStageInputInfo.hpp"
@@ -209,13 +210,14 @@ void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding&
         Require(elementWords == 8, "guest texture descriptor must contain 8 dwords");
         Require(binding.imageShape.has_value(), "guest image binding is missing an image shape");
         Require(context.detiler != nullptr, "device texture detiler is unavailable");
+        Require(context.textureCache != nullptr, "device texture cache is unavailable");
         Require(binding.count <= context.limits.maxPerStageDescriptorSampledImages, "shader sampled-image descriptors exceed per-stage limits");
         for (std::uint32_t element = 0; element < binding.count; ++element) {
             const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
             const auto resource = DecodeTextureResource(words);
             Require(MatchesGuestDimension(*binding.imageShape, resource.dimension), "guest texture dimension disagrees with the shader's declared image shape");
             const VkComponentMapping components{ComponentSwizzleFor(resource.dstSelX), ComponentSwizzleFor(resource.dstSelY), ComponentSwizzleFor(resource.dstSelZ), ComponentSwizzleFor(resource.dstSelW)};
-            textures.push_back(std::make_unique<Texture>(context, *context.detiler, resource, components));
+            textures.push_back(context.textureCache->Get(words, resource, components));
             item.imageAllocations.push_back(textures.size() - 1);
         }
         Require(textures.size() <= context.limits.maxDescriptorSetSampledImages, "pipeline sampled-image descriptors exceed device limits");

@@ -25,6 +25,9 @@ private:
     VkDeviceMemory memory = VK_NULL_HANDLE;
     void* mapping = nullptr;
     std::size_t size;
+    VkDeviceSize allocationBytes = 0;
+    VkBufferUsageFlags usage;
+    std::shared_ptr<BufferPool> cache;
 };
 
 class RenderTarget {
@@ -38,7 +41,7 @@ public:
 
 private:
     void release() noexcept;
-    const Context& context;
+    Context context;
     VkImage image = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;

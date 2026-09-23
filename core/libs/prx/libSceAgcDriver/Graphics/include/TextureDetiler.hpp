@@ -18,17 +18,20 @@ namespace AgcDriver::Graphics {
         TextureDetiler& operator=(const TextureDetiler&) = delete;
 
         void Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout);
+        void BeginBatch();
 
     private:
         VkPipeline pipeline(TextureTileMode tileMode, std::uint32_t elementBytes);
         void release() noexcept;
+        VkDescriptorSet allocateSet();
 
         const Context context;
         VkDescriptorSetLayout descriptorLayout = VK_NULL_HANDLE;
         VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
         VkShaderModule module = VK_NULL_HANDLE;
         std::vector<std::pair<std::uint32_t, VkPipeline>> pipelines;
-        VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+        std::vector<VkDescriptorPool> descriptorPools;
+        std::size_t allocatedSets = 0;
     };
 
 }

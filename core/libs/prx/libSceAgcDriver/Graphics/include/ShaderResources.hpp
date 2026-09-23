@@ -55,7 +55,7 @@ private:
     VkDescriptorSet _set = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     std::vector<Allocation> allocations;
-    std::vector<std::unique_ptr<Texture>> textures;
+    std::vector<std::shared_ptr<Texture>> textures;
     std::vector<std::unique_ptr<Sampler>> samplers;
 };
 

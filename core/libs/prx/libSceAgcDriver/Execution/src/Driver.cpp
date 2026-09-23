@@ -212,10 +212,8 @@ public:
                         require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
                         presenting->WaitIdle();
                         timing.Mark("device_idle_wait");
-                        const auto pixels = ReadDisplayBuffer(*buffer);
-                        timing.Mark("display_read_detile");
-                        presenting->PresentPixels(window.width, window.height, pixels);
-                        timing.Mark("present_pixels");
+                        presenting->PresentDisplayBuffer(*buffer);
+                        timing.Mark("present_display_buffer");
                     } else {
                         presenting->PresentClear(window.width, window.height, opaque);
                         timing.Mark("present_clear");

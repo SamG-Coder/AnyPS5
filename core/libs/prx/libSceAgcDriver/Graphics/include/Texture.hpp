@@ -9,20 +9,22 @@ namespace AgcDriver::Graphics {
 
 class Texture {
 public:
-    Texture(const Context& context, TextureDetiler& detiler, const GuestTextureResource& descriptor, VkComponentMapping components);
+    Texture(const Context& context, TextureDetiler& detiler, const GuestTextureResource& descriptor, VkComponentMapping components, std::span<const std::byte> snapshot);
     ~Texture();
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 
     VkImageView View() const;
+    VkDeviceSize AllocationBytes() const { return allocationBytes; }
 
 private:
     void release() noexcept;
 
-    const Context& context;
+    Context context;
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
+    VkDeviceSize allocationBytes = 0;
 };
 
 }

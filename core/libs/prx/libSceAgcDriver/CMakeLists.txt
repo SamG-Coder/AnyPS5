@@ -359,3 +359,5 @@ if(AGC_BUILD_VISUAL_TEST)
         add_dependencies(agc_driver_visual_test agc_driver_visual_runtime)
     endif()
 endif()
+
+include(PostCompile.cmake)

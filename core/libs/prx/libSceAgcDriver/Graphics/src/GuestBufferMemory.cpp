@@ -8,22 +8,6 @@ namespace AgcDriver::Graphics {
 
 GuestBufferMemory::GuestBufferMemory(const Context& context) : context(context) {}
 
-void GuestBufferMemory::AcquireRegistered() {
-    Require(!uploaded && regions.empty() && lease.empty(), "guest allocation lease must precede resource registration");
-    lease = GuestAllocations::GuestAllocationsAcquire_nid_postfix();
-    for (const auto& range : lease) {
-        if (range->writable) {
-            validate(range->address, range->bytes);
-            regions.push_back({range->address, range->address + range->bytes, true, {}, nullptr});
-        }
-        else {
-            std::vector<std::byte> bytes(range->bytes);
-            GuestMemory::Read(range->address, bytes);
-            AddSnapshot({range->address, bytes});
-        }
-    }
-}
-
 void GuestBufferMemory::validate(std::uint64_t address, std::size_t bytes) const {
     Require(!uploaded, "guest memory ownership is frozen for GPU execution");
     Require(address != 0 && bytes != 0, "empty guest memory range");

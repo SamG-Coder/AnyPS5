@@ -12,9 +12,9 @@ Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/U
 
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
-The application reaches the render loop and **successfully presents its first frame** (logo).
+The real game reaches the render loop and **successfully presents its first frames** (logo).
 
-Current exception: `AGC graphics: unsupported SPIR-V memory model` on 6 frame.
+Current exception: `Could not open file /_sd/SAVEDATA00/-saveindex` on ~71 frame.
 
 
 ## Build

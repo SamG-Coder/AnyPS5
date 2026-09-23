@@ -4,6 +4,10 @@
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GpuColorTransfer.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/BufferPool.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/TextureCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/PipelineCache.hpp"
 #include "prx/libc/include/General.hpp"
 #include <SDL_loadso.h>
 #include <SDL_error.h>
@@ -72,6 +76,10 @@ struct VulkanDevice::State {
     bool samplerAnisotropy = false;
     bool textureCompressionBC = false;
     std::unique_ptr<Graphics::TextureDetiler> detiler;
+    std::unique_ptr<Graphics::GpuColorTransfer> colorTransfer;
+    std::shared_ptr<Graphics::BufferPool> bufferPool;
+    std::unique_ptr<Graphics::TextureCache> textureCache;
+    std::unique_ptr<Graphics::PipelineCache> pipelineCache;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
     std::unique_ptr<PresentationScaler> scaler;
 
@@ -151,8 +159,12 @@ struct VulkanDevice::State {
         if (device != VK_NULL_HANDLE) {
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
+            textureCache.reset();
             detiler.reset();
+            colorTransfer.reset();
             scaler.reset();
+            pipelineCache.reset();
+            bufferPool.reset();
             const auto destroyFence = reinterpret_cast<PFN_vkDestroyFence>(deviceProc(device, "vkDestroyFence"));
             if (acquireFence) destroyFence(device, acquireFence, nullptr);
             if (renderFence) destroyFence(device, renderFence, nullptr);
@@ -406,7 +418,11 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = family;
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
+    state->bufferPool = std::make_shared<Graphics::BufferPool>(graphicsContext());
+    state->pipelineCache = std::make_unique<Graphics::PipelineCache>(graphicsContext());
     state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
+    state->textureCache = std::make_unique<Graphics::TextureCache>(graphicsContext());
+    state->colorTransfer = std::make_unique<Graphics::GpuColorTransfer>(graphicsContext());
     if (window != nullptr) {
         require(window->getDrawableSize != nullptr, "missing window drawable size query");
         std::uint32_t drawableWidth = 0;
@@ -534,11 +550,19 @@ void VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t height, std:
     present(width, height, true, pixels);
 }
 
-void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
+void VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer) {
+    present(buffer.width, buffer.height, true, {}, &buffer);
+}
+
+void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels, const DisplayBuffer* display) {
     PerformanceTimer timing("Vulkan.Present");
     APS5_LOG_OUT_DEBUG("present begin width=%u height=%u opaque=%u pixels=%zu", width, height, static_cast<unsigned>(opaque), pixels.size());
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
+    if (display != nullptr) {
+        static_cast<void>(DisplayBufferSize(*display));
+        state->colorTransfer->Upload(display->address, width, height, Graphics::ColorTileMode::RenderTarget);
+    }
     if (!pixels.empty()) state->Upload(pixels);
     timing.Mark("pixel_upload");
     APS5_LOG_OUT_DEBUG("present source=%s bytes=%zu", pixels.empty() ? "clear" : "pixels", pixels.size());
@@ -580,7 +604,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     auto pipelineBarrier = state->DeviceFunction<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
     pipelineBarrier(commands, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-    if (pixels.empty()) {
+    if (pixels.empty() && display == nullptr) {
         APS5_LOG_OUT_DEBUG("Recording swapchain clear opaque=%u image=%p", static_cast<unsigned>(opaque), reinterpret_cast<void*>(barrier.image));
         VkClearColorValue clear{};
         clear.float32[3] = opaque ? 1.0f : 0.0f;
@@ -589,7 +613,10 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         APS5_LOG_OUT_DEBUG("Recording swapchain scaled blit width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
         require(state->scaler != nullptr, "presentation scaler is unavailable");
         state->scaler->EnsureSourceImage(width, height);
-        state->scaler->RecordUpload(commands, state->uploadBuffer);
+        if (display != nullptr) {
+            state->colorTransfer->Detile(commands, display->pixelFormat == 0x8000000022000000ull);
+        }
+        state->scaler->RecordUpload(commands, display != nullptr ? state->colorTransfer->LinearBuffer() : state->uploadBuffer);
         VkClearColorValue letterbox{};
         letterbox.float32[3] = 1.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &letterbox, 1, &barrier.subresourceRange);
@@ -667,7 +694,11 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->fragmentShaderBarycentric,
         state->samplerAnisotropy,
         state->textureCompressionBC,
-        state->detiler.get()
+        state->detiler.get(),
+        state->colorTransfer.get(),
+        state->bufferPool,
+        state->textureCache.get(),
+        state->pipelineCache ? state->pipelineCache->Handle() : VK_NULL_HANDLE
     };
 }
 
@@ -736,7 +767,7 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
         pipelineInfo.stage.module = module;
         pipelineInfo.stage.pName = "main";
         pipelineInfo.layout = layout;
-        check(state->DeviceFunction<PFN_vkCreateComputePipelines>("vkCreateComputePipelines")(state->device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline), "vkCreateComputePipelines");
+        check(state->DeviceFunction<PFN_vkCreateComputePipelines>("vkCreateComputePipelines")(state->device, context.pipelineCache, 1, &pipelineInfo, nullptr, &pipeline), "vkCreateComputePipelines");
         timing.Mark("pipeline_create");
         VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         allocation.commandPool = state->pool;
