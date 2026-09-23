@@ -1,6 +1,7 @@
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libc/include/General.hpp"
 #include <SDL_loadso.h>
 #include <SDL_error.h>
@@ -63,6 +64,9 @@ struct VulkanDevice::State {
     bool fragmentShaderBarycentric = false;
     bool depthClipControl = false;
     bool depthRangeUnrestricted = false;
+    bool samplerAnisotropy = false;
+    bool textureCompressionBC = false;
+    std::unique_ptr<Graphics::TextureDetiler> detiler;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
 
     template<typename TFunction>
@@ -128,6 +132,7 @@ struct VulkanDevice::State {
         if (device != VK_NULL_HANDLE) {
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
+            detiler.reset();
             if (presentQueued && idle != VK_ERROR_DEVICE_LOST) {
                 const auto result = reinterpret_cast<PFN_vkWaitForFences>(deviceProc(device, "vkWaitForFences"))(device, 1, &presentFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
                 if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) std::terminate();
@@ -363,6 +368,11 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     enabled.tessellationShader = available.tessellationShader;
     state->tessellationShader = enabled.tessellationShader == VK_TRUE;
     if (state->tessellationShader) state->capabilities.push_back(3);
+    require(available.samplerAnisotropy && available.textureCompressionBC, "device lacks sampler anisotropy or BC texture compression support required for texture sampling");
+    enabled.samplerAnisotropy = VK_TRUE;
+    enabled.textureCompressionBC = VK_TRUE;
+    state->samplerAnisotropy = true;
+    state->textureCompressionBC = true;
     deviceInfo.pEnabledFeatures = &enabled;
     deviceInfo.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensions.size());
     deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();

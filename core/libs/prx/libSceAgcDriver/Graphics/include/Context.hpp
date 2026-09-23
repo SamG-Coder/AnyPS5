@@ -11,6 +11,8 @@
 
 namespace AgcDriver::Graphics {
 
+class TextureDetiler;
+
 inline void Require(bool condition, const std::string& reason) {
     if (!condition) throw std::runtime_error("AGC graphics: " + reason);
 }
@@ -37,6 +39,9 @@ struct Context {
     bool bufferDeviceAddress = false;
     VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     bool fragmentShaderBarycentric = false;
+    bool samplerAnisotropy = false;
+    bool textureCompressionBC = false;
+    TextureDetiler* detiler = nullptr;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

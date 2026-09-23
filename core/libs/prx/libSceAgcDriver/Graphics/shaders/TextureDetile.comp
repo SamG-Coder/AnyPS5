@@ -1,0 +1,26 @@
+#version 450
+
+layout(constant_id = 0) const uint ELEMENT_BYTES = 4u;
+layout(constant_id = 1) const uint BLOCK_BYTES = 256u;
+layout(constant_id = 2) const uint TILE_FAMILY = 0u;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer Input { uint data[]; } inputBuffer;
+layout(set = 0, binding = 1, std430) buffer Output { uint data[]; } outputBuffer;
+
+layout(push_constant) uniform Push {
+    uint srcBase;
+    uint dstBase;
+    uint width;
+    uint height;
+    uint pitchBytes;
+    uint blocksPerRow;
+    uint tail;
+    uint tailX;
+    uint tailY;
+    uint elementBytes;
+} params;
+
+void main() {
+}

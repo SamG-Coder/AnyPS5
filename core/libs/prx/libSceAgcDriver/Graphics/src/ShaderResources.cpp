@@ -74,7 +74,10 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
                 const bool addressRole = binding.role == ShaderRecompiler::DescriptorRole::BdaPagetable || binding.role == ShaderRecompiler::DescriptorRole::FaultBuffer;
                 const bool bufferRole = addressRole || binding.role == ShaderRecompiler::DescriptorRole::GuestBuffers || binding.role == ShaderRecompiler::DescriptorRole::ShaderData || binding.role == ShaderRecompiler::DescriptorRole::FlattenedSrt;
                 const bool imageRole = binding.role == ShaderRecompiler::DescriptorRole::GuestImages || binding.role == ShaderRecompiler::DescriptorRole::GuestSamplers;
-                Require(!imageRole, "sampled and storage image resources are not implemented");
+                if (imageRole) {
+                    addImageBinding(binding, flags);
+                    continue;
+                }
                 Require(bufferRole, std::string("unsupported descriptor role ") + roleName(binding.role));
                 Require(binding.kind == ShaderRecompiler::DescriptorKind::StorageBuffer, std::string("unsupported descriptor kind ") + kindName(binding.kind) + " for role " + roleName(binding.role) + ": only StorageBuffer is supported");
                 Require(!binding.readOnly, "read-only descriptors are unsupported because the recompiler emits no NonWritable decoration");
@@ -159,6 +162,12 @@ std::size_t ShaderResources::addDataBuffer(std::span<const std::uint32_t> words)
     std::memcpy(buffer->Bytes().data(), words.data(), size);
     allocations.push_back({0, size, false, std::move(buffer)});
     return allocations.size() - 1;
+}
+
+void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding& binding, VkShaderStageFlags flags) {
+    static_cast<void>(binding);
+    static_cast<void>(flags);
+    throw std::runtime_error(std::string(__func__) + " not implemented");
 }
 
 ShaderResources::~ShaderResources() {

@@ -210,6 +210,14 @@ enum class DescriptorKind {
     Sampler
 };
 
+enum class DescriptorImageShape {
+    Image1D,
+    Image2D,
+    Image2DArray,
+    ImageCube,
+    Image3D
+};
+
 enum class DescriptorRole {
     GuestBuffers,
     GuestImages,
@@ -229,6 +237,7 @@ struct DescriptorBinding {
     std::uint32_t count;
     std::vector<std::uint32_t> guestDescriptor;
     bool readOnly = false;
+    std::optional<DescriptorImageShape> imageShape;
 };
 
 struct VertexAttribute {
