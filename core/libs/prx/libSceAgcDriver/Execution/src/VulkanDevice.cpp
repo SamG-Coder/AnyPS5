@@ -406,6 +406,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = family;
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
+    state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
     if (window != nullptr) {
         VkSurfaceCapabilitiesKHR surface{};
         check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
@@ -644,7 +645,10 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->depthRangeUnrestricted,
         true,
         state->subgroup,
-        state->fragmentShaderBarycentric
+        state->fragmentShaderBarycentric,
+        state->samplerAnisotropy,
+        state->textureCompressionBC,
+        state->detiler.get()
     };
 }
 

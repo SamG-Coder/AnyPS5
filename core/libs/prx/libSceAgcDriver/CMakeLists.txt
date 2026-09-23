@@ -31,6 +31,20 @@ endfunction()
 
 ensure_agc_glslang()
 
+set(agcTextureDetileShaderSource ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/shaders/TextureDetile.comp)
+set(agcTextureDetileGeneratedDir ${CMAKE_CURRENT_BINARY_DIR}/Graphics/shaders)
+set(agcTextureDetileShaderSpv ${agcTextureDetileGeneratedDir}/TextureDetile.spv)
+set(agcTextureDetileShaderHeader ${agcTextureDetileGeneratedDir}/TextureDetile_spv.h)
+add_custom_command(
+        OUTPUT "${agcTextureDetileShaderHeader}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${agcTextureDetileGeneratedDir}"
+        COMMAND "$<TARGET_FILE:glslang-standalone>" -V --target-env vulkan1.1 -o "${agcTextureDetileShaderSpv}" "${agcTextureDetileShaderSource}"
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${agcTextureDetileShaderSpv} -DOUTPUT=${agcTextureDetileShaderHeader}
+                -DSYMBOL=TEXTURE_DETILE_SPV -P "${CMAKE_CURRENT_SOURCE_DIR}/embed_spirv.cmake"
+        DEPENDS "${agcTextureDetileShaderSource}" glslang-standalone
+        VERBATIM
+)
+
 add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
@@ -50,6 +64,14 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/BufferAddress.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderValidation.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/State.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestTextureResource.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestSamplerResource.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureFormat.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureTiling.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureDetiler.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Texture.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Sampler.cpp
+        ${agcTextureDetileShaderHeader}
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Event.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Eq/src/Query.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Resource/src/Lifecycle.cpp
@@ -168,6 +190,14 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         Graphics/src/BdaResources.cpp
         Graphics/src/BufferAddress.cpp
         Graphics/src/ShaderValidation.cpp
+        Graphics/src/GuestTextureResource.cpp
+        Graphics/src/GuestSamplerResource.cpp
+        Graphics/src/TextureFormat.cpp
+        Graphics/src/TextureTiling.cpp
+        Graphics/src/TextureDetiler.cpp
+        Graphics/src/Texture.cpp
+        Graphics/src/Sampler.cpp
+        ${agcTextureDetileShaderHeader}
         Execution/src/GuestMemory.cpp
 )
 
@@ -244,6 +274,14 @@ if(AGC_BUILD_VISUAL_TEST)
             Graphics/src/BdaResources.cpp
             Graphics/src/BufferAddress.cpp
             Graphics/src/ShaderValidation.cpp
+            Graphics/src/GuestTextureResource.cpp
+            Graphics/src/GuestSamplerResource.cpp
+            Graphics/src/TextureFormat.cpp
+            Graphics/src/TextureTiling.cpp
+            Graphics/src/TextureDetiler.cpp
+            Graphics/src/Texture.cpp
+            Graphics/src/Sampler.cpp
+            ${agcTextureDetileShaderHeader}
             ${visualShaders}
     )
 
