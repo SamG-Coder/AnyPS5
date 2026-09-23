@@ -222,9 +222,11 @@ void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding&
     } else {
         Require(elementWords == 4, "guest sampler descriptor must contain 4 dwords");
         Require(binding.count <= context.limits.maxPerStageDescriptorSamplers, "shader sampler descriptors exceed per-stage limits");
+        Require(binding.samplerDepthCompare.size() == binding.count, "guest sampler binding is missing depth comparison metadata");
         for (std::uint32_t element = 0; element < binding.count; ++element) {
             const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
-            const auto resource = DecodeSamplerResource(words);
+            auto resource = DecodeSamplerResource(words);
+            resource.compareEnable = binding.samplerDepthCompare.at(element);
             samplers.push_back(std::make_unique<Sampler>(context, resource));
             item.imageAllocations.push_back(samplers.size() - 1);
         }

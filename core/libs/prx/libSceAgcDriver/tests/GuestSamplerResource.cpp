@@ -120,17 +120,30 @@ void RunGuestSamplerResourceTests() {
     badLod.maxLodRaw = 50;
     rejectFields(badLod, "minimum LOD past its maximum LOD");
 
-    Fields badZFilter = base;
-    badZFilter.zFilter = 0;
-    rejectFields(badZFilter, "differs from the minification filter");
+    const std::array<std::uint32_t, 4> capturedSampler{0u, 0x00fff000u, 0x09000000u, 0u};
+    const auto captured = DecodeSamplerResource(capturedSampler);
+    Require(captured.magFilter == VK_FILTER_NEAREST && captured.minFilter == VK_FILTER_NEAREST, "captured 2D sampler filters decoded incorrectly");
+    Require(captured.mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR && nearlyEqual(captured.maxLod, 4095.0f / 256.0f), "captured 2D sampler mip settings decoded incorrectly");
+    Require(captured.addressModeU == VK_SAMPLER_ADDRESS_MODE_REPEAT && captured.addressModeV == VK_SAMPLER_ADDRESS_MODE_REPEAT, "captured 2D sampler address modes decoded incorrectly");
+    for (std::uint32_t zFilter = 0; zFilter < 4; ++zFilter) {
+        Fields twoDimensional = base;
+        twoDimensional.zFilter = zFilter;
+        const auto decoded = DecodeSamplerResource(pack(twoDimensional));
+        Require(decoded.magFilter == VK_FILTER_LINEAR && decoded.minFilter == VK_FILTER_LINEAR, "Z filter changed 2D filtering");
+    }
 
     Fields badMipFilter = base;
     badMipFilter.mipFilter = 3;
     rejectFields(badMipFilter, "unknown mip filter");
 
-    Fields badDepthCompare = base;
-    badDepthCompare.depthCompareFunc = 1;
-    rejectFields(badDepthCompare, "depth comparison");
+    const std::array compareOps{VK_COMPARE_OP_NEVER, VK_COMPARE_OP_LESS, VK_COMPARE_OP_EQUAL, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER, VK_COMPARE_OP_NOT_EQUAL, VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS};
+    for (std::uint32_t function = 0; function < compareOps.size(); ++function) {
+        Fields comparison = base;
+        comparison.depthCompareFunc = function;
+        const auto decoded = DecodeSamplerResource(pack(comparison));
+        Require(decoded.compareOp == compareOps.at(function), "sampler depth comparison function decoded incorrectly");
+        Require(!decoded.compareEnable, "sampler descriptor enabled comparison without shader metadata");
+    }
 
     Fields badUnorm = base;
     badUnorm.forceUnormCoords = true;

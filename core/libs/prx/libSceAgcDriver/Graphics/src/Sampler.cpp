@@ -17,8 +17,8 @@ namespace AgcDriver::Graphics {
         info.mipLodBias = descriptor.lodBias;
         info.anisotropyEnable = descriptor.anisotropyEnable ? VK_TRUE : VK_FALSE;
         info.maxAnisotropy = descriptor.maxAnisotropy;
-        info.compareEnable = VK_FALSE;
-        info.compareOp = VK_COMPARE_OP_NEVER;
+        info.compareEnable = descriptor.compareEnable ? VK_TRUE : VK_FALSE;
+        info.compareOp = descriptor.compareOp;
         info.minLod = descriptor.minLod;
         info.maxLod = descriptor.maxLod;
         info.borderColor = descriptor.borderColor;

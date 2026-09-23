@@ -203,6 +203,15 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
             break;
         case DescriptorRole::GuestSamplers:
             physical.guestDescriptor = GuestSamplersDescriptor(logical.resources, snapshot);
+            for (std::size_t element = 0; element < logical.resources.size(); ++element) {
+                const auto& sampler = program.Info().samplers.at(logical.resources[element]);
+                physical.samplerDepthCompare.push_back(sampler.depthCompare);
+                if (sampler.forcePointFiltering) {
+                    auto& filter = physical.guestDescriptor.at(element * 4u + 2u);
+                    const bool mipmapped = ((filter >> 26u) & 3u) != 0u;
+                    filter = (filter & ~(0xffu << 20u)) | (1u << 24u) | (mipmapped ? 1u << 26u : 0u);
+                }
+            }
             break;
         case DescriptorRole::FlattenedSrt:
             if (snapshot.flattenedSrt.empty()) {

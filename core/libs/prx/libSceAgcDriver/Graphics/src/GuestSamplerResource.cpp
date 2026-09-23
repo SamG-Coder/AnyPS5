@@ -67,7 +67,6 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     const auto lodBiasSec = (words[2] >> 14u) & 0x3fu;
     const auto xyMagFilter = (words[2] >> 20u) & 0x3u;
     const auto xyMinFilter = (words[2] >> 22u) & 0x3u;
-    const auto zFilter = (words[2] >> 24u) & 0x3u;
     const auto mipFilter = (words[2] >> 26u) & 0x3u;
     const auto pointPreclamp = ((words[2] >> 28u) & 0x1u) != 0;
     const auto anisoOverride = ((words[2] >> 29u) & 0x1u) != 0;
@@ -75,7 +74,6 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
 
     const auto borderColorType = (words[3] >> 30u) & 0x3u;
 
-    Require(depthCompareFunc == 0, "guest sampler descriptor uses depth comparison which is not implemented");
     Require(!forceUnormCoords, "guest sampler descriptor uses unnormalized coordinates which are not implemented");
     Require(anisoThreshold == 0, "guest sampler descriptor uses an anisotropy threshold override which is not implemented");
     Require(!forceSrgb, "guest sampler descriptor forces sRGB decoding which is not implemented");
@@ -89,7 +87,6 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     Require(!pointPreclamp, "guest sampler descriptor uses point preclamping which is not implemented");
     Require(!anisoOverride, "guest sampler descriptor uses an anisotropy override which is not implemented");
     Require(!blendZeroPrt, "guest sampler descriptor uses PRT blend-zero which is not implemented");
-    Require(zFilter == xyMinFilter, "guest sampler descriptor uses a Z filter that differs from the minification filter");
     Require(mipFilter <= 2u, "guest sampler descriptor uses an unknown mip filter " + std::to_string(mipFilter));
 
     const auto aniso = isAnisoFilter(xyMagFilter) || isAnisoFilter(xyMinFilter);
@@ -129,6 +126,8 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     result.maxLod = maxLod;
     result.lodBias = toSignedLodBias(lodBiasRaw);
     result.borderColor = border;
+    const std::array compareOps{VK_COMPARE_OP_NEVER, VK_COMPARE_OP_LESS, VK_COMPARE_OP_EQUAL, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER, VK_COMPARE_OP_NOT_EQUAL, VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS};
+    result.compareOp = compareOps.at(depthCompareFunc);
     return result;
 }
 

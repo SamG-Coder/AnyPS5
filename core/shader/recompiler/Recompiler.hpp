@@ -238,6 +238,7 @@ struct DescriptorBinding {
     std::vector<std::uint32_t> guestDescriptor;
     bool readOnly = false;
     std::optional<DescriptorImageShape> imageShape;
+    std::vector<bool> samplerDepthCompare;
 };
 
 struct VertexAttribute {

@@ -36,11 +36,39 @@ void verifyResult(const ShaderRecompiler::RecompileResult& first, const ShaderRe
     }
 }
 
+void verifyRegisterSources() {
+    using namespace ShaderRecompiler;
+    IrResourcePlan plan;
+    IrValue samplerRegister(IrOpcode::Void, IrType::ScalarReg, 0);
+    IrValue bufferRegister(IrOpcode::Void, IrType::ScalarReg, 1);
+    IrValue sameSamplerRegister(IrOpcode::Void, IrType::ScalarReg, 2);
+    samplerRegister.SetRegister({RegisterBank::Scalar, 8});
+    bufferRegister.SetRegister({RegisterBank::Scalar, 12});
+    sameSamplerRegister.SetRegister({RegisterBank::Scalar, 8});
+    IrValue samplerRead(IrOpcode::GetUserData, IrType::U32, 3);
+    IrValue bufferRead(IrOpcode::GetUserData, IrType::U32, 4);
+    IrValue sameSamplerRead(IrOpcode::GetUserData, IrType::U32, 5);
+    samplerRead.AddArgument(&samplerRegister);
+    bufferRead.AddArgument(&bufferRegister);
+    sameSamplerRead.AddArgument(&sameSamplerRegister);
+    require(!EquivalentValue(plan, &samplerRead, &bufferRead), "sampler SGPRs were merged with buffer SGPRs");
+    require(EquivalentValue(plan, &samplerRead, &sameSamplerRead), "identical user data reads were not recognized");
+    sameSamplerRegister.SetRegister({RegisterBank::UserData, 8});
+    require(!EquivalentValue(plan, &samplerRead, &sameSamplerRead), "different register banks were merged");
+    IrValue firstVector(IrOpcode::Void, IrType::VectorReg, 6);
+    IrValue secondVector(IrOpcode::Void, IrType::VectorReg, 7);
+    firstVector.SetRegister({RegisterBank::Vector, 0});
+    secondVector.SetRegister({RegisterBank::Vector, 1});
+    require(!EquivalentValue(plan, &firstVector, &secondVector), "different vector registers were merged");
+    require(!EquivalentValue(plan, &samplerRegister, &firstVector), "different register types were merged");
+}
+
 }
 
 int main() {
     try {
         using namespace ShaderRecompiler;
+        verifyRegisterSources();
         const std::vector<std::uint32_t> minimalSpirv{
             0x07230203u, 0x00010000u, 0u, 5u, 0u,
             0x00020011u, 1u,

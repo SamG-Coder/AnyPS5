@@ -85,6 +85,9 @@ bool equivalentValueImpl(const IrResourcePlan& program, const IrValue* left, con
     if (left->HasImmediate() || right->HasImmediate() || left->Type() != right->Type()) {
         return false;
     }
+    if (left->Type() == IrType::ScalarReg || left->Type() == IrType::VectorReg) {
+        return left->Register() == right->Register();
+    }
     if (left->Opcode() != right->Opcode() || left->ArgumentCount() != right->ArgumentCount()) {
         return false;
     }

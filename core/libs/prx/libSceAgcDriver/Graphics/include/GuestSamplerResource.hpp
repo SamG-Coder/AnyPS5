@@ -23,6 +23,8 @@ struct GuestSamplerResource {
     float maxLod;
     float lodBias;
     VkBorderColor borderColor;
+    bool compareEnable = false;
+    VkCompareOp compareOp = VK_COMPARE_OP_NEVER;
 };
 
 GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words);
