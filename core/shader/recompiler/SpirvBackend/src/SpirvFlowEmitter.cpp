@@ -33,21 +33,37 @@ void EmitKillIfPixelValidMaskInactive(SpirvEmitterState& state) {
 }
 
 const IrBlock* TargetBlock(const IrProgram& program, std::uint32_t id) {
-    for (const IrBlock* block : program.BlockOrder()) {
-        if (block != nullptr && block->Id() == id) {
-            return block;
+    const auto& blocks = program.BlockOrder();
+    const auto& blockInfo = program.Metadata().blockInfo;
+    if (blocks.size() != blockInfo.size()) {
+        throw std::runtime_error("SPIR-V control flow block metadata is inconsistent");
+    }
+    for (std::size_t index = 0; index < blockInfo.size(); index++) {
+        if (blockInfo[index].id == id) {
+            if (blocks[index] == nullptr) {
+                throw std::runtime_error("SPIR-V control flow target block is null");
+            }
+            return blocks[index];
         }
     }
-    return nullptr;
+    throw std::runtime_error("SPIR-V control flow target block is missing");
 }
 
 const BlockInfo* BlockInfoFor(const IrProgram& program, const IrBlock* block) {
-    for (const BlockInfo& info : program.Metadata().blockInfo) {
-        if (info.id == block->Id()) {
-            return &info;
+    const auto& blocks = program.BlockOrder();
+    const auto& blockInfo = program.Metadata().blockInfo;
+    if (blocks.size() != blockInfo.size()) {
+        throw std::runtime_error("SPIR-V control flow block metadata is inconsistent");
+    }
+    if (block == nullptr) {
+        throw std::runtime_error("SPIR-V control flow block is null");
+    }
+    for (std::size_t index = 0; index < blocks.size(); index++) {
+        if (blocks[index] == block) {
+            return &blockInfo[index];
         }
     }
-    return nullptr;
+    throw std::runtime_error("SPIR-V control flow block has no metadata");
 }
 
 void EmitReturnTerminator(SpirvValueEmitContext& ctx) {

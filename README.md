@@ -8,14 +8,14 @@ Releases will be published after the first full successful launch of at least on
 
 ## Status
 
-Execution reaches `_start`, stack unwinding and exception handling tables are built. All unimplemented functions throw std::runtime_error. `what()` is printed to stderr and the process terminates.
-Audio output and video output initialization pass.
-Reaches the `main` function with render loop (deep call chain, ~64KB stack frame function) - init and shader loading from disk fully complete.
+Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/Unwind.cpp) and exception handling tables are built, reaches main. Unsupported or unexpected states strictly throw `std::runtime_error`. `what()` is printed to stderr and the process terminates.
 
-A standalone [SPIR-V triangle test](core/libs/prx/libSceAgcDriver/tests/Visual.cpp) passes GPU readback checks and presents a frame through the [libSceAgcDriver](core/libs/prx/libSceAgcDriver).
-The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V. The first application draw currently stops in [libSceAgcDriver](core/libs/prx/libSceAgcDriver), where support for shaders using textures is not implemented.
+The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
-Now: `libSceAgcDriver: TextureDetiler not implemented`.
+The application reaches the render loop and **successfully presents its first frame**: the application logo is visible on screen.
+
+Current exception: `AGC graphics: unsupported primitive type 17`.
+
 
 ## Build
 
