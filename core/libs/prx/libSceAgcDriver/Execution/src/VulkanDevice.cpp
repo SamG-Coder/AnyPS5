@@ -1,6 +1,7 @@
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libc/include/General.hpp"
 #include <SDL_loadso.h>
@@ -68,6 +69,7 @@ struct VulkanDevice::State {
     bool textureCompressionBC = false;
     std::unique_ptr<Graphics::TextureDetiler> detiler;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+    std::unique_ptr<PresentationScaler> scaler;
 
     template<typename TFunction>
     TFunction InstanceFunction(const char* name) const {
@@ -133,6 +135,7 @@ struct VulkanDevice::State {
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
             detiler.reset();
+            scaler.reset();
             if (presentQueued && idle != VK_ERROR_DEVICE_LOST) {
                 const auto result = reinterpret_cast<PFN_vkWaitForFences>(deviceProc(device, "vkWaitForFences"))(device, 1, &presentFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max());
                 if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) std::terminate();
@@ -186,7 +189,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     std::vector<const char*> instanceExtensions;
     if (window != nullptr) {
         APS5_LOG_OUT("Presentation window context=%p extent=%ux%u extensions=%zu", window->context, window->width, window->height, window->extensions.size());
-        require(window->context && window->createSurface && window->width && window->height, "invalid window descriptor");
+        require(window->context && window->createSurface && window->getDrawableSize && window->width && window->height, "invalid window descriptor");
         instanceExtensions.assign(window->extensions.begin(), window->extensions.end());
         instanceExtensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
         instanceExtensions.push_back(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
@@ -408,12 +411,17 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
     state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
     if (window != nullptr) {
+        require(window->getDrawableSize != nullptr, "missing window drawable size query");
+        std::uint32_t drawableWidth = 0;
+        std::uint32_t drawableHeight = 0;
+        window->getDrawableSize(window->context, &drawableWidth, &drawableHeight);
+        require(drawableWidth != 0 && drawableHeight != 0, "window has a zero drawable size at creation");
         VkSurfaceCapabilitiesKHR surface{};
         check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(selected, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
-        state->extent = {window->width, window->height};
-        APS5_LOG_OUT("Surface capabilities requested=%ux%u min=%ux%u max=%ux%u minImages=%u maxImages=%u usage=0x%x", window->width, window->height, surface.minImageExtent.width, surface.minImageExtent.height, surface.maxImageExtent.width, surface.maxImageExtent.height, surface.minImageCount, surface.maxImageCount, surface.supportedUsageFlags);
-        require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == window->width && surface.currentExtent.height == window->height), "window extent differs from requested output");
-        require(window->width >= surface.minImageExtent.width && window->width <= surface.maxImageExtent.width && window->height >= surface.minImageExtent.height && window->height <= surface.maxImageExtent.height, "unsupported output extent");
+        state->extent = {drawableWidth, drawableHeight};
+        APS5_LOG_OUT("Surface capabilities drawable=%ux%u min=%ux%u max=%ux%u minImages=%u maxImages=%u usage=0x%x", drawableWidth, drawableHeight, surface.minImageExtent.width, surface.minImageExtent.height, surface.maxImageExtent.width, surface.maxImageExtent.height, surface.minImageCount, surface.maxImageCount, surface.supportedUsageFlags);
+        require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == drawableWidth && surface.currentExtent.height == drawableHeight), "window extent differs from the real drawable size");
+        require(drawableWidth >= surface.minImageExtent.width && drawableWidth <= surface.maxImageExtent.width && drawableHeight >= surface.minImageExtent.height && drawableHeight <= surface.maxImageExtent.height, "unsupported output extent");
         require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0, "surface does not support transfer destination images");
         require((surface.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) != 0, "opaque composition is unavailable");
         require((surface.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0, "identity surface transform is unavailable");
@@ -455,6 +463,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         allocation.commandBufferCount = 1;
         check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &state->clearCommands), "vkAllocateCommandBuffers");
         APS5_LOG_OUT("Presentation resources ready acquireFence=%p renderFence=%p presentFence=%p semaphore=%p commands=%p", reinterpret_cast<void*>(state->acquireFence), reinterpret_cast<void*>(state->renderFence), reinterpret_cast<void*>(state->presentFence), reinterpret_cast<void*>(state->rendered), reinterpret_cast<void*>(state->clearCommands));
+        state->scaler = std::make_unique<PresentationScaler>(graphicsContext(), VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM);
     }
 }
 
@@ -473,6 +482,10 @@ void* VulkanDevice::Window() const {
 void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     APS5_LOG_OUT("Resize requested=%ux%u current=%ux%u presentQueued=%u", width, height, state->extent.width, state->extent.height, static_cast<unsigned>(state->presentQueued));
     require(state->swapchain != VK_NULL_HANDLE && !state->presentQueued, "cannot resize an unavailable or pending swapchain");
+    if (width == 0 || height == 0) {
+        state->extent = {0, 0};
+        return;
+    }
     if (state->extent.width == width && state->extent.height == height) return;
     WaitIdle();
     VkSurfaceCapabilitiesKHR surface{};
@@ -506,6 +519,10 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     APS5_LOG_OUT("Resize complete swapchain=%p extent=%ux%u images=%u", reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, count);
 }
 
+bool VulkanDevice::Presentable() const {
+    return state->extent.width != 0 && state->extent.height != 0;
+}
+
 std::uint64_t VulkanDevice::PresentClear(std::uint32_t width, std::uint32_t height, bool opaque) {
     APS5_LOG_OUT("PresentClear width=%u height=%u opaque=%u", width, height, static_cast<unsigned>(opaque));
     return present(width, height, opaque, {});
@@ -521,7 +538,7 @@ std::uint64_t VulkanDevice::PresentPixels(std::uint32_t width, std::uint32_t hei
 std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels) {
     APS5_LOG_OUT("present begin width=%u height=%u opaque=%u pixels=%zu swapchain=%p extent=%ux%u queued=%u id=%llu", width, height, static_cast<unsigned>(opaque), pixels.size(), reinterpret_cast<void*>(state->swapchain), state->extent.width, state->extent.height, static_cast<unsigned>(state->presentQueued), static_cast<unsigned long long>(state->presentId));
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
-    require(width == state->extent.width && height == state->extent.height, "output resize is not implemented");
+    require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
     require(!state->presentQueued, "previous presentation has not completed");
     require(state->presentId != std::numeric_limits<std::uint64_t>::max(), "presentation ID overflow");
     if (!pixels.empty()) state->Upload(pixels);
@@ -559,11 +576,24 @@ std::uint64_t VulkanDevice::present(std::uint32_t width, std::uint32_t height, b
         clear.float32[3] = opaque ? 1.0f : 0.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
     } else {
-        APS5_LOG_OUT("Recording swapchain upload width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
-        VkBufferImageCopy copy{};
-        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.imageExtent = {width, height, 1};
-        state->DeviceFunction<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, state->uploadBuffer, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        APS5_LOG_OUT("Recording swapchain scaled blit width=%u height=%u bytes=%zu buffer=%p image=%p", width, height, pixels.size(), reinterpret_cast<void*>(state->uploadBuffer), reinterpret_cast<void*>(barrier.image));
+        require(state->scaler != nullptr, "presentation scaler is unavailable");
+        state->scaler->EnsureSourceImage(width, height);
+        state->scaler->RecordUpload(commands, state->uploadBuffer);
+        VkClearColorValue letterbox{};
+        letterbox.float32[3] = 1.0f;
+        state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &letterbox, 1, &barrier.subresourceRange);
+        VkImageMemoryBarrier letterboxBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        letterboxBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        letterboxBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        letterboxBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        letterboxBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        letterboxBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        letterboxBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        letterboxBarrier.image = barrier.image;
+        letterboxBarrier.subresourceRange = barrier.subresourceRange;
+        pipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &letterboxBarrier);
+        state->scaler->RecordBlit(commands, barrier.image, state->extent.width, state->extent.height);
     }
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = 0;

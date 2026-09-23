@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
+#include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 
 #include "SDL.h"
 #include "SceTypes.hpp"
@@ -182,7 +183,7 @@ private:
     std::array<std::shared_ptr<AgcDriver::IVideoOutput>, VIDEO_OUT_NUM_MAX> outputs;
     std::shared_ptr<FlipQueue> flipQueue = std::make_shared<FlipQueue>();
 
-    SDL_Window* window = nullptr;
+    DisplayWindow window;
 
     std::jthread presentThread;
     std::jthread vblankThread;

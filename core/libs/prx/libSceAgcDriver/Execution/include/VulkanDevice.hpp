@@ -20,6 +20,7 @@ public:
     void WaitIdle();
     void* Window() const;
     void Resize(std::uint32_t width, std::uint32_t height);
+    bool Presentable() const;
     std::uint64_t PresentClear(std::uint32_t width, std::uint32_t height, bool opaque);
     std::uint64_t PresentPixels(std::uint32_t width, std::uint32_t height, std::span<const std::byte> pixels);
     void WaitPresented(std::uint64_t id);

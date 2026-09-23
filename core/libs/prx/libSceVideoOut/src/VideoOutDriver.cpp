@@ -182,9 +182,9 @@ void VideoOutDriver::Shutdown() {
     flipQueue->changed.notify_all();
     presentThread.join();
     vblankThread.join();
-    if (window != nullptr) {
-        AgcDriverReleaseWindow_nid_postfix(window);
-        SDL_DestroyWindow(window);
+    if (window.Handle() != nullptr) {
+        AgcDriverReleaseWindow_nid_postfix(window.Handle());
+        window.Destroy();
     }
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
     stopped = true;
@@ -323,24 +323,22 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         checkConfig(*req.cfg);
     }
     require(req.width != 0 && req.height != 0 && req.width <= static_cast<uint32_t>(std::numeric_limits<int>::max()) && req.height <= static_cast<uint32_t>(std::numeric_limits<int>::max()), "invalid window dimensions");
-    if (window == nullptr) {
-        window = SDL_CreateWindow("PS5", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(req.width), static_cast<int>(req.height), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN);
-        if (window == nullptr) throw std::runtime_error(std::string("SDL_CreateWindow failed: ") + SDL_GetError());
-    } else {
-        int width = 0;
-        int height = 0;
-        SDL_GetWindowSize(window, &width, &height);
-        if (width != static_cast<int>(req.width) || height != static_cast<int>(req.height)) SDL_SetWindowSize(window, static_cast<int>(req.width), static_cast<int>(req.height));
-    }
+    window.Ensure(req.width, req.height);
     unsigned extensionCount = 0;
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, nullptr)) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
+    if (!SDL_Vulkan_GetInstanceExtensions(window.Handle(), &extensionCount, nullptr)) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
     std::vector<const char*> extensions(extensionCount);
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, extensions.data())) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
+    if (!SDL_Vulkan_GetInstanceExtensions(window.Handle(), &extensionCount, extensions.data())) throw std::runtime_error(std::string("SDL_Vulkan_GetInstanceExtensions failed: ") + SDL_GetError());
     extensions.resize(extensionCount);
-    const AgcDriver::PresentationWindow target{window, extensions, [](void* context, VkInstance instance) {
+    const AgcDriver::PresentationWindow target{window.Handle(), extensions, [](void* context, VkInstance instance) {
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, &surface)) throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError());
         return surface;
+    }, [](void* context, std::uint32_t* width, std::uint32_t* height) {
+        int drawableWidth = 0;
+        int drawableHeight = 0;
+        SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
+        *width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
+        *height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
     }, req.width, req.height};
     const auto gpuReady = [](void* context) {
         auto& request = *static_cast<FlipRequest*>(context);

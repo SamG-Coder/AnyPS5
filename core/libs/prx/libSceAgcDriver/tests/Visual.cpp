@@ -39,6 +39,12 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         Require(SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, &surface) == SDL_TRUE, SDL_GetError());
         return surface;
+    }, [](void* context, std::uint32_t* width, std::uint32_t* height) {
+        int drawableWidth = 0;
+        int drawableHeight = 0;
+        SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
+        *width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
+        *height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
     }, Width, Height};
     AgcDriver::VulkanDevice device(&presentation);
     auto vertex = LoadShader(directory / "Triangle.vert.spv");

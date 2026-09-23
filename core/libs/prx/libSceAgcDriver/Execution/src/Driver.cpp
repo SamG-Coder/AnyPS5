@@ -186,8 +186,10 @@ public:
     void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context) {
         CheckFailure();
         require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
+        require(window.getDrawableSize != nullptr, "missing window drawable size query");
         std::shared_ptr<VulkanDevice> presenting;
         std::uint64_t id = 0;
+        bool presented = false;
         try {
             {
                 std::lock_guard lock(gpuMutex);
@@ -197,18 +199,24 @@ public:
                 }
                 require(device->Window() == window.context, "presentation window does not match device surface");
                 presenting = device;
-                presenting->Resize(window.width, window.height);
-                if (buffer != nullptr) {
-                    require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
-                    presenting->WaitIdle();
-                    const auto pixels = ReadDisplayBuffer(*buffer);
-                    id = presenting->PresentPixels(window.width, window.height, pixels);
-                } else {
-                    id = presenting->PresentClear(window.width, window.height, opaque);
+                std::uint32_t drawableWidth = 0;
+                std::uint32_t drawableHeight = 0;
+                window.getDrawableSize(window.context, &drawableWidth, &drawableHeight);
+                presenting->Resize(drawableWidth, drawableHeight);
+                if (presenting->Presentable()) {
+                    if (buffer != nullptr) {
+                        require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
+                        presenting->WaitIdle();
+                        const auto pixels = ReadDisplayBuffer(*buffer);
+                        id = presenting->PresentPixels(window.width, window.height, pixels);
+                    } else {
+                        id = presenting->PresentClear(window.width, window.height, opaque);
+                    }
+                    presented = true;
                 }
             }
             gpuReady(context);
-            presenting->WaitPresented(id);
+            if (presented) presenting->WaitPresented(id);
             CheckFailure();
         } catch (...) {
             ReportFailure(std::current_exception());

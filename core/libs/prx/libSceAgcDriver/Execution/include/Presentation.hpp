@@ -14,6 +14,7 @@ struct PresentationWindow {
     void* context;
     std::span<const char* const> extensions;
     VkSurfaceKHR (*createSurface)(void* context, VkInstance instance);
+    void (*getDrawableSize)(void* context, std::uint32_t* width, std::uint32_t* height);
     std::uint32_t width;
     std::uint32_t height;
 };
