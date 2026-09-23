@@ -85,15 +85,15 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
     const auto center = (Height / 2 * Width + Width / 2) * 4;
     Require(std::to_integer<unsigned>(Pixels[center]) > 30 && std::to_integer<unsigned>(Pixels[center + 1]) > 30 && std::to_integer<unsigned>(Pixels[center + 2]) > 30, "GPU readback: triangle center was not rendered");
     Require(Pixels[0] == std::byte{16} && Pixels[1] == std::byte{24} && Pixels[2] == std::byte{40}, "GPU readback: background changed");
-    device.WaitPresented(device.PresentPixels(Width, Height, Pixels));
-    std::cout << "SPIR-V triangle rendered, GPU readback verified, frame presented. Close the window or press Escape.\n" << std::flush;
+    device.PresentPixels(Width, Height, Pixels);
+    std::cout << "SPIR-V triangle rendered, GPU readback verified, frame queued for presentation. Close the window or press Escape.\n" << std::flush;
     if (!verifyOnly) {
         bool running = true;
         while (running) {
             SDL_Event event{};
             if (SDL_WaitEventTimeout(&event, 100)) {
                 if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) running = false;
-                if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_EXPOSED) device.WaitPresented(device.PresentPixels(Width, Height, Pixels));
+                if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_EXPOSED) device.PresentPixels(Width, Height, Pixels);
             }
         }
     }

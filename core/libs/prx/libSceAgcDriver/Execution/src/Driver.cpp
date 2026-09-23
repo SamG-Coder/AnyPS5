@@ -188,8 +188,6 @@ public:
         require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
         require(window.getDrawableSize != nullptr, "missing window drawable size query");
         std::shared_ptr<VulkanDevice> presenting;
-        std::uint64_t id = 0;
-        bool presented = false;
         try {
             {
                 std::lock_guard lock(gpuMutex);
@@ -208,15 +206,13 @@ public:
                         require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
                         presenting->WaitIdle();
                         const auto pixels = ReadDisplayBuffer(*buffer);
-                        id = presenting->PresentPixels(window.width, window.height, pixels);
+                        presenting->PresentPixels(window.width, window.height, pixels);
                     } else {
-                        id = presenting->PresentClear(window.width, window.height, opaque);
+                        presenting->PresentClear(window.width, window.height, opaque);
                     }
-                    presented = true;
                 }
             }
             gpuReady(context);
-            if (presented) presenting->WaitPresented(id);
             CheckFailure();
         } catch (...) {
             ReportFailure(std::current_exception());

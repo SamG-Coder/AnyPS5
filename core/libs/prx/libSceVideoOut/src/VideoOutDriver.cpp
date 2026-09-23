@@ -358,6 +358,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     std::lock_guard lock(req.cfg->mutex);
     checkConfig(*req.cfg);
     require(!req.terminal && req.cfg->generation == req.generation, "flip cancelled during presentation");
+    require(req.gpuComplete, "flip submitted before GPU completion");
     require(req.cfg->flipStatus.count != std::numeric_limits<uint64_t>::max(), "flip counter overflow");
     triggerEvents(*req.cfg, VIDEO_OUT_EVENT_FLIP, reinterpret_cast<void*>(req.flipArg));
     ++req.cfg->flipStatus.count;
