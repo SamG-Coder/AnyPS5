@@ -236,3 +236,20 @@ All fourteen CTest suites pass and patched compatibility libraries rebuild.
 The unchanged converted game now resolves fcntl and fprintf, and startup stops
 at `smbQukfxYJM` (`getenv`). This remains an import-resolution result: guest
 entry-point execution and a rendered frame are still unverified.
+
+## Follow-up: guest environment variables
+
+Implemented getenv, setenv, unsetenv, and putenv as one case-sensitive guest
+environment, initialized from the host CRT environment on first access. Guest
+updates do not mutate the host environment. setenv owns a copy, while putenv
+retains the caller's string so later changes are visible. Empty values remain
+distinct from missing variables; invalid update names return guest EINVAL.
+The old allocating host-putenv setenv implementation has been replaced.
+
+Tests cover inherited values, overwrite control, copying versus borrowed
+storage, empty values, case sensitivity, removal, invalid names, and unchanged
+host values. All fifteen suites pass. Direct environ access and propagation to
+host child processes or host locale functions are not implemented by this store.
+
+Latest unchanged-game startup resolves getenv and stops at `ay3uROQAc5A`
+(`opendir`). Guest entry-point execution and rendered output remain unverified.
