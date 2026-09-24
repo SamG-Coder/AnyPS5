@@ -12,7 +12,7 @@ struct Args {
     bool lazyBinding = false;
     bool autorun = false;
     bool windowsDiagnostics = false;
-    std::uint32_t unusedFilterLevel = 1;
+    std::uint32_t unusedFilterLevel = 2;
     std::string inputPath;
     std::string outputPath;
     std::string runPath = "$ORIGIN/libs";
