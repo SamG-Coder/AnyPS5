@@ -4,7 +4,11 @@
 #include <cstring>
 #include <cstdarg>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <chrono>
 extern "C" {
+FileStream* APS5_VABI freopen_nid_postfix(const char*, const char*, FileStream*);
 int APS5_VABI fseeko_nid_postfix(FileStream*, std::int64_t, int);
 std::int64_t APS5_VABI ftello_nid_postfix(FileStream*);
 int APS5_VABI fseek_nid_postfix(FileStream*, std::int64_t, int);
@@ -102,4 +106,24 @@ int main() {
     Require(fseeko_nid_postfix(&positioned, 0, SEEK_SET) == 0);
     Require(!feof_nid_postfix(&positioned));
     positioned.Close();
+
+    const auto filename = "anyps5-reopen-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    FileStream redirected(std::tmpfile());
+    Require(fgetc_nid_postfix(&redirected) == EOF && feof_nid_postfix(&redirected));
+    Require(freopen_nid_postfix(filename.c_str(), "w+b", &redirected) == &redirected);
+    Require(!feof_nid_postfix(&redirected));
+    Require(fputc_nid_postfix('R', &redirected) == 'R');
+    Require(fseeko_nid_postfix(&redirected, 0, SEEK_SET) == 0);
+    Require(fgetc_nid_postfix(&redirected) == 'R');
+    Require(freopen_nid_postfix(filename.c_str(), "ab", &redirected) == &redirected);
+    Require(fputc_nid_postfix('S', &redirected) == 'S');
+    Require(freopen_nid_postfix(nullptr, "r", &redirected) == nullptr && *__error_nid_postfix() == 45);
+    redirected.Close();
+    { std::ifstream input(filename, std::ios::binary); std::string contents; std::getline(input, contents);
+      Require(contents == "RS"); }
+    Require(std::filesystem::remove(filename));
+    FileStream failed(std::tmpfile());
+    Require(freopen_nid_postfix(filename.c_str(), "rb", &failed) == nullptr);
+    Require(*__error_nid_postfix() == 2);
+    Require(failed.GuestState().flags == 0 && failed.GuestState().descriptor == -1);
 }

@@ -16,6 +16,25 @@ extern "C" {
 
 [[noreturn]] void APS5_VABI _ZSt11_Xbad_allocv_nid_postfix();
 
+FileStream* APS5_VABI freopen_nid_postfix(const char* filename, const char* mode, FileStream* stream) {
+    if (!stream || !mode) { errno = 22; return nullptr; }
+    if (!filename) { errno = 45; return nullptr; } // Mode-only reopening is not supported.
+    const char* supported[] = {"r", "w", "a", "rb", "wb", "ab", "r+", "w+", "a+",
+        "rb+", "wb+", "ab+", "r+b", "w+b", "a+b"};
+    bool valid = false;
+    for (const auto* candidate : supported) if (std::strcmp(mode, candidate) == 0) valid = true;
+    if (!valid) { errno = 22; return nullptr; }
+    try {
+        const auto path = *filename ? ResolvePath_nid_no_patch(filename).string() : std::string{};
+        if (stream->Reopen(path.c_str(), mode)) return stream;
+        const int error = errno;
+        if (stream->IsDynamic()) delete stream;
+        errno = error;
+        return nullptr;
+    } catch (const std::bad_alloc&) { errno = 12; return nullptr; }
+      catch (const std::filesystem::filesystem_error&) { errno = 5; return nullptr; }
+}
+
 FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) {
     if (!filename || !mode) throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_NULL_ARG);
     const std::filesystem::path fpath = ResolvePath_nid_no_patch(filename);
