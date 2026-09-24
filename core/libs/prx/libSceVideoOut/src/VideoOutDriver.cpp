@@ -5,6 +5,8 @@
 
 #include "SDL.h"
 #include "SDL_vulkan.h"
+#include "prx/libSceVideoOut/include/PadInput.hpp"
+#include "prx/libScePad/include/PadState.hpp"
 #include "prx/libkernel/Equeue/Equeue.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include "prx/libSceVideoOut/include/VideoOutDriver.hpp"
@@ -396,6 +398,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
 
 void VideoOutDriver::presentLoop(std::stop_token token) {
     std::shared_ptr<FlipRequest> current;
+    PadInput padInput;
     try {
         while (!token.stop_requested()) {
             {
@@ -427,7 +430,9 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 require(event.type != SDL_QUIT, "window was closed");
+                padInput.HandleEvent(event);
             }
+            padInput.Update();
         }
         std::list<std::shared_ptr<FlipRequest>> cancelled;
         {
@@ -441,6 +446,7 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
     } catch (...) {
         auto error = std::current_exception();
         if (!error) std::terminate();
+        PadReportInputFailure_nid_postfix(error);
         if (current) current->Fail(error);
         std::list<std::shared_ptr<FlipRequest>> failed;
         {
