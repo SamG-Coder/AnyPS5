@@ -17,7 +17,7 @@ public:
 
 private:
     void release() noexcept;
-    const Context& context;
+    Context context;
     std::vector<VkShaderModule> _modules;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;

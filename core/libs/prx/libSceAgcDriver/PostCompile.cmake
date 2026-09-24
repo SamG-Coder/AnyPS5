@@ -22,7 +22,7 @@ foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_gra
     endif()
 endforeach()
 
-foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_bda_device_tests)
+foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests agc_driver_bda_device_tests)
     if(TARGET ${agcTarget})
         target_sources(${agcTarget} PRIVATE Graphics/src/GpuColorTransfer.cpp ${agcColorTransferHeader})
     endif()
@@ -34,3 +34,15 @@ target_include_directories(agc_driver_bda_device_tests PRIVATE ${agcTextureDetil
 if(TARGET agc_driver_visual_test)
     target_sources(agc_driver_visual_test PRIVATE Execution/src/DisplayBuffer.cpp)
 endif()
+
+foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests)
+    if(TARGET ${agcTarget})
+        target_sources(${agcTarget} PRIVATE Graphics/src/RenderCache.cpp Graphics/src/DrawQueue.cpp Graphics/src/RenderTexture.cpp)
+    endif()
+endforeach()
+
+foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test)
+    if(TARGET ${agcTarget})
+        target_sources(${agcTarget} PRIVATE Execution/src/PresentationImage.cpp Graphics/src/GraphicsPipelineCache.cpp)
+    endif()
+endforeach()

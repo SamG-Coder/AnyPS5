@@ -8,6 +8,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libc/include/Shutdown.hpp"
+#include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
 #include <bit>
 #include <algorithm>
 #include <array>
@@ -340,6 +341,9 @@ private:
         if (device == nullptr) {
             device = std::make_shared<VulkanDevice>();
         }
+        const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+            static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+        });
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
         ShaderRecompiler::RecompileRequest request{
             {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
@@ -457,6 +461,9 @@ private:
         timing.Mark("gpu_mutex_wait");
         if (device == nullptr) device = std::make_shared<VulkanDevice>();
         timing.Mark("device_setup");
+        const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+            static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+        });
         ShaderMemory shaderMemory(memory);
         std::vector<ShaderRecompiler::RecompileResult> results;
         std::vector<Graphics::CompiledShader> stages;
@@ -508,7 +515,7 @@ private:
         std::vector<Graphics::GuestMemorySnapshot> snapshots;
         for (const auto& region : memory) snapshots.push_back({region.guestAddress, region.bytes});
         timing.Mark("post_compile_prepare");
-        device->Draw(graphics, drawParameters, stages, snapshots);
+        device->EnqueueDraw(graphics, drawParameters, stages, snapshots);
         timing.Mark("draw_and_resource_release");
     }
 
@@ -554,7 +561,7 @@ private:
                 PerformanceTimer timing("Driver.Packet");
                 CheckFailure();
                 timing.Mark("failure_check");
-                if (Pm4::AccessesMemory(header) || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
+                if (opcode == 0x37 || opcode == 0x40 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
                     std::lock_guard gpuLock(gpuMutex);
                     timing.Mark("gpu_mutex_wait");
                     if (device != nullptr) device->WaitIdle();
@@ -566,11 +573,22 @@ private:
                 } else if (opcode == 0x15) {
                     dispatch(queue, packet, submission);
                 } else if (opcode == 0x16) {
-                    const auto direct = Pm4::ResolveDispatch(packet, queue);
+                    std::array<std::uint32_t, 5> direct;
+                    {
+                        std::lock_guard gpuLock(gpuMutex);
+                        const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+                            if (context) static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+                        });
+                        direct = Pm4::ResolveDispatch(packet, queue);
+                    }
                     dispatch(queue, direct, submission);
                 } else if (opcode == 0x35 || opcode == 0x2d) {
                     draw(queue, packet, submission);
                 } else if (opcode != 0x42 && opcode != 0x46 && opcode != 0x58) {
+                    std::lock_guard gpuLock(gpuMutex);
+                    const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+                        if (context) static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+                    });
                     Pm4::Execute(packet, queue);
                     timing.Mark("pm4_execute");
                 }
@@ -606,6 +624,12 @@ private:
                     submission.dequeued = FrameTiming::Clock::now();
                 }
                 execute(submission);
+                {
+                    PerformanceContext timingContext(frameTiming.get());
+                    PerformanceTimer timing("Driver.SubmissionCompletion");
+                    std::lock_guard gpuLock(gpuMutex);
+                    if (device) device->WaitIdle();
+                }
                 {
                     PerformanceContext timingContext(frameTiming.get());
                     PerformanceTimer timing("Driver.Completion");

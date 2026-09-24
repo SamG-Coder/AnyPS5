@@ -1,4 +1,8 @@
 #include "BdaAbi.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/RenderCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DrawQueue.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
+#include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
@@ -80,8 +84,12 @@ struct VulkanDevice::State {
     std::shared_ptr<Graphics::BufferPool> bufferPool;
     std::unique_ptr<Graphics::TextureCache> textureCache;
     std::unique_ptr<Graphics::PipelineCache> pipelineCache;
+    std::unique_ptr<Graphics::DrawQueue> drawQueue;
+    std::unique_ptr<Graphics::RenderCache> renderCache;
+    std::unique_ptr<Graphics::GraphicsPipelineCache> graphicsPipelines;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshLimits{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
     std::unique_ptr<PresentationScaler> scaler;
+    std::unique_ptr<PresentationScaler> rgbaScaler;
 
     template<typename TFunction>
     TFunction InstanceFunction(const char* name) const {
@@ -154,10 +162,14 @@ struct VulkanDevice::State {
         if (device != VK_NULL_HANDLE) {
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
+            drawQueue.reset();
+            graphicsPipelines.reset();
+            renderCache.reset();
             textureCache.reset();
             detiler.reset();
             colorTransfer.reset();
             scaler.reset();
+            rgbaScaler.reset();
             pipelineCache.reset();
             bufferPool.reset();
             const auto destroyFence = reinterpret_cast<PFN_vkDestroyFence>(deviceProc(device, "vkDestroyFence"));
@@ -405,6 +417,9 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     state->bufferPool = std::make_shared<Graphics::BufferPool>(graphicsContext());
     state->pipelineCache = std::make_unique<Graphics::PipelineCache>(graphicsContext());
     state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
+    state->drawQueue = std::make_unique<Graphics::DrawQueue>();
+    state->renderCache = std::make_unique<Graphics::RenderCache>(graphicsContext());
+    state->graphicsPipelines = std::make_unique<Graphics::GraphicsPipelineCache>(graphicsContext());
     state->textureCache = std::make_unique<Graphics::TextureCache>(graphicsContext());
     state->colorTransfer = std::make_unique<Graphics::GpuColorTransfer>(graphicsContext());
     if (window != nullptr) {
@@ -458,6 +473,7 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         allocation.commandBufferCount = 1;
         check(state->DeviceFunction<PFN_vkAllocateCommandBuffers>("vkAllocateCommandBuffers")(state->device, &allocation, &state->clearCommands), "vkAllocateCommandBuffers");
         state->scaler = std::make_unique<PresentationScaler>(graphicsContext(), VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM);
+        state->rgbaScaler = std::make_unique<PresentationScaler>(graphicsContext(), VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM);
     }
 }
 
@@ -465,6 +481,8 @@ VulkanDevice::~VulkanDevice() = default;
 
 void VulkanDevice::WaitIdle() {
     PerformanceTimer timing("Vulkan.WaitIdle");
+    state->drawQueue->Wait();
+    state->renderCache->Flush();
     check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
 }
 
@@ -535,10 +553,20 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     PerformanceTimer timing("Vulkan.Present");
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
+    std::shared_ptr<Graphics::ResidentColor> resident;
     if (display != nullptr) {
-        static_cast<void>(DisplayBufferSize(*display));
-        state->colorTransfer->Upload(display->address, width, height, Graphics::ColorTileMode::RenderTarget);
+        const auto bytes = DisplayBufferSize(*display);
+        resident = state->renderCache->Find(display->address);
+        if (resident) {
+            const auto& color = resident->Description();
+            if (color.extent.width != width || color.extent.height != height || color.bytes != bytes || color.tileMode != Graphics::ColorTileMode::RenderTarget) resident.reset();
+        }
+        if (!resident) {
+            ResolveMemory(display->address, bytes, false);
+            state->colorTransfer->Upload(display->address, width, height, Graphics::ColorTileMode::RenderTarget);
+        }
     }
+    auto* scaler = resident && display->pixelFormat == 0x8000000022000000ull ? state->rgbaScaler.get() : state->scaler.get();
     if (!pixels.empty()) state->Upload(pixels);
     timing.Mark("pixel_upload");
     auto wait = state->DeviceFunction<PFN_vkWaitForFences>("vkWaitForFences");
@@ -580,12 +608,15 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         clear.float32[3] = opaque ? 1.0f : 0.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &barrier.subresourceRange);
     } else {
-        require(state->scaler != nullptr, "presentation scaler is unavailable");
-        state->scaler->EnsureSourceImage(width, height);
-        if (display != nullptr) {
-            state->colorTransfer->Detile(commands, display->pixelFormat == 0x8000000022000000ull);
+        require(scaler != nullptr, "presentation scaler is unavailable");
+        scaler->EnsureSourceImage(width, height);
+        if (resident) {
+            resident->Transition(commands, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            scaler->RecordImage(commands, resident->Target().Image());
+        } else {
+            if (display != nullptr) state->colorTransfer->Detile(commands, display->pixelFormat == 0x8000000022000000ull);
+            scaler->RecordUpload(commands, display != nullptr ? state->colorTransfer->LinearBuffer() : state->uploadBuffer);
         }
-        state->scaler->RecordUpload(commands, display != nullptr ? state->colorTransfer->LinearBuffer() : state->uploadBuffer);
         VkClearColorValue letterbox{};
         letterbox.float32[3] = 1.0f;
         state->DeviceFunction<PFN_vkCmdClearColorImage>("vkCmdClearColorImage")(commands, barrier.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &letterbox, 1, &barrier.subresourceRange);
@@ -599,7 +630,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         letterboxBarrier.image = barrier.image;
         letterboxBarrier.subresourceRange = barrier.subresourceRange;
         pipelineBarrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &letterboxBarrier);
-        state->scaler->RecordBlit(commands, barrier.image, state->extent.width, state->extent.height);
+        scaler->RecordBlit(commands, barrier.image, state->extent.width, state->extent.height);
     }
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = 0;
@@ -663,17 +694,36 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->colorTransfer.get(),
         state->bufferPool,
         state->textureCache.get(),
-        state->pipelineCache ? state->pipelineCache->Handle() : VK_NULL_HANDLE
+        state->pipelineCache ? state->pipelineCache->Handle() : VK_NULL_HANDLE,
+        state->renderCache.get(),
+        state->drawQueue.get(),
+        state->graphicsPipelines.get()
     };
 }
 
+void VulkanDevice::ResolveMemory(std::uint64_t address, std::size_t bytes, bool writable) {
+    state->drawQueue->Resolve(address, bytes);
+    state->renderCache->Resolve(address, bytes, writable);
+}
+
 void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    EnqueueDraw(graphics, draw, shaders, snapshots);
+    WaitIdle();
+}
+
+void VulkanDevice::EnqueueDraw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    const GuestMemory::MemoryAccessScope memoryScope(this, [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+        static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+    });
     const auto context = graphicsContext();
     Graphics::Draw(context, graphics, draw, shaders, snapshots);
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
     PerformanceTimer timing("Vulkan.Dispatch");
+    const GuestMemory::MemoryAccessScope memoryScope(this, [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+        static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
+    });
     if (shader.spirv.size() < 5 || shader.spirv[0] != 0x07230203u) {
         throw std::runtime_error("Vulkan dispatch: invalid SPIR-V");
     }

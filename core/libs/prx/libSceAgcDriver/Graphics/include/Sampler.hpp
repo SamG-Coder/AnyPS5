@@ -18,7 +18,7 @@ public:
 private:
     void release() noexcept;
 
-    const Context& context;
+    Context context;
     VkSampler sampler = VK_NULL_HANDLE;
 };
 

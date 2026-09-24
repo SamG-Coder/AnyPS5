@@ -24,6 +24,8 @@ public:
     VkDescriptorSetLayout Layout() const;
     void Bind(VkCommandBuffer commands, VkPipelineBindPoint bindPoint, VkPipelineLayout layout) const;
     void WriteBack();
+    bool WritesOverlap(std::uint64_t address, std::size_t bytes) const { return guestMemory.WritesOverlap(address, bytes); }
+    const std::vector<std::uint32_t>& LayoutKey() const { return layoutKey; }
 
 private:
     struct Allocation {
@@ -47,7 +49,8 @@ private:
     void release() noexcept;
     void prepareAddressBindings(std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots);
     VkDescriptorBufferInfo descriptor(const Allocation& allocation) const;
-    const Context& context;
+    Context context;
+    std::vector<std::uint32_t> layoutKey;
     GuestBufferMemory guestMemory;
     std::unique_ptr<BdaResources> bda;
     bool usesBda = false;

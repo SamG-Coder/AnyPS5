@@ -16,6 +16,7 @@ public:
     void Detile(VkCommandBuffer commands, bool swapRedBlue = false);
     void Tile(VkCommandBuffer commands);
     void WriteBack(std::uint64_t address);
+    bool MatchesGuest(std::uint64_t address);
     VkBuffer LinearBuffer() const;
     RenderTarget& Target(const ColorTarget& color, bool blending);
 
@@ -31,6 +32,7 @@ private:
     VkPipeline pipeline = VK_NULL_HANDLE;
     std::unique_ptr<Buffer> tiled;
     std::unique_ptr<Buffer> linear;
+    std::unique_ptr<Buffer> readback;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     ColorTileMode mode = ColorTileMode::Linear;

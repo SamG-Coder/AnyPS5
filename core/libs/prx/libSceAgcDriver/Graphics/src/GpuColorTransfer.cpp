@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/shaders/ColorTransfer_spv.h"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <array>
+#include <cstring>
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 
 namespace AgcDriver::Graphics {
@@ -71,8 +72,9 @@ void GpuColorTransfer::prepare(std::uint32_t newWidth, std::uint32_t newHeight, 
     Require(layout.Bytes() <= context.limits.maxStorageBufferRange && layout.LinearBytes() <= context.limits.maxStorageBufferRange, "color transfer exceeds storage buffer limits");
     Require((newWidth + 7u) / 8u <= context.limits.maxComputeWorkGroupCount[0] && (newHeight + 7u) / 8u <= context.limits.maxComputeWorkGroupCount[1], "color transfer exceeds workgroup limits");
     if (tiled && width == newWidth && height == newHeight && mode == newMode) return;
-    auto newTiled = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    auto newTiled = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     auto newLinear = std::make_unique<Buffer>(context, layout.LinearBytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    auto newReadback = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
     const std::array<VkDescriptorBufferInfo, 2> buffers{{{newTiled->Handle(), 0, layout.Bytes()}, {newLinear->Handle(), 0, layout.LinearBytes()}}};
     std::array<VkWriteDescriptorSet, 2> writes{};
     for (std::uint32_t i = 0; i < writes.size(); ++i) {
@@ -86,6 +88,7 @@ void GpuColorTransfer::prepare(std::uint32_t newWidth, std::uint32_t newHeight, 
     context.Function<PFN_vkUpdateDescriptorSets>("vkUpdateDescriptorSets")(context.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
     tiled = std::move(newTiled);
     linear = std::move(newLinear);
+    readback = std::move(newReadback);
     width = newWidth;
     height = newHeight;
     mode = newMode;
@@ -124,6 +127,17 @@ void GpuColorTransfer::Detile(VkCommandBuffer commands, bool swapRedBlue) {
 
 void GpuColorTransfer::Tile(VkCommandBuffer commands) {
     convert(commands, true, false);
+    VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    before.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    const auto barrier = context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
+    barrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+    const VkBufferCopy copy{0, 0, readback->Bytes().size()};
+    context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer")(commands, tiled->Handle(), readback->Handle(), 1, &copy);
+    VkMemoryBarrier after{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    barrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
 }
 
 void GpuColorTransfer::WriteBack(std::uint64_t address) {
@@ -131,13 +145,21 @@ void GpuColorTransfer::WriteBack(std::uint64_t address) {
     Require(tiled != nullptr, "color transfer is not prepared for writeback");
     const ColorTargetLayout layout(width, height, mode);
     timing.Mark("validate");
-    GuestMemory::Write(address, tiled->Bytes(), layout.Alignment());
+    readback->Invalidate();
+    GuestMemory::Write(address, readback->Bytes(), layout.Alignment());
     timing.Mark("guest_write", layout.Bytes());
 }
 
 VkBuffer GpuColorTransfer::LinearBuffer() const {
     Require(linear != nullptr, "color transfer is not prepared");
     return linear->Handle();
+}
+
+bool GpuColorTransfer::MatchesGuest(std::uint64_t address) {
+    Require(readback != nullptr, "color readback is unavailable");
+    const auto bytes = readback->Bytes();
+    GuestMemory::CheckRange(reinterpret_cast<const void*>(address), bytes.size(), 1);
+    return std::memcmp(reinterpret_cast<const void*>(address), bytes.data(), bytes.size()) == 0;
 }
 
 RenderTarget& GpuColorTransfer::Target(const ColorTarget& color, bool blending) {

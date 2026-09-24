@@ -1,0 +1,114 @@
+#include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include <type_traits>
+#include <algorithm>
+
+namespace AgcDriver::Graphics {
+namespace {
+
+template<typename TValue>
+void append(std::vector<std::byte>& key, const TValue& value) {
+    static_assert(std::is_trivially_copyable_v<TValue>);
+    const auto bytes = std::as_bytes(std::span(&value, 1));
+    key.insert(key.end(), bytes.begin(), bytes.end());
+}
+
+std::vector<std::byte> makeKey(const Context& context, const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
+    std::vector<std::byte> key;
+    append(key, target ? target->Target().View() : VK_NULL_HANDLE);
+    append(key, state.hasColorTarget);
+    append(key, state.rectList);
+    append(key, state.renderExtent.width);
+    append(key, state.renderExtent.height);
+    append(key, state.topology);
+    append(key, state.viewport.x);
+    append(key, state.viewport.y);
+    append(key, state.viewport.width);
+    append(key, state.viewport.height);
+    append(key, state.viewport.minDepth);
+    append(key, state.viewport.maxDepth);
+    append(key, state.negativeOneToOne);
+    append(key, state.scissor.offset.x);
+    append(key, state.scissor.offset.y);
+    append(key, state.scissor.extent.width);
+    append(key, state.scissor.extent.height);
+    append(key, state.cullMode);
+    append(key, state.frontFace);
+    append(key, state.blend.blendEnable);
+    append(key, state.blend.srcColorBlendFactor);
+    append(key, state.blend.dstColorBlendFactor);
+    append(key, state.blend.colorBlendOp);
+    append(key, state.blend.srcAlphaBlendFactor);
+    append(key, state.blend.dstAlphaBlendFactor);
+    append(key, state.blend.alphaBlendOp);
+    append(key, state.blend.colorWriteMask);
+    for (const auto value : state.blendConstants) append(key, value);
+    append(key, state.stages.mesh.has_value());
+    append(key, state.stages.tessellation.has_value());
+    if (state.stages.mesh) {
+        const auto& mesh = *state.stages.mesh;
+        append(key, mesh.inputPrimitive);
+        append(key, mesh.primitivesPerGroup);
+        append(key, mesh.verticesPerGroup);
+        append(key, mesh.maxVertices);
+        append(key, mesh.maxPrimitives);
+        append(key, mesh.threadsPerGroup);
+        append(key, mesh.ldsSizeDwords);
+        append(key, mesh.provokingVertex);
+    }
+    if (state.stages.tessellation) {
+        const auto& tessellation = *state.stages.tessellation;
+        append(key, tessellation.inputControlPoints);
+        append(key, tessellation.outputControlPoints);
+        append(key, tessellation.domain);
+        append(key, tessellation.partitioning);
+        append(key, tessellation.outputTopology);
+    }
+    const auto input = BuildVertexInputLayout(context, shaders.front().program->vertexAttributes);
+    append(key, input.bindings.size());
+    for (const auto& binding : input.bindings) {
+        append(key, binding.binding);
+        append(key, binding.stride);
+        append(key, binding.inputRate);
+    }
+    append(key, input.attributes.size());
+    for (const auto& attribute : input.attributes) {
+        append(key, attribute.location);
+        append(key, attribute.binding);
+        append(key, attribute.format);
+        append(key, attribute.offset);
+    }
+    append(key, resources.LayoutKey().size());
+    for (const auto value : resources.LayoutKey()) append(key, value);
+    append(key, PushConstantStages(shaders));
+    append(key, shaders.size());
+    for (const auto& shader : shaders) {
+        append(key, shader.stage);
+        append(key, shader.program->spirv.size());
+        const auto bytes = std::as_bytes(std::span(shader.program->spirv));
+        key.insert(key.end(), bytes.begin(), bytes.end());
+    }
+    return key;
+}
+
+}
+
+std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
+    auto key = makeKey(context, state, target, resources, shaders);
+    for (auto it = entries.begin(); it != entries.end(); ++it) {
+        if (it->key != key) continue;
+        auto pipeline = it->pipeline;
+        entries.splice(entries.end(), entries, it);
+        return pipeline;
+    }
+    auto pipeline = std::make_shared<Pipeline>(context, state, target ? &target->Target() : nullptr, resources, shaders);
+    entries.push_back({std::move(key), target, pipeline});
+    while (entries.size() > 128) {
+        const auto it = std::find_if(entries.begin(), entries.end(), [](const auto& entry) { return entry.pipeline.use_count() == 1; });
+        if (it == entries.end()) break;
+        entries.erase(it);
+    }
+    return pipeline;
+}
+
+}

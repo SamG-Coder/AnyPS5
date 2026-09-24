@@ -16,6 +16,9 @@ class TextureDetiler;
 class GpuColorTransfer;
 class BufferPool;
 class TextureCache;
+class RenderCache;
+class DrawQueue;
+class GraphicsPipelineCache;
 
 inline void Require(bool condition, const std::string& reason) {
     if (!condition) throw std::runtime_error("AGC graphics: " + reason);
@@ -54,6 +57,9 @@ struct Context {
     mutable std::shared_ptr<BufferPool> bufferPool;
     TextureCache* textureCache = nullptr;
     VkPipelineCache pipelineCache = VK_NULL_HANDLE;
+    RenderCache* renderCache = nullptr;
+    DrawQueue* drawQueue = nullptr;
+    GraphicsPipelineCache* graphicsPipelines = nullptr;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

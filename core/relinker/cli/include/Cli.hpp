@@ -1,4 +1,6 @@
-#pragma once
+#ifndef CORE_RELINKER_CLI_INCLUDE_CLI_HPP
+#define CORE_RELINKER_CLI_INCLUDE_CLI_HPP
+
 #include <string>
 #include <cstdint>
 
@@ -23,3 +25,5 @@ Args ParseArgs(int argc, char* argv[]);
 int Autorun(const std::string& absPath, bool toWindows);
 
 }
+
+#endif

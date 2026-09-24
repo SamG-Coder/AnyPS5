@@ -17,6 +17,7 @@ struct BufferAllocation {
     VkDeviceSize allocationBytes;
     std::size_t bytes;
     VkBufferUsageFlags usage;
+    VkMemoryPropertyFlags properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 };
 
 class BufferPool {
@@ -25,7 +26,7 @@ public:
     ~BufferPool();
     BufferPool(const BufferPool&) = delete;
     BufferPool& operator=(const BufferPool&) = delete;
-    std::optional<BufferAllocation> Take(std::size_t bytes, VkBufferUsageFlags usage);
+    std::optional<BufferAllocation> Take(std::size_t bytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     void Put(const BufferAllocation& allocation) noexcept;
 
 private:

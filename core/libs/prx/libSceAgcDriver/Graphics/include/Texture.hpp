@@ -7,9 +7,13 @@
 
 namespace AgcDriver::Graphics {
 
+class ResidentColor;
+class CommandBatch;
+
 class Texture {
 public:
     Texture(const Context& context, TextureDetiler& detiler, const GuestTextureResource& descriptor, VkComponentMapping components, std::span<const std::byte> snapshot);
+    Texture(const Context& context, const std::shared_ptr<ResidentColor>& source, const GuestTextureResource& descriptor, VkComponentMapping components);
     ~Texture();
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
@@ -25,6 +29,8 @@ private:
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkDeviceSize allocationBytes = 0;
+    std::shared_ptr<ResidentColor> source;
+    std::unique_ptr<CommandBatch> upload;
 };
 
 }

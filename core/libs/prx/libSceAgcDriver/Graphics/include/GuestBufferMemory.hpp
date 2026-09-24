@@ -24,6 +24,7 @@ public:
     VkDescriptorBufferInfo Descriptor(std::uint64_t address, std::size_t bytes) const;
     std::vector<ShaderRecompiler::BdaAbi::Range> AddressRanges() const;
     void WriteBack();
+    bool WritesOverlap(std::uint64_t address, std::size_t bytes) const;
 
 private:
     struct Region {

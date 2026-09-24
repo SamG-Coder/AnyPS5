@@ -5,12 +5,12 @@
 
 namespace AgcDriver::Graphics {
 
-Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usage) : context(context), size(size), usage(usage) {
+Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) : context(context), size(size), usage(usage), properties(properties) {
     Require(size != 0, "zero-sized GPU buffer");
     const bool addressable = (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) != 0;
     Require(!addressable || context.bufferDeviceAddress, "buffer device address is not enabled");
     cache = GetBufferPool(context);
-    if (const auto allocation = cache->Take(size, usage)) {
+    if (const auto allocation = cache->Take(size, usage, properties)) {
         buffer = allocation->buffer;
         memory = allocation->memory;
         mapping = allocation->mapping;
@@ -31,11 +31,11 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         if (addressable) allocation.pNext = &flags;
         allocation.allocationSize = requirements.size;
         allocationBytes = requirements.size;
-        allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, properties);
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory buffer");
         Check(context.Function<PFN_vkBindBufferMemory>("vkBindBufferMemory")(context.device, buffer, memory, 0), "vkBindBufferMemory");
         initializeAddress(usage);
-        Check(context.Function<PFN_vkMapMemory>("vkMapMemory")(context.device, memory, 0, size, 0, &mapping), "vkMapMemory");
+        Check(context.Function<PFN_vkMapMemory>("vkMapMemory")(context.device, memory, 0, VK_WHOLE_SIZE, 0, &mapping), "vkMapMemory");
     } catch (...) {
         release();
         throw;
@@ -48,7 +48,7 @@ Buffer::~Buffer() {
 
 void Buffer::release() noexcept {
     if (mapping && buffer && memory && cache) {
-        cache->Put({buffer, memory, mapping, deviceAddress, allocationBytes, size, usage});
+        cache->Put({buffer, memory, mapping, deviceAddress, allocationBytes, size, usage, properties});
         return;
     }
     if (mapping) context.Function<PFN_vkUnmapMemory>("vkUnmapMemory")(context.device, memory);
@@ -62,6 +62,13 @@ VkBuffer Buffer::Handle() const {
 
 std::span<std::byte> Buffer::Bytes() {
     return {static_cast<std::byte*>(mapping), size};
+}
+
+void Buffer::Invalidate() {
+    VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
+    range.memory = memory;
+    range.size = VK_WHOLE_SIZE;
+    Check(context.Function<PFN_vkInvalidateMappedMemoryRanges>("vkInvalidateMappedMemoryRanges")(context.device, 1, &range), "vkInvalidateMappedMemoryRanges");
 }
 
 RenderTarget::RenderTarget(const Context& context, const ColorTarget& target, bool blending) : context(context) {
@@ -148,7 +155,8 @@ CommandBatch::~CommandBatch() {
 
 void CommandBatch::release() noexcept {
     if (pending) {
-        const auto result = context.Function<PFN_vkQueueWaitIdle>("vkQueueWaitIdle")(context.queue);
+        auto result = context.Function<PFN_vkGetFenceStatus>("vkGetFenceStatus")(context.device, fence);
+        if (result == VK_NOT_READY) result = context.Function<PFN_vkQueueWaitIdle>("vkQueueWaitIdle")(context.queue);
         if (result != VK_SUCCESS && result != VK_ERROR_DEVICE_LOST) std::terminate();
     }
     if (commands) context.Function<PFN_vkFreeCommandBuffers>("vkFreeCommandBuffers")(context.device, context.pool, 1, &commands);
@@ -160,7 +168,12 @@ VkCommandBuffer CommandBatch::Handle() const {
 }
 
 void CommandBatch::SubmitAndWait() {
-    PerformanceTimer timing("Graphics.SubmitAndWait");
+    Submit();
+    Wait();
+}
+
+void CommandBatch::Submit() {
+    PerformanceTimer timing("Graphics.Submit");
     Require(!submitted, "command batch has already been submitted");
     Check(context.Function<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(commands), "vkEndCommandBuffer");
     VkSubmitInfo submission{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -171,6 +184,12 @@ void CommandBatch::SubmitAndWait() {
     timing.Mark("queue_submit");
     pending = true;
     submitted = true;
+}
+
+void CommandBatch::Wait() {
+    Require(submitted, "command batch has not been submitted");
+    if (!pending) return;
+    PerformanceTimer timing("Graphics.Wait");
     const auto result = context.Function<PFN_vkWaitForFences>("vkWaitForFences")(context.device, 1, &fence, VK_TRUE, 5'000'000'000ULL);
     timing.Mark("fence_wait");
     if (result == VK_SUCCESS || result == VK_ERROR_DEVICE_LOST) pending = false;

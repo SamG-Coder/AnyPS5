@@ -8,6 +8,10 @@ namespace AgcDriver::Graphics {
 
 GuestBufferMemory::GuestBufferMemory(const Context& context) : context(context) {}
 
+bool GuestBufferMemory::WritesOverlap(std::uint64_t address, std::size_t bytes) const {
+    return std::any_of(writes.begin(), writes.end(), [&](const auto& range) { return address < range.second && range.first < address + bytes; });
+}
+
 void GuestBufferMemory::validate(std::uint64_t address, std::size_t bytes) const {
     Require(!uploaded, "guest memory ownership is frozen for GPU execution");
     Require(address != 0 && bytes != 0, "empty guest memory range");

@@ -5,6 +5,9 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/RenderCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DrawQueue.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -12,18 +15,12 @@
 namespace AgcDriver::Graphics {
 namespace {
 
-void imageBarrier(const Context& context, VkCommandBuffer commands, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlags sourceStage, VkPipelineStageFlags destinationStage, VkAccessFlags sourceAccess, VkAccessFlags destinationAccess) {
-    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    barrier.srcAccessMask = sourceAccess;
-    barrier.dstAccessMask = destinationAccess;
-    barrier.oldLayout = oldLayout;
-    barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-}
+struct DrawStorage {
+    std::unique_ptr<Buffer> indices;
+    std::vector<std::unique_ptr<Buffer>> vertices;
+    std::shared_ptr<ResidentColor> color;
+    std::shared_ptr<Pipeline> pipeline;
+};
 
 }
 
@@ -61,7 +58,9 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     }
     if (state.stages.tessellation) Require(draw.indexCount % state.stages.tessellation->inputControlPoints == 0, "incomplete tessellation patch");
     timing.Mark("validate");
-    std::unique_ptr<Buffer> indices;
+    Require(context.renderCache != nullptr && context.drawQueue != nullptr && context.graphicsPipelines != nullptr, "device graphics execution caches are unavailable");
+    auto storage = std::make_shared<DrawStorage>();
+    auto& indices = storage->indices;
     std::uint32_t maxIndex = draw.indexed ? 0u : draw.firstVertex + draw.indexCount - 1u;
     if (draw.indexed) {
         indices = std::make_unique<Buffer>(context, static_cast<std::size_t>(indexBytes), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -82,7 +81,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     timing.Mark("index_upload");
     const auto& attributes = shaders.front().program->vertexAttributes;
     static_cast<void>(BuildVertexInputLayout(context, attributes));
-    std::vector<std::unique_ptr<Buffer>> vertexBuffers;
+    auto& vertexBuffers = storage->vertices;
     std::vector<VkBuffer> vertexHandles;
     std::vector<VkDeviceSize> vertexOffsets(attributes.size(), 0);
     for (const auto& attribute : attributes) {
@@ -97,37 +96,26 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         vertexBuffers.push_back(std::move(buffer));
     }
     timing.Mark("vertex_upload");
-    RenderTarget* target = nullptr;
+    auto resources = std::make_shared<ShaderResources>(context, shaders, state.color, draw.indexAddress, static_cast<std::size_t>(indexBytes), snapshots);
+    timing.Mark("shader_resources");
     if (state.hasColorTarget) {
         const ColorTargetLayout colorLayout(state.color.extent.width, state.color.extent.height, state.color.tileMode);
-        Require(context.colorTransfer != nullptr, "device color transfer is unavailable");
         Require(state.color.bytes == colorLayout.Bytes(), "color target transfer size mismatch");
-        context.colorTransfer->Upload(state.color.address, state.color.extent.width, state.color.extent.height, state.color.tileMode);
-        timing.Mark("color_upload");
-        target = &context.colorTransfer->Target(state.color, state.blend.blendEnable != 0);
-        timing.Mark("render_target_create");
+        storage->color = context.renderCache->Get(state.color, state.blend.blendEnable != 0);
     }
-    ShaderResources resources(context, shaders, state.color, draw.indexAddress, static_cast<std::size_t>(indexBytes), snapshots);
-    timing.Mark("shader_resources");
-    Pipeline pipeline(context, state, target, resources, shaders);
-    timing.Mark("pipeline_create");
-    CommandBatch batch(context);
-    const auto commands = batch.Handle();
+    timing.Mark("render_target_cache");
+    storage->pipeline = context.graphicsPipelines->Get(state, storage->color, *resources, shaders);
+    auto& pipeline = *storage->pipeline;
+    timing.Mark("pipeline_cache");
+    auto batch = std::make_unique<CommandBatch>(context);
+    const auto commands = batch->Handle();
     VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
     upload.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | shaderStages, 0, 1, &upload, 0, nullptr, 0, nullptr);
-    VkBufferImageCopy copy{};
-    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageExtent = {state.color.extent.width, state.color.extent.height, 1};
-    if (state.hasColorTarget) {
-        context.colorTransfer->Detile(commands);
-        imageBarrier(context, commands, target->Image(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT);
-        context.Function<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(commands, context.colorTransfer->LinearBuffer(), target->Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-        imageBarrier(context, commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-    }
+    if (storage->color) storage->color->Begin(commands);
     pipeline.Begin(commands, state.renderExtent);
-    resources.Bind(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Layout());
+    resources->Bind(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.Layout());
     pipeline.PushConstants(commands, shaders);
     if (state.stages.mesh) {
         context.Function<PFN_vkCmdDrawMeshTasksEXT>("vkCmdDrawMeshTasksEXT")(commands, meshGroups, draw.instanceCount, 1);
@@ -141,32 +129,13 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         }
     }
     context.Function<PFN_vkCmdEndRenderPass>("vkCmdEndRenderPass")(commands);
-    if (state.hasColorTarget) {
-        imageBarrier(context, commands, target->Image(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        VkBufferMemoryBarrier reuse{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        reuse.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        reuse.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        reuse.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        reuse.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        reuse.buffer = context.colorTransfer->LinearBuffer();
-        reuse.size = VK_WHOLE_SIZE;
-        context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &reuse, 0, nullptr);
-        context.Function<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(commands, target->Image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, context.colorTransfer->LinearBuffer(), 1, &copy);
-        context.colorTransfer->Tile(commands);
-    }
     VkMemoryBarrier download{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     download.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
     timing.Mark("command_record");
-    batch.SubmitAndWait();
-    timing.Mark("submit_wait");
-    if (state.hasColorTarget) GuestMemory::CheckRange(reinterpret_cast<const void*>(state.color.address), state.color.bytes, 256, true);
-    timing.Mark("color_range_check");
-    resources.WriteBack();
-    timing.Mark("resources_writeback");
-    if (state.hasColorTarget) context.colorTransfer->WriteBack(state.color.address);
-    timing.Mark("color_writeback");
+    context.drawQueue->Submit(std::move(batch), std::move(resources), std::move(storage));
+    timing.Mark("submit");
 }
 
 }

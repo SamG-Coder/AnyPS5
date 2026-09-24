@@ -16,10 +16,10 @@ void BufferPool::destroy(const BufferAllocation& allocation) noexcept {
     freeMemory(device, allocation.memory, nullptr);
 }
 
-std::optional<BufferAllocation> BufferPool::Take(std::size_t bytes, VkBufferUsageFlags usage) {
+std::optional<BufferAllocation> BufferPool::Take(std::size_t bytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
     std::lock_guard lock(mutex);
     for (auto& allocation : free) {
-        if (!allocation || allocation->bytes != bytes || allocation->usage != usage) continue;
+        if (!allocation || allocation->bytes != bytes || allocation->usage != usage || allocation->properties != properties) continue;
         auto result = allocation;
         retainedBytes -= allocation->allocationBytes;
         allocation.reset();

@@ -19,6 +19,8 @@ private:
         std::array<std::uint32_t, 8> descriptor;
         std::vector<std::byte> snapshot;
         std::shared_ptr<Texture> texture;
+        std::weak_ptr<ResidentColor> source;
+        std::uint64_t generation = 0;
     };
     void trim();
     Context context;
