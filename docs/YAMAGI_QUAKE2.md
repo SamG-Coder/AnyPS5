@@ -117,3 +117,28 @@ read/write access, tracking, partial unmapping, protection metadata, and invalid
 argument/unsupported-mode errors. The unchanged converted game now resolves
 the memory-mapping imports and stops at `-hn1tcVHq5Q` (`sceLibcMspaceCreate`).
 It still has not reached its entry point or drawn a frame.
+
+## Follow-up: caller-backed heaps and address resolution
+
+The generic `sceLibcMspace*` implementation allocates within the memory region
+provided by the caller. It supports malloc, calloc, realloc, free, aligned
+allocation, usable-size queries, and destruction. Free blocks coalesce; failed
+reallocation preserves the original block. Tests cover region ownership,
+alignment, overflow, exhaustion, data preservation, block reuse, and concurrent
+calls. Only creation flags zero are currently supported. Arena lifetime remains
+the caller's responsibility: destroy it before releasing its backing memory.
+No game code or game-specific heap size is embedded in this implementation.
+
+The POSIX module now supplies `getnameinfo`, `getaddrinfo`, `freeaddrinfo`, and
+`gai_strerror`, converting guest sockaddr/addrinfo layouts, IPv6 family IDs,
+flags, and resolver error values. Native results are copied into owned guest
+layout structures and released through the matching free function. Short
+getnameinfo buffers return guest EAI_OVERFLOW without copying partial results.
+Supported families are IPv4/IPv6; socket hints support unspecified, stream,
+and datagram. Unsupported flags and invalid hints fail explicitly.
+
+All eight CTest suites pass on Windows. Resolver tests use numeric loopback
+addresses and ports, so they do not depend on external DNS. Live DNS and online
+multiplayer are not validated by these tests. The full compatibility-library
+build succeeds, and the unchanged game now stops at `RIa6GnWp+iU` (`strerror`).
+No guest entry-point execution or rendered frame has been observed yet.
