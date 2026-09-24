@@ -12,9 +12,7 @@ Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/U
 
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
-The real game reaches the main menu, which renders correctly with buttons and audio.
-
-Current stop: [libScePad](core/libs/prx/libScePad) does not record the input, so the button cannot be pressed.
+The real game reaches the logo, main menu, and [gameplay](https://gist.github.com/user-attachments/assets/81d28e9b-c237-4545-b2ca-720071129816) with audio.
 
 ## Build
 
