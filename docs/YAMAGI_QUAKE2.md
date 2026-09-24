@@ -253,3 +253,21 @@ host child processes or host locale functions are not implemented by this store.
 
 Latest unchanged-game startup resolves getenv and stops at `ay3uROQAc5A`
 (`opendir`). Guest entry-point execution and rendered output remain unverified.
+
+## Follow-up: directory enumeration
+
+Added opendir, readdir, closedir, and rewinddir using the existing guest path
+resolver. Directory entries are translated into the SDK's FreeBSD 11 layout:
+32-bit file number, 16-bit record length, byte type/name length, and the name
+starting at offset 8. Record lengths include four-byte padding. Each directory
+owns its returned entry buffer. End-of-directory preserves the caller's errno;
+open/read failures translate common host errors into guest error values.
+
+Tests enumerate actual files and subdirectories, verify names/types and record
+lengths, rewind, and check missing paths, non-directory paths, and EOF behavior.
+All sixteen suites pass. The Windows MinGW backend provides no inode identity
+(file number is zero) and uses host narrow-character filenames; full Unicode
+filename coverage and direct access to opaque DIR internals are not established.
+
+The unchanged converted game now resolves opendir and stops at `MZO7FXyAPU8`
+(`remove`). No guest entry-point execution or rendered frame has been observed.
