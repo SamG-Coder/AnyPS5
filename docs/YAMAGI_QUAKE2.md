@@ -271,3 +271,20 @@ filename coverage and direct access to opaque DIR internals are not established.
 
 The unchanged converted game now resolves opendir and stops at `MZO7FXyAPU8`
 (`remove`). No guest entry-point execution or rendered frame has been observed.
+
+## Follow-up: file removal and renaming
+
+Added remove and rename using the existing guest path resolver. Removal handles
+files and empty directories without recursive deletion. Windows removal uses
+the native APIs because the host CRT collapses nonempty-directory failures into
+access errors; the guest now receives ENOTEMPTY for that case. Renaming supports
+replacing existing files and maps common host errors into guest errno values.
+
+Tests verify nonempty-directory preservation, file and empty-directory removal,
+missing and invalid paths, replacement contents, same-path rename, and missing
+rename sources. All seventeen suites pass. These checks do not establish full
+PS5 mount semantics, cross-volume behavior, or replacement of existing directories.
+
+The unchanged converted game resolves remove and rename. Startup now stops at
+`biY+kcVB5D4` (`dlsym`), requiring dynamic-module symbol lookup. It still has not
+executed the guest entry point or displayed a frame.
