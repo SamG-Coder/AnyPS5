@@ -142,3 +142,20 @@ addresses and ports, so they do not depend on external DNS. Live DNS and online
 multiplayer are not validated by these tests. The full compatibility-library
 build succeeds, and the unchanged game now stops at `RIa6GnWp+iU` (`strerror`).
 No guest entry-point execution or rendered frame has been observed yet.
+
+## Follow-up: error reporting and IP conversion
+
+Added generic `strerror`, POSIX `strerror_r`, and `perror` using guest errno
+numbering. Tests cover every defined guest errno value, thread-local message
+storage, unknown errors, short buffers, and errno preservation. Messages are
+currently English; locale-dependent message translation is not implemented.
+
+Added `__inet_pton` and `__inet_ntop` with guest IPv4/IPv6 family translation,
+network-byte-order buffers, invalid-input handling, and guest error codes.
+Tests exercise IPv4, IPv6, IPv4-mapped IPv6, untouched outputs on failure, and
+short buffers. All ten CTest suites pass and the full library build succeeds.
+
+Latest startup stops at `PfccT7qURYE` (`ioctl`). The existing libkernel socket
+operations include unimplemented placeholders, so the socket lifecycle needs
+review before networking behavior can be considered supported. No gameplay
+or guest entry-point execution is established by resolving these imports.
