@@ -104,6 +104,15 @@ endforeach()
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_executable(guest_memory_tests tests/GuestMemory.cpp)
+    target_include_directories(guest_memory_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_memory_tests PRIVATE libkernel libc)
+    configure_windows_unwind(guest_memory_tests)
+    add_test(NAME guest_memory COMMAND guest_memory_tests)
+    if(WIN32)
+        set_tests_properties(guest_memory PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+    endif()
     add_executable(guest_string_tests
         tests/GuestStrings.cpp
         prx/libc/src/StringExtensions.cpp

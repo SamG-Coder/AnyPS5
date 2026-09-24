@@ -100,3 +100,20 @@ calling convention, bounded unterminated input, concatenation truncation,
 interleaved tokenizer state, and case-insensitive searches. Windows dependency
 tests also cover implicit libc visibility, ordering, duplicate avoidance, and
 unrelated inputs. The complete `libs` target rebuild succeeds.
+
+## Follow-up: anonymous memory mapping
+
+The game's `tooling/native/app_heap.c` requests private anonymous read/write
+memory for its OpenGL heap. `mmap` and `munmap` now route this use through
+AnyPS5's existing tracked guest allocations, with 16 KiB page rounding and
+partial unmapping. Guest MAP_ANON is 0x1000, not the Linux host value 0x20.
+Failures return MAP_FAILED or -1 and set guest errno through `__error`.
+Shared, fixed-address, and file-backed mappings remain explicitly unsupported
+(guest EOPNOTSUPP 45). Unmapping currently requires a contiguous tracked range
+within one allocation; holes, foreign memory, and pinned ranges are rejected.
+
+Six CTest suites pass, including real allocations, zero-fill, alignment,
+read/write access, tracking, partial unmapping, protection metadata, and invalid
+argument/unsupported-mode errors. The unchanged converted game now resolves
+the memory-mapping imports and stops at `-hn1tcVHq5Q` (`sceLibcMspaceCreate`).
+It still has not reached its entry point or drawn a frame.
