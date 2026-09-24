@@ -51,6 +51,7 @@ private:
     GuestBufferMemory guestMemory;
     std::unique_ptr<BdaResources> bda;
     bool usesBda = false;
+    bool usesFaultBuffer = false;
     VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
     VkDescriptorSet _set = VK_NULL_HANDLE;
     VkDescriptorPool pool = VK_NULL_HANDLE;

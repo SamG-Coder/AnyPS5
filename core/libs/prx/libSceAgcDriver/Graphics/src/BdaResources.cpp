@@ -6,22 +6,27 @@
 
 namespace AgcDriver::Graphics {
 
-BdaResources::BdaResources(const Context& context, const GuestBufferMemory& memory) {
+BdaResources::BdaResources(const Context& context) {
     static_assert(std::endian::native == std::endian::little);
+    Require(sizeof(ShaderRecompiler::BdaAbi::Fault) <= context.limits.maxStorageBufferRange, "BDA fault buffer exceeds storage buffer range limit");
+    fault = std::make_unique<Buffer>(context, sizeof(ShaderRecompiler::BdaAbi::Fault), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    std::memset(fault->Bytes().data(), 0, fault->Bytes().size());
+}
+
+BdaResources::BdaResources(const Context& context, const GuestBufferMemory& memory) : BdaResources(context) {
     const auto ranges = memory.AddressRanges();
     Require(ranges.size() <= std::numeric_limits<std::uint32_t>::max(), "BDA table range count overflow");
     Require(ranges.size() <= (std::numeric_limits<std::size_t>::max() - sizeof(ShaderRecompiler::BdaAbi::Header)) / sizeof(ShaderRecompiler::BdaAbi::Range), "BDA table size overflow");
     tableBytes = sizeof(ShaderRecompiler::BdaAbi::Header) + ranges.size() * sizeof(ShaderRecompiler::BdaAbi::Range);
     Require(tableBytes <= context.limits.maxStorageBufferRange && sizeof(ShaderRecompiler::BdaAbi::Fault) <= context.limits.maxStorageBufferRange, "BDA descriptors exceed storage buffer range limit");
     table = std::make_unique<Buffer>(context, tableBytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    fault = std::make_unique<Buffer>(context, sizeof(ShaderRecompiler::BdaAbi::Fault), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     const ShaderRecompiler::BdaAbi::Header header{ShaderRecompiler::BdaAbi::Version, static_cast<std::uint32_t>(ranges.size()), sizeof(ShaderRecompiler::BdaAbi::Range), 0};
     std::memcpy(table->Bytes().data(), &header, sizeof(header));
     if (!ranges.empty()) std::memcpy(table->Bytes().data() + sizeof(header), ranges.data(), ranges.size() * sizeof(ranges.front()));
-    std::memset(fault->Bytes().data(), 0, fault->Bytes().size());
 }
 
 VkDescriptorBufferInfo BdaResources::Table() const {
+    Require(table != nullptr, "BDA page table was not requested");
     return {table->Handle(), 0, tableBytes};
 }
 

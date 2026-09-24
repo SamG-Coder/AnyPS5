@@ -114,6 +114,7 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
         Require(storageBuffers <= context.limits.maxDescriptorSetStorageBuffers, "pipeline descriptors exceed device limits");
         guestMemory.Upload(usesBda);
         if (usesBda) bda = std::make_unique<BdaResources>(context, guestMemory);
+        else if (usesFaultBuffer) bda = std::make_unique<BdaResources>(context);
         std::vector<VkDescriptorSetLayoutBinding> description;
         for (const auto& binding : bindings) description.push_back(binding.layout);
         VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};

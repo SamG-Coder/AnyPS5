@@ -7,6 +7,7 @@ namespace AgcDriver::Graphics {
 
 class BdaResources {
 public:
+    explicit BdaResources(const Context& context);
     BdaResources(const Context& context, const GuestBufferMemory& memory);
     VkDescriptorBufferInfo Table() const;
     VkDescriptorBufferInfo Fault() const;
@@ -15,7 +16,7 @@ public:
 private:
     std::unique_ptr<Buffer> table;
     std::unique_ptr<Buffer> fault;
-    std::size_t tableBytes;
+    std::size_t tableBytes = 0;
 };
 
 }

@@ -59,6 +59,28 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
     disabled.bufferDeviceAddress = false;
     reject([&] { ShaderResources resources(disabled, compiled, snapshots); }, "not enabled");
     {
+        // A rect-list fault buffer must not require BDA or consume guest snapshots.
+        ShaderRecompiler::RecompileResult control;
+        control.bdaAbiVersion = ShaderRecompiler::BdaAbi::Version;
+        control.bindings = {binding(Role::FaultBuffer, 5)};
+        auto writable = binding(Role::GuestBuffers, 6);
+        writable.guestDescriptor = {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32) & 0xffffu, sizeof(guest), 0x31000000u};
+        control.bindings.push_back(writable);
+        const std::array<CompiledShader, 1> stages{{{ShaderRecompiler::ShaderStage::TessellationControl, &control, 0}}};
+        const std::array<GuestMemorySnapshot, 1> unusedSnapshots{{{0, source}}};
+        ShaderResources resources(disabled, stages, ColorTarget{}, 0, 0, unusedSnapshots);
+        const auto fault = access.bytes(access.descriptor(5).buffer);
+        for (const auto byte : fault) Require(byte == std::byte{}, "rect-list fault buffer was not initialized");
+        const ShaderRecompiler::BdaAbi::Fault report{ShaderRecompiler::BdaAbi::FaultState::Ready, ShaderRecompiler::BdaAbi::FaultReason::InvalidRectangle, 0, 0, 0, 0, 0};
+        std::memcpy(fault.data(), &report, sizeof(report));
+        reject([&] { resources.WriteBack(); }, "rect-list requires");
+        std::memset(fault.data(), 0, fault.size());
+        changed = 456;
+        std::memcpy(access.bytes(access.descriptor(6).buffer).data() + sizeof(std::uint32_t), &changed, sizeof(changed));
+        resources.WriteBack();
+        Require(guest[1] == changed, "rect-list fault-only path lost guest buffer writes");
+    }
+    {
         ShaderResources resources(context, compiled, snapshots);
         const auto table = access.bytes(access.descriptor(4).buffer);
         ShaderRecompiler::BdaAbi::Header header{};
