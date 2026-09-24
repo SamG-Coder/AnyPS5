@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <utility>
+#include <cerrno>
 
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
@@ -70,18 +71,36 @@ size_t APS5_VABI fwrite_nid_postfix(const void* buffer, size_t size, size_t coun
     return result;
 }
 
-int APS5_VABI fseek_nid_postfix(FileStream* stream, long offset, int origin) {
-    if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) throw std::runtime_error("fseek: invalid origin");
-    if (std::fseek(GetNativeStream(stream), offset, origin) != 0) throw std::runtime_error("fseek: seek failed");
+int APS5_VABI fseeko_nid_postfix(FileStream* stream, std::int64_t offset, int origin) {
+    if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) { errno = 22; return -1; }
+#ifdef _WIN32
+    const int result = _fseeki64(GetNativeStream(stream), offset, origin);
+#else
+    static_assert(sizeof(off_t) == 8);
+    const int result = ::fseeko(GetNativeStream(stream), offset, origin);
+#endif
+    const int nativeError = errno;
     stream->SyncStatus();
-    return 0;
-}
-
-long APS5_VABI ftell_nid_postfix(FileStream* stream) {
-    const auto result = std::ftell(GetNativeStream(stream));
-    if (result == -1L) throw std::runtime_error("ftell: position query failed");
+    if (result) errno = nativeError == EOVERFLOW ? 84 : nativeError;
     return result;
 }
+
+std::int64_t APS5_VABI ftello_nid_postfix(FileStream* stream) {
+#ifdef _WIN32
+    const auto result = _ftelli64(GetNativeStream(stream));
+#else
+    static_assert(sizeof(off_t) == 8);
+    const auto result = ::ftello(GetNativeStream(stream));
+#endif
+    if (result == -1 && errno == EOVERFLOW) errno = 84;
+    return result;
+}
+
+int APS5_VABI fseek_nid_postfix(FileStream* stream, std::int64_t offset, int origin) {
+    return fseeko_nid_postfix(stream, offset, origin);
+}
+
+std::int64_t APS5_VABI ftell_nid_postfix(FileStream* stream) { return ftello_nid_postfix(stream); }
 
 int APS5_VABI fputs_nid_postfix(const char* str, FileStream* stream) {
     if (!str) throw std::runtime_error("fputs: null string");

@@ -374,3 +374,20 @@ libraries rather than compiling implementation copies into the test executable.
 All twenty-one suites pass. The unchanged converted game resolves toupper and
 basename and now stops at `5qP1iVQkdck` (`ftello`). Guest entry-point execution and
 rendered output remain unverified.
+
+## Follow-up: 64-bit stream positioning
+
+Added ftello/fseeko and corrected fseek/ftell to use explicit 64-bit guest
+offsets and return values. Windows uses _fseeki64/_ftelli64, avoiding native
+32-bit long truncation. Invalid origins and native seek failures return errors
+rather than throwing; successful seeks refresh the guest stream status.
+
+Tests seek past 4 GiB without writing a large file, verify both API pairs,
+relative seeks, invalid-origin position preservation, SEEK_END, and clearing
+EOF after seeking. All twenty-one suites pass and libraries rebuild.
+
+Latest unchanged-game startup resolves ftello and stops at `JoBqSQt1yyA`
+(`sceSystemServiceLoadExec`). Inspection of the released port's entry source
+shows it requests the console's `exit` operation from its quit path. This is
+source evidence only; the guest entry point still has not executed and no frame
+has been rendered.

@@ -5,6 +5,11 @@
 #include <cstdarg>
 #include <cstdint>
 extern "C" {
+int APS5_VABI fseeko_nid_postfix(FileStream*, std::int64_t, int);
+std::int64_t APS5_VABI ftello_nid_postfix(FileStream*);
+int APS5_VABI fseek_nid_postfix(FileStream*, std::int64_t, int);
+std::int64_t APS5_VABI ftell_nid_postfix(FileStream*);
+int* APS5_VABI __error_nid_postfix();
 extern FileStream* __stdinp_nid_postfix;
 extern FileStream* __stdoutp_nid_postfix;
 extern FileStream* __stderrp_nid_postfix;
@@ -79,4 +84,22 @@ int main() {
     Require(fgets_nid_postfix(output, sizeof(output), &formatted) == output);
     Require(std::strcmp(output, "  3.50:end") == 0);
     formatted.Close();
+
+    FileStream positioned(std::tmpfile());
+    constexpr std::int64_t largeOffset = INT64_C(4294967313);
+    Require(fseeko_nid_postfix(&positioned, largeOffset, SEEK_SET) == 0);
+    Require(ftello_nid_postfix(&positioned) == largeOffset);
+    Require(ftell_nid_postfix(&positioned) == largeOffset);
+    Require(fseek_nid_postfix(&positioned, -9, SEEK_CUR) == 0);
+    Require(ftello_nid_postfix(&positioned) == largeOffset - 9);
+    Require(fseek_nid_postfix(&positioned, largeOffset, SEEK_SET) == 0);
+    Require(ftell_nid_postfix(&positioned) == largeOffset);
+    Require(fseeko_nid_postfix(&positioned, 0, 12345) == -1 && *__error_nid_postfix() == 22);
+    Require(ftello_nid_postfix(&positioned) == largeOffset);
+    Require(fseeko_nid_postfix(&positioned, 0, SEEK_END) == 0);
+    Require(ftello_nid_postfix(&positioned) == 0); // Seeking alone did not extend the file.
+    Require(fgetc_nid_postfix(&positioned) == EOF && feof_nid_postfix(&positioned));
+    Require(fseeko_nid_postfix(&positioned, 0, SEEK_SET) == 0);
+    Require(!feof_nid_postfix(&positioned));
+    positioned.Close();
 }
