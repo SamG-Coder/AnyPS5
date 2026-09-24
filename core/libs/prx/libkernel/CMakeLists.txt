@@ -25,6 +25,7 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Pthread/Posix/Tsd.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Pthread/Posix/Sem.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Socket/src/Socket.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Socket/src/AddressConversion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/EventFlag/src/EventFlag.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Module/src/Module.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Aio/src/Aio.cpp
@@ -41,6 +42,7 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
 target_include_directories(libkernel PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(libkernel PRIVATE libc)
 if(WIN32)
+    target_link_libraries(libkernel PRIVATE ws2_32)
     target_compile_definitions(libkernel PRIVATE _WIN32_WINNT=0x0602)
 endif()
 configure_windows_unwind(libkernel)
