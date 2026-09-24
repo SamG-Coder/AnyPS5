@@ -510,3 +510,24 @@ wait modes, and rendering a game frame remain unverified.
 
 The unchanged game now resolves both rendering-wait imports and stops at
 `Z4QosVuAsA0` (`pthread_once`). Guest entry-point execution has not yet occurred.
+
+## Follow-up: once initialization and architecture audit
+
+Implemented pthread_once with the guest 16-byte control layout, a SysV callback,
+serialized initialization, and publication of initialized data to waiting callers.
+Independent controls can initialize recursively; an initializer that unwinds with
+a C++ exception resets its control for retry. Guest thread cancellation and fork
+recovery are not implemented. Tests use host threads calling the guest ABI and do
+not establish that guest pthread_create works.
+
+All twenty-eight CTest cases pass. The unchanged converted game now stops at
+`NesIgTmfF0Q` (`bsearch`) with exit `0xc0000139`, before guest entry.
+
+The README architecture remains the target: native executable relinking and
+in-process replacement system libraries. There is no replacement game engine or
+game source in these additions. Windows compatibility tests do not establish
+Linux compatibility or a successful game launch. Shader register layout and the
+internal rendering-wait encoding still require actual game execution validation.
+The shader-link wrapper now propagates unsupported-state runtime exceptions from
+its helpers, preserving the README's strict failure policy; its regression test
+checks the exception and that output registers are not partially published.

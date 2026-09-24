@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister*, ShaderRegister*, const void*, const Shader*, const Shader*, std::uint32_t);
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults();
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults2(std::uint32_t);
@@ -58,7 +59,10 @@ int main() {
     Require(std::memcmp(primitive.data(), savedPrimitive.data(), sizeof(primitive)) == 0);
     pixel.num_input_semantics = 0;
     special.ge_cntl.offset = 0;
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == GRAPHICS5_ERROR_INVALID_SHADER_PROGRAM);
+    bool rejected = false;
+    try { sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Require(rejected);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
     special.ge_cntl.offset = GE_CNTL;
     Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, nullptr, 2) == 0);

@@ -3,7 +3,6 @@
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include <array>
 #include <algorithm>
-#include <stdexcept>
 
 extern "C" int APS5_VABI sceAgcCreatePrimState(ShaderRegister*, ShaderRegister*, const Shader*, const Shader*, std::uint32_t);
 extern "C" int APS5_VABI sceAgcCreateInterpolantMapping(ShaderRegister*, const Shader*, const Shader*);
@@ -23,12 +22,8 @@ extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister* context, ShaderRegist
     // and 32 interpolant registers. Publish only after both helpers succeed.
     std::array<ShaderRegister, 34> contextValues{};
     std::array<ShaderRegister, 3> primitiveValues{};
-    try {
-        sceAgcCreatePrimState(contextValues.data(), primitiveValues.data(), nullptr, vertex, primitiveType);
-        sceAgcCreateInterpolantMapping(contextValues.data() + 2, vertex, pixel);
-    } catch (const std::runtime_error&) {
-        return GRAPHICS5_ERROR_INVALID_SHADER_PROGRAM;
-    }
+    sceAgcCreatePrimState(contextValues.data(), primitiveValues.data(), nullptr, vertex, primitiveType);
+    sceAgcCreateInterpolantMapping(contextValues.data() + 2, vertex, pixel);
     std::copy(contextValues.begin(), contextValues.end(), context);
     std::copy(primitiveValues.begin(), primitiveValues.end(), primitive);
     return 0;
