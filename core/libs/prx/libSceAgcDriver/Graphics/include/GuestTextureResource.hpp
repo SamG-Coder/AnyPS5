@@ -11,7 +11,8 @@ enum class TextureTileMode {
     kLinear,
     kStandard256B,
     kStandard4KB,
-    kStandard64KB
+    kStandard64KB,
+    RenderTarget64KB
 };
 
 enum class TextureDimension {

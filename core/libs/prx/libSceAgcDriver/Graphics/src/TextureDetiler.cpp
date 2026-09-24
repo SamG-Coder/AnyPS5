@@ -22,6 +22,7 @@ struct Push {
     std::uint32_t tailX;
     std::uint32_t tailY;
     std::uint32_t elementBytes;
+    std::uint32_t arrayLayer;
 };
 
 std::uint32_t BlockBytesFor(TextureTileMode tileMode) {
@@ -29,6 +30,7 @@ std::uint32_t BlockBytesFor(TextureTileMode tileMode) {
         case TextureTileMode::kLinear: return 0u;
         case TextureTileMode::kStandard256B: return 256u;
         case TextureTileMode::kStandard4KB: return 4096u;
+        case TextureTileMode::RenderTarget64KB:
         case TextureTileMode::kStandard64KB: return 65536u;
     }
     throw std::runtime_error("AGC graphics: TextureDetiler encountered an unknown tile mode");
@@ -91,7 +93,7 @@ VkPipeline TextureDetiler::pipeline(TextureTileMode tileMode, std::uint32_t elem
     for (const auto& entry : pipelines) {
         if (entry.first == key) return entry.second;
     }
-    const std::uint32_t values[3] = {elementBytes, BlockBytesFor(tileMode), tileMode == TextureTileMode::kLinear ? 0u : 1u};
+    const std::uint32_t values[3] = {elementBytes, BlockBytesFor(tileMode), tileMode == TextureTileMode::kLinear ? 0u : (tileMode == TextureTileMode::RenderTarget64KB ? 2u : 1u)};
     const VkSpecializationMapEntry entries[3] = {{0, 0, 4}, {1, 4, 4}, {2, 8, 4}};
     VkSpecializationInfo specialization{};
     specialization.mapEntryCount = 3;
@@ -112,7 +114,7 @@ VkPipeline TextureDetiler::pipeline(TextureTileMode tileMode, std::uint32_t elem
     return result;
 }
 
-void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout) {
+void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout, std::uint32_t arrayLayer) {
     Require(commands != VK_NULL_HANDLE, "texture detiling requires an active command buffer");
     Require(source != VK_NULL_HANDLE && destination != VK_NULL_HANDLE, "texture detiling requires source and destination buffers");
     Require(layout.width != 0 && layout.height != 0, "texture detiling requires a non-empty mip layout");
@@ -157,6 +159,7 @@ void TextureDetiler::Dispatch(VkCommandBuffer commands, TextureTileMode tileMode
     push.tailX = layout.tailX;
     push.tailY = layout.tailY;
     push.elementBytes = elementBytes;
+    push.arrayLayer = arrayLayer;
     context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &push);
     const auto groupsX = (layout.width + 7u) / 8u;
     const auto groupsY = (layout.height + 7u) / 8u;

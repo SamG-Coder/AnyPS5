@@ -113,6 +113,8 @@ void RunGuestTextureResourceTests() {
     Require(DecodeTextureResource(pack(tileModes)).tileMode == TextureTileMode::kStandard4KB, "tile mode 0x05 must decode to standard 4KB");
     tileModes.tileModeRaw = 0x09;
     Require(DecodeTextureResource(pack(tileModes)).tileMode == TextureTileMode::kStandard64KB, "tile mode 0x09 must decode to standard 64KB");
+    tileModes.tileModeRaw = 0x1b;
+    Require(DecodeTextureResource(pack(tileModes)).tileMode == TextureTileMode::RenderTarget64KB, "tile mode 0x1b must decode to render target 64KB");
     tileModes.tileModeRaw = 0x02;
     rejectFields(tileModes, "unsupported tile mode");
 

@@ -1208,7 +1208,8 @@ int main() {
                 capture.destinationRange = destinationWrite.buffers.at(0).range;
                 return capture;
             },
-            [] { return mock.pipelineCreateCount; }
+            [] { return mock.pipelineCreateCount; },
+            [] { return mock.pipelineSpecializations.back(); }
         });
         std::cout << "Graphics validation tests passed\n";
         return 0;

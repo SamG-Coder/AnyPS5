@@ -12,9 +12,9 @@ Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/U
 
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
-The real game reaches the render loop and **successfully presents its first frames** (logo).
+The real game successfully presents the logo and loads the main menu, then crashes before the menu buttons appear.
 
-Current exception: `AGC graphics: guest texture descriptor uses an unsupported tile mode 27` on ~68 frame.
+Current error: Access Violation at ~frame 168.
 
 ## Build
 

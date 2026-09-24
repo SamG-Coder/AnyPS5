@@ -122,7 +122,7 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
                 const auto guestLayerOffset = static_cast<std::uint64_t>(layer) * guestSliceBytes;
                 const auto linearLayerOffset = static_cast<std::uint64_t>(layer) * sliceLinearBytes;
                 for (const auto& mip : mips) {
-                    detiler.Dispatch(commands, descriptor.tileMode, elementBytes, staging.Handle(), guestLayerOffset + mip.tiledOffset, linear.Handle(), linearLayerOffset + mip.linearOffset, mip);
+                    detiler.Dispatch(commands, descriptor.tileMode, elementBytes, staging.Handle(), guestLayerOffset + mip.tiledOffset, linear.Handle(), linearLayerOffset + mip.linearOffset, mip, layer);
                 }
             }
 
@@ -154,7 +154,7 @@ Texture::Texture(const Context& context, TextureDetiler& detiler, const GuestTex
                     const auto& mip = mips[level];
                     VkBufferImageCopy region{};
                     region.bufferOffset = linearLayerOffset + mip.linearOffset;
-                    region.bufferRowLength = mip.blocksPerRow * BlockWidth(descriptor.format);
+                    region.bufferRowLength = mip.pitchBytes / elementBytes * BlockWidth(descriptor.format);
                     region.bufferImageHeight = 0;
                     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, layer, 1};
                     region.imageOffset = {0, 0, 0};

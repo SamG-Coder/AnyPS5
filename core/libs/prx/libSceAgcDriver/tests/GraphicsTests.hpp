@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_TESTS_GRAPHICSTESTS_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -25,6 +26,7 @@ struct TextureDetilerTestAccess {
     std::function<std::vector<std::byte>&(VkBuffer)> bytes;
     std::function<DetilerCapture()> lastDispatch;
     std::function<std::uint32_t()> pipelineCount;
+    std::function<std::array<std::uint32_t, 3>()> lastSpecialization;
 };
 
 void RunTextureFormatTests();

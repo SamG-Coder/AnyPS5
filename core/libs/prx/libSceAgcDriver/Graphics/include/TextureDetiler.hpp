@@ -17,7 +17,7 @@ namespace AgcDriver::Graphics {
         TextureDetiler(const TextureDetiler&) = delete;
         TextureDetiler& operator=(const TextureDetiler&) = delete;
 
-        void Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout);
+        void Dispatch(VkCommandBuffer commands, TextureTileMode tileMode, std::uint32_t elementBytes, VkBuffer source, std::uint64_t sourceOffset, VkBuffer destination, std::uint64_t destinationOffset, const TileMipLayout& layout, std::uint32_t arrayLayer);
         void BeginBatch();
 
     private:

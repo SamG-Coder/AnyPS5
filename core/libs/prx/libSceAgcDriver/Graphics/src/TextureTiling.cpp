@@ -45,6 +45,7 @@ BlockLayout GetBlockLayout(TextureTileMode tileMode, std::uint32_t bytesPerEleme
         case TextureTileMode::kLinear: throw std::runtime_error("AGC graphics: GetBlockLayout does not apply to linear tiling");
         case TextureTileMode::kStandard256B: return {256u, 1u << kLog2BlockThin256B[index].width, 1u << kLog2BlockThin256B[index].height};
         case TextureTileMode::kStandard4KB: return {4096u, 1u << kLog2BlockThin4KB[index].width, 1u << kLog2BlockThin4KB[index].height};
+        case TextureTileMode::RenderTarget64KB:
         case TextureTileMode::kStandard64KB: return {65536u, 1u << kLog2BlockThin64KB[index].width, 1u << kLog2BlockThin64KB[index].height};
     }
     throw std::runtime_error("AGC graphics: GetBlockLayout encountered an unknown tile mode");
@@ -91,6 +92,7 @@ bool GetMipTailLayout(TextureTileMode tileMode, const BlockLayout& block, std::u
         case TextureTileMode::kStandard4KB:
             out = MakeMipTailLayout(kMipTailThin4KB[index], block.blockWidth >> 1u, block.blockHeight);
             return true;
+        case TextureTileMode::RenderTarget64KB:
         case TextureTileMode::kStandard64KB:
             out = MakeMipTailLayout(kMipTailThin64KB[index], block.blockWidth >> 1u, block.blockHeight);
             return true;
@@ -165,7 +167,6 @@ std::vector<TileMipLayout> ComputeTiledMipLayout(TextureTileMode tileMode, std::
         const auto paddedWidth = AlignUp(std::max(ShiftCeil(elementsWidth0, level), 1u), block.blockWidth);
         const auto paddedHeight = AlignUp(std::max(ShiftCeil(elementsHeight0, level), 1u), block.blockHeight);
         mip.blocksPerRow = paddedWidth / block.blockWidth;
-        mip.pitchBytes = paddedWidth * bytesPerElement;
         mip.tiledSize = static_cast<std::uint64_t>(paddedWidth) * paddedHeight * bytesPerElement;
         mip.linearSize = static_cast<std::uint64_t>(mip.width) * mip.height * bytesPerElement;
         mip.tail = false;
@@ -181,7 +182,6 @@ std::vector<TileMipLayout> ComputeTiledMipLayout(TextureTileMode tileMode, std::
         mip.width = TexelLevelDimension(width, level, texelWidth);
         mip.height = TexelLevelDimension(height, level, texelHeight);
         mip.blocksPerRow = 1u;
-        mip.pitchBytes = block.blockWidth * bytesPerElement;
         mip.tiledSize = block.blockSize;
         mip.linearSize = static_cast<std::uint64_t>(mip.width) * mip.height * bytesPerElement;
         mip.tail = true;
@@ -192,18 +192,25 @@ std::vector<TileMipLayout> ComputeTiledMipLayout(TextureTileMode tileMode, std::
     std::uint64_t offset = firstTailLevel < mipCount ? block.blockSize : 0;
     for (auto level = firstTailLevel; level-- > 0;) {
         mips[level].tiledOffset = offset;
-        mips[level].linearOffset = offset;
         offset += mips[level].tiledSize;
     }
     for (auto level = firstTailLevel; level < mipCount; ++level) {
         mips[level].tiledOffset = 0;
-        mips[level].linearOffset = 0;
     }
 
     Require(offset == blockSliceSize, "tiled texture mip chain geometry is inconsistent");
     for (const auto& mip : mips) {
         Require(mip.width != 0 && mip.height != 0, "computed a zero-sized tiled texture mip level");
         Require(mip.tiledSize != 0 && mip.linearSize != 0, "computed a zero-sized tiled texture mip level");
+    }
+    std::uint64_t linearOffset = 0;
+    for (auto& mip : mips) {
+        const auto alignment = std::max(bytesPerElement, 4u);
+        linearOffset = (linearOffset + alignment - 1u) / alignment * alignment;
+        mip.linearOffset = linearOffset;
+        mip.pitchBytes = mip.width * bytesPerElement;
+        mip.linearSize = (static_cast<std::uint64_t>(mip.pitchBytes) * mip.height + alignment - 1u) / alignment * alignment;
+        linearOffset += mip.linearSize;
     }
     return mips;
 }
@@ -218,6 +225,10 @@ std::vector<TileMipLayout> ComputeMipLayout(TextureTileMode tileMode, std::uint3
     const auto texelWidth = BlockWidth(format);
     const auto texelHeight = BlockHeight(format);
 
+    if (tileMode == TextureTileMode::RenderTarget64KB) {
+        Require(!IsBlockCompressed(format), "render target tiling does not support block compressed formats");
+        Require(format != 128 && format != 129 && format != 132, "texture format does not support render target tiling");
+    }
     if (tileMode == TextureTileMode::kLinear) return ComputeLinearMipLayout(bytesPerElement, texelWidth, texelHeight, width, height, mipCount);
     return ComputeTiledMipLayout(tileMode, bytesPerElement, texelWidth, texelHeight, width, height, mipCount);
 }

@@ -20,6 +20,7 @@ layout(push_constant) uniform Push {
     uint tailX;
     uint tailY;
     uint elementBytes;
+    uint arrayLayer;
 } params;
 
 uint standardOffset(uint x, uint y) {
@@ -66,7 +67,77 @@ uint standard64Extra(uint x, uint y) {
 }
 
 
+uint renderTargetOffset(uint x, uint y) {
+    uint offset = 0u;
+    switch (ELEMENT_BYTES) {
+        case 1u:
+            offset ^= (y << 2u) & 0x0008u;
+            offset ^= (y << 4u) & 0x0010u;
+            offset ^= (y << 3u) & 0x00a0u;
+            offset ^= (y << 5u) & 0x0f00u;
+            offset ^= (y << 6u) & 0x1000u;
+            offset ^= (y << 7u) & 0x4000u;
+            offset ^= x & 0x0007u;
+            offset ^= (x << 3u) & 0x0040u;
+            offset ^= (x << 5u) & 0x0300u;
+            offset ^= (x << 4u) & 0x0400u;
+            offset ^= (x << 6u) & 0x0800u;
+            offset ^= (x << 7u) & 0x2000u;
+            offset ^= (x << 8u) & 0x8000u;
+            break;
+        case 2u:
+            offset ^= (y << 4u) & 0x0070u;
+            offset ^= (y << 5u) & 0x0f00u;
+            offset ^= (y << 8u) & 0x5000u;
+            offset ^= (x << 1u) & 0x000eu;
+            offset ^= (x << 4u) & 0x0480u;
+            offset ^= (x << 5u) & 0x0300u;
+            offset ^= (x << 6u) & 0x0800u;
+            offset ^= (x << 7u) & 0x2000u;
+            offset ^= (x << 8u) & 0x8000u;
+            break;
+        case 4u:
+            offset ^= (y << 4u) & 0x0070u;
+            offset ^= (y << 5u) & 0x0f00u;
+            offset ^= (y << 9u) & 0x1000u;
+            offset ^= (y << 8u) & 0x4000u;
+            offset ^= (x << 2u) & 0x000cu;
+            offset ^= (x << 5u) & 0x0380u;
+            offset ^= (x << 4u) & 0x0400u;
+            offset ^= (x << 6u) & 0x0800u;
+            offset ^= (x << 9u) & 0xa000u;
+            break;
+        case 8u:
+            offset ^= (y << 4u) & 0x0010u;
+            offset ^= (y << 6u) & 0x0080u;
+            offset ^= (y << 5u) & 0x0f00u;
+            offset ^= (y << 10u) & 0x5000u;
+            offset ^= (x << 3u) & 0x0008u;
+            offset ^= (x << 4u) & 0x0460u;
+            offset ^= (x << 5u) & 0x0300u;
+            offset ^= (x << 6u) & 0x0800u;
+            offset ^= (x << 10u) & 0x2000u;
+            offset ^= (x << 9u) & 0x8000u;
+            break;
+        case 16u:
+            offset ^= (x << 4u) & 0x0410u;
+            offset ^= (x << 5u) & 0x0340u;
+            offset ^= (x << 6u) & 0x0800u;
+            offset ^= (x << 11u) & 0xa000u;
+            offset ^= (y << 5u) & 0x0f20u;
+            offset ^= (y << 6u) & 0x0080u;
+            offset ^= (y << 10u) & 0x1000u;
+            offset ^= (y << 11u) & 0x4000u;
+            break;
+    }
+    uint z = params.arrayLayer;
+    return offset ^ ((z & 8u) << 5u) ^ ((z & 4u) << 7u) ^ ((z & 2u) << 9u) ^ ((z & 1u) << 11u);
+}
+
 uint blockOffset(uvec2 p) {
+    if (TILE_FAMILY == 2u) {
+        return renderTargetOffset(p.x, p.y);
+    }
     uint offset = standardOffset(p.x, p.y);
     if (BLOCK_BYTES > 4096u) {
         offset ^= standard64Extra(p.x, p.y);
