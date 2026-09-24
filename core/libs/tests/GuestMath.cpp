@@ -4,6 +4,10 @@
 #include <cstdlib>
 #include <limits>
 extern "C" {
+double APS5_VABI atof_nid_postfix(const char*);
+float APS5_VABI strtof_nid_postfix(const char*, char**);
+long double APS5_VABI strtold_nid_postfix(const char*, char**);
+int* APS5_VABI __error_nid_postfix();
 float APS5_VABI fmodf_nid_postfix(float, float);
 float APS5_VABI asinf_nid_postfix(float);
 float APS5_VABI acosf_nid_postfix(float);
@@ -26,6 +30,16 @@ int APS5_VABI __isinff_nid_postfix(float);
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    Require(atof_nid_postfix(" -12.5tail") == -12.5);
+    char* end = nullptr;
+    const char input[] = "0x1.8p+2 remainder";
+    Require(strtof_nid_postfix(input, &end) == 6.f && end == input + 8);
+    const char invalid[] = "invalid";
+    Require(strtof_nid_postfix(invalid, &end) == 0.f && end == invalid);
+    *__error_nid_postfix() = 0;
+    Require(std::isinf(strtof_nid_postfix("1e1000", nullptr)));
+    Require(*__error_nid_postfix() == 34);
+    Require(strtold_nid_postfix("1.0000000000000000001!", &end) > 1.L && *end == '!');
     Require(fmodf_nid_postfix(5.5f, 2.f) == 1.5f);
     Require(fmodf_nid_postfix(-5.5f, 2.f) == -1.5f);
     Require(std::signbit(fmodf_nid_postfix(-4.f, 2.f)));

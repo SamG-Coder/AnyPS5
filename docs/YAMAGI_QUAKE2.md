@@ -336,3 +336,23 @@ delimiter sets, repeated end-of-input calls, and independence from host strtok.
 All nineteen suites pass after rebuilding the libraries. Latest unchanged-game
 startup resolves strtok and stops at `88Vv-AzHVj8` (`fmodf`). The game has still
 not reached its entry point or produced a rendered frame.
+
+## Follow-up: math and floating-point parsing
+
+Added nineteen math exports covering single-precision remainder/trigonometry,
+binary scaling and decomposition, integer rounding, and value classification.
+Guest lround/lroundf return explicit 64-bit integers through host llround, avoiding
+Windows' 32-bit long truncation. __isinff returns one for either sign of infinity,
+matching the [FreeBSD 11 implementation](https://raw.githubusercontent.com/freebsd/freebsd-src/releng/11.4/lib/libc/gen/isinf.c).
+Added atof, strtof, and strtold using the host CRT through the guest calling
+convention. Tests verify extended-precision results through the long-double ABI.
+
+Tests cover negative remainders and signed zero, NaN/infinity/subnormal classes,
+integer results above 32 bits, exponent output pointers, numeric parsing end
+pointers, invalid input, and overflow errno. The math suite passes and the full
+suite contains twenty passing tests. Exhaustive numerical accuracy, alternate
+rounding modes, locale-dependent parsing, and all floating-point exception
+semantics have not been validated.
+
+The unchanged game resolves fmodf and atof. Startup now stops at `TYE4irxSmko`
+(`toupper`), still before guest entry-point execution or rendered output.
