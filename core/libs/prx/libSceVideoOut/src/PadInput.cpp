@@ -1,5 +1,5 @@
 #include "prx/libSceVideoOut/include/PadInput.hpp"
-#include "prx/libScePad/PadState.hpp"
+#include "prx/libScePad/include/PadState.hpp"
 #include "SDL.h"
 #include <algorithm>
 #include <cmath>

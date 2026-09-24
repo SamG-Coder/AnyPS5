@@ -4,10 +4,11 @@
 #include <stdexcept>
 #include <chrono>
 #include <thread>
+
 #include "SceTypes.hpp"
-#include "prx/libc/include/General.hpp"
-#include "prx/libScePad/Pad.hpp"
-#include "prx/libScePad/PadState.hpp"
+#include "prx//libc/include/General.hpp"
+#include "prx/libScePad/include/Pad.hpp"
+#include "prx/libScePad/include/PadState.hpp"
 
 extern "C" {
 

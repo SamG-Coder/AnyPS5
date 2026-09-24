@@ -1,14 +1,14 @@
-#include "prx/libScePad/PadState.hpp"
+#include "prx/libScePad/include/PadState.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include <mutex>
 #include <stdexcept>
 
 namespace {
-std::mutex stateMutex;
-PadInputState state;
-std::uint64_t timestamp = 0;
-std::exception_ptr failure;
-bool initialized = false;
+    std::mutex stateMutex;
+    PadInputState state;
+    std::uint64_t timestamp = 0;
+    std::exception_ptr failure;
+    bool initialized = false;
 }
 
 void Pad::Initialize() {

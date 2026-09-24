@@ -2,7 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEVIDEOOUT_PADINPUT_HPP
 
 #include "SDL_events.h"
-#include "prx/libScePad/InputMapping.hpp"
+#include "prx/libScePad/include/InputMapping.hpp"
 #include <array>
 #include <chrono>
 
