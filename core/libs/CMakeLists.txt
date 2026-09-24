@@ -107,6 +107,12 @@ add_executable(application_heap_tests EXCLUDE_FROM_ALL tests/ApplicationHeap.cpp
 target_include_directories(application_heap_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 set_target_properties(application_heap_tests PROPERTIES CXX_EXTENSIONS OFF)
 
+add_executable(guest_locale_tests EXCLUDE_FROM_ALL tests/GuestLocale.cpp)
+target_include_directories(guest_locale_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(guest_locale_tests PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(guest_locale_tests PRIVATE libc)
+configure_windows_unwind(guest_locale_tests)
+
 if(MINGW)
     foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
         string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")

@@ -14,7 +14,7 @@ The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully prod
 
 The real game reaches the render loop and **successfully presents its first frames** (logo).
 
-Current error: Access Violation after `Could not open file /_sd/SAVEDATA00/-saveindex` at ~frame 71, presumably caused by a null pointer dereference.
+Current exception: `AGC graphics: guest texture descriptor uses an unsupported tile mode 27` on ~68 frame.
 
 ## Build
 

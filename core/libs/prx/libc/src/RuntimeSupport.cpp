@@ -13,7 +13,7 @@
 
 namespace {
 
-std::mutex g_sysLock;
+std::recursive_mutex g_sysLock;
 
 }
 

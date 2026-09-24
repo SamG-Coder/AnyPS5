@@ -29,7 +29,6 @@ int APS5_VABI __cxa_thread_atexit_impl_nid_postfix(void (*func)(void*), void* ar
     return __cxxabiv1::__cxa_thread_atexit(func, arg, dso);
 }
 
-void _ZNSt8ios_baseD2Ev_nid_postfix(std::ios_base* self) { self->~ios_base(); }
 const std::error_category* _ZSt17iostream_categoryv_nid_postfix() { return &std::iostream_category(); }
 
 }
