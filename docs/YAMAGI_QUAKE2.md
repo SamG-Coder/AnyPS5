@@ -531,3 +531,13 @@ internal rendering-wait encoding still require actual game execution validation.
 The shader-link wrapper now propagates unsupported-state runtime exceptions from
 its helpers, preserving the README's strict failure policy; its regression test
 checks the exception and that output registers are not partially published.
+
+## Follow-up: binary search
+
+Implemented bsearch with direct SysV comparator calls, key-first argument order,
+and overflow-checked element addressing. Regression coverage uses records and a
+distinct key type to check callback argument order, duplicates, absent keys,
+empty and singleton arrays, and unchanged input bytes. All twenty-nine tests
+have passed (the new test was rerun after correcting its padding-byte snapshot).
+The unchanged game resolves bsearch and stops at `jbz9I9vkqkk` (`vsprintf`),
+still before guest entry with exit `0xc0000139`.

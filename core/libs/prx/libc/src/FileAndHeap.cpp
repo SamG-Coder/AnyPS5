@@ -157,6 +157,27 @@ int APS5_VABI posix_memalign_nid_postfix(void** pointer, size_t alignment, size_
     return ApplicationHeapPosixAlign_nid_no_patch(pointer, alignment, size);
 }
 
+void* APS5_VABI bsearch_nid_postfix(const void* key, const void* base, size_t count,
+    size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
+    if (count == 0) return nullptr;
+    if (!key || !base || !compare || size == 0)
+        throw std::invalid_argument("bsearch: invalid arguments");
+    if (count > std::numeric_limits<size_t>::max() / size)
+        throw std::overflow_error("bsearch: array size overflow");
+    const auto* bytes = static_cast<const unsigned char*>(base);
+    size_t first = 0;
+    while (count != 0) {
+        const size_t half = count / 2;
+        const size_t middle = first + half;
+        const auto* element = bytes + middle * size;
+        const int result = compare(key, element);
+        if (result == 0) return const_cast<unsigned char*>(element);
+        if (result < 0) count = half;
+        else { first = middle + 1; count -= half + 1; }
+    }
+    return nullptr;
+}
+
 void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
     if (!compare) throw std::invalid_argument("qsort: null comparator");
     if (size == 0) throw std::invalid_argument("qsort: zero element size");
