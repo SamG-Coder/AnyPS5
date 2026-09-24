@@ -57,6 +57,10 @@ extern "C" void LibcRunShutdown_nid_postfix() {
 
 extern "C" {
 
+[[noreturn]] void APS5_VABI _Exit_nid_postfix(int code) {
+    std::_Exit(code);
+}
+
 void APS5_VABI exit_nid_postfix(int code) {
     LibcRunShutdown_nid_postfix();
     std::exit(code);

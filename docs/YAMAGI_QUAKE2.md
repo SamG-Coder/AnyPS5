@@ -408,3 +408,21 @@ All twenty-three tests pass and libraries rebuild.
 The unchanged game resolves sceSystemServiceLoadExec and now stops at
 `gkWgn0p1AfU` (`freopen`). This does not establish that the game has executed
 its quit path: guest entry-point execution and rendered output remain unverified.
+
+## Follow-up: stream reopening and immediate exit
+
+Added freopen while preserving the guest FileStream address on success. Reopen
+clears buffered guest metadata and refreshes the descriptor. A failed native
+reopen closes the underlying file and clears the wrapper state; dynamically
+allocated wrappers are released on failure. Tests exercise write/read reopening,
+append behavior, unchanged wrapper identity, EOF clearing, and missing files.
+Mode-only reopening (null filename) is explicitly unsupported; common r/w/a
+modes with optional binary/update modifiers are accepted.
+
+Added _Exit through immediate host termination. An isolated process test proves
+it bypasses both runtime cleanup and atexit handlers, complementing the normal
+shutdown test. All twenty-four tests pass and the libraries rebuild.
+
+The unchanged game resolves freopen and _Exit. Startup now stops at
+`MqAdbRMdNz4` (`sceAgcLinkShaders`), moving the next investigation into shader
+linking. No guest entry-point execution or rendered frame has been observed.
