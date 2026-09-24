@@ -8,6 +8,7 @@
 #include <cstring>
 #include <vector>
 #include <array>
+#include <limits>
 
 #include "prx/libc/include/General.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
@@ -50,14 +51,14 @@ constexpr std::array<short, 257> MakeClassificationTable() {
     std::array<short, 257> table{};
     for (unsigned int value = 0; value < 256; ++value) {
         short mask = 0;
-        if (value < 32 || value == 127) mask |= 0x20;
-        if (value == ' ' || (value >= '\t' && value <= '\r')) mask |= 0x08;
-        if (value == ' ' || value == '\t') mask |= 0x40;
-        if (value >= 'A' && value <= 'Z') mask |= 0x101;
-        if (value >= 'a' && value <= 'z') mask |= 0x102;
-        if (value >= '0' && value <= '9') mask |= 0x04;
-        if ((value >= '0' && value <= '9') || (value >= 'A' && value <= 'F') || (value >= 'a' && value <= 'f')) mask |= 0x80;
-        if (value >= 33 && value <= 126 && (mask & 0x107) == 0) mask |= 0x10;
+        if (value < 32 || value == 127) mask |= 0x80;
+        if (value == ' ') mask |= 0x04;
+        if (value >= '\t' && value <= '\r') mask |= 0x40;
+        if (value >= 'A' && value <= 'Z') mask |= 0x02;
+        if (value >= 'a' && value <= 'z') mask |= 0x10;
+        if (value >= '0' && value <= '9') mask |= 0x20;
+        if ((value >= '0' && value <= '9') || (value >= 'A' && value <= 'F') || (value >= 'a' && value <= 'f')) mask |= 0x01;
+        if (value >= 33 && value <= 126 && (mask & 0x232) == 0) mask |= 0x08;
         table[value + 1] = mask;
     }
     return table;
@@ -102,11 +103,12 @@ void APS5_VABI _ZNSt8ios_baseD2Ev_nid_postfix(GuestLocale::IosBase* self) {
     self->locale = nullptr;
 }
 
-void APS5_VABI _ZNSt6locale5_InitEv_nid_postfix() {
+GuestLocale::Implementation* APS5_VABI _ZNSt6locale5_InitEv_nid_postfix() {
     std::lock_guard<std::mutex> lock(g_localeInitMutex);
     if (!g_localeInitialized) {
         g_localeInitialized = true;
     }
+    return &g_classicLocale;
 }
 
 void APS5_VABI _ZNSt6locale5facet9_RegisterEv_nid_postfix(GuestLocale::Facet* self) {
@@ -135,25 +137,23 @@ void APS5_VABI _ZNSt8_LocinfoD1Ev_nid_postfix(GuestLocale::LocinfoStorage* self)
     if (self == nullptr) throw std::invalid_argument("_Locinfo destructor: null object");
 }
 
-wchar_t* APS5_VABI _Mbtowcx_nid_postfix(wchar_t* dst, const char* src, std::size_t count, mbstate_t* st) {
-    while (count > 0) {
-        std::size_t result = std::mbrtowc(dst, src, count, st);
-        if (result == static_cast<std::size_t>(-1) || result == static_cast<std::size_t>(-2))
-            return nullptr;
-        if (result == 0)
-            return dst;
-        src += result;
-        count -= result;
-        ++dst;
-    }
-    return dst;
+int APS5_VABI _Mbtowcx_nid_postfix(std::uint16_t* dst, const char* src, std::size_t count, mbstate_t* st) {
+    if (dst == nullptr || src == nullptr || st == nullptr || count == 0) throw std::invalid_argument("_Mbtowcx: invalid conversion arguments");
+    wchar_t converted{};
+    const auto result = std::mbrtowc(&converted, src, count, st);
+    if (result == static_cast<std::size_t>(-1)) throw std::runtime_error("_Mbtowcx: invalid multibyte character");
+    if (result == static_cast<std::size_t>(-2)) throw std::runtime_error("_Mbtowcx: incomplete multibyte character");
+    if (result > static_cast<std::size_t>(std::numeric_limits<int>::max()) || static_cast<std::uint32_t>(converted) > 0xffff) throw std::runtime_error("_Mbtowcx: conversion exceeds guest character limits");
+    *dst = static_cast<std::uint16_t>(converted);
+    return static_cast<int>(result);
 }
 
-char* APS5_VABI _Wctombx_nid_postfix(char* dst, wchar_t src, mbstate_t* st) {
-    std::size_t result = std::wcrtomb(dst, src, st);
-    if (result == static_cast<std::size_t>(-1))
-        return nullptr;
-    return dst + result;
+int APS5_VABI _Wctombx_nid_postfix(char* dst, std::uint16_t src, mbstate_t* st) {
+    if (dst == nullptr || st == nullptr) throw std::invalid_argument("_Wctombx: invalid conversion arguments");
+    const auto result = std::wcrtomb(dst, static_cast<wchar_t>(src), st);
+    if (result == static_cast<std::size_t>(-1)) throw std::runtime_error("_Wctombx: invalid wide character");
+    if (result > static_cast<std::size_t>(std::numeric_limits<int>::max())) throw std::runtime_error("_Wctombx: conversion size exceeds guest limits");
+    return static_cast<int>(result);
 }
 
 const short* APS5_VABI _Getpctype_nid_postfix() {
