@@ -99,10 +99,14 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         return hasTag(osTag) ? getTagValue(osTag) : getTagValue(sysvTag);
     };
 
-    gotVAddr = requireExactlyOneOf(DT_OS_PLTGOT, DT_PLTGOT, "DT_PLTGOT")
-        ? getTagValue(DT_OS_PLTGOT)
-        : getTagValue(DT_PLTGOT);
-    gotSize = readAsSize(DT_OS_PLTRELSZ, DT_PLTRELSZ, "DT_PLTRELSZ");
+    const bool hasPltRelocations = hasTag(DT_OS_PLTRELSZ) || hasTag(DT_PLTRELSZ)
+        || hasTag(DT_OS_PLTREL) || hasTag(DT_PLTREL)
+        || hasTag(DT_OS_JMPREL) || hasTag(DT_JMPREL);
+    if (hasPltRelocations || hasTag(DT_OS_PLTGOT) || hasTag(DT_PLTGOT)) {
+        gotVAddr = requireExactlyOneOf(DT_OS_PLTGOT, DT_PLTGOT, "DT_PLTGOT")
+            ? getTagValue(DT_OS_PLTGOT)
+            : getTagValue(DT_PLTGOT);
+    }
 
     const FileByteOffset dynStrTabOffset = readAsOffset(DT_OS_STRTAB, DT_STRTAB, "DT_STRTAB");
     requireExactlyOneOf(DT_OS_STRSZ, DT_STRSZ, "DT_STRSZ");
@@ -112,13 +116,18 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     if (readAsSize(DT_OS_SYMENT, DT_SYMENT, "DT_SYMENT") != symEntSize)
         throw RelinkerException("Unsupported DT_SYMENT value");
 
-    const std::int64_t jmprelType = requireExactlyOneOf(DT_OS_PLTREL, DT_PLTREL, "DT_PLTREL")
-        ? getTagValue(DT_OS_PLTREL)
-        : getTagValue(DT_PLTREL);
-    if (jmprelType != DT_RELA)
-        throw RelinkerException("Unsupported DT_PLTREL type");
-
-    const FileByteOffset dynJmpRelOffset = readAsOffset(DT_OS_JMPREL, DT_JMPREL, "DT_JMPREL");
+    FileByteOffset dynJmpRelOffset = 0;
+    if (hasPltRelocations) {
+        gotSize = readAsSize(DT_OS_PLTRELSZ, DT_PLTRELSZ, "DT_PLTRELSZ");
+        const std::int64_t jmprelType = requireExactlyOneOf(DT_OS_PLTREL, DT_PLTREL, "DT_PLTREL")
+            ? getTagValue(DT_OS_PLTREL)
+            : getTagValue(DT_PLTREL);
+        if (jmprelType != DT_RELA)
+            throw RelinkerException("Unsupported DT_PLTREL type");
+        dynJmpRelOffset = readAsOffset(DT_OS_JMPREL, DT_JMPREL, "DT_JMPREL");
+        if (gotSize % 24 != 0)
+            throw RelinkerException("Invalid DT_PLTRELSZ value");
+    }
     const ByteCount dynJmpRelSize = gotSize;
 
     const FileByteOffset dynRelaOffset = readAsOffset(DT_OS_RELA, DT_RELA, "DT_RELA");
