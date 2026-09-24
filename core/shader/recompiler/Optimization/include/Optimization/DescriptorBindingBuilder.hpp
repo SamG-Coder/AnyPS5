@@ -10,6 +10,7 @@ namespace ShaderRecompiler {
 class DescriptorBindingBuilder {
 public:
     void Populate(BindingAllocationResult& allocation, const IrProgram& program, const ResourceSnapshot& snapshot) const;
+    void Populate(BindingAllocationResult& allocation, const ShaderInfo& info, IrShaderStage stage, std::uint32_t userDataBase, const ResourceSnapshot& snapshot) const;
 };
 
 }

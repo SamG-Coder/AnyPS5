@@ -46,9 +46,8 @@ bool ShaderMemory::read(void* context, std::uint64_t address, std::uint32_t* val
 }
 
 void ShaderMemory::Capture(const ShaderRecompiler::RecompileRequest& request) {
-    auto program = ShaderRecompiler::PrepareResourceProgram(request);
+    const auto plan = ShaderRecompiler::GetResourcePlan(request);
     constexpr ShaderRecompiler::ResourceMaterializer materializer;
-    const auto plan = materializer.ExtractPlan(program);
     ShaderRecompiler::SrtRuntime runtime;
     runtime.userData = request.context.userData;
     runtime.shaderBase = request.shader.codeAddress;
@@ -57,7 +56,7 @@ void ShaderMemory::Capture(const ShaderRecompiler::RecompileRequest& request) {
     runtime.readSpecializationMemory = &read;
     ShaderRecompiler::ResourceSnapshot snapshot;
     ShaderRecompiler::ResourceSpecialization specialization;
-    materializer.Materialize(plan, runtime, snapshot, specialization);
+    materializer.Materialize(*plan, runtime, snapshot, specialization);
 }
 
 std::vector<ShaderRecompiler::MemoryRegion> ShaderMemory::Regions() const {

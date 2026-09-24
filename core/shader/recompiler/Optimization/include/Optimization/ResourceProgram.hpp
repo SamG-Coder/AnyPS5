@@ -7,6 +7,7 @@
 namespace ShaderRecompiler {
 
 [[nodiscard]] IrProgram PrepareResourceProgram(const RecompileRequest& request);
+[[nodiscard]] std::shared_ptr<const IrResourcePlan> GetResourcePlan(const RecompileRequest& request);
 
 }
 

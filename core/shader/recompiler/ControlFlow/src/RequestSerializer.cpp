@@ -660,7 +660,7 @@ std::string RequestSerializer::Serialize(const RecompileRequest& request) const 
     std::string buffer;
     Writer writer(buffer);
     writer.WriteU32(0x41505335u);
-    writer.WriteU32(1u);
+    writer.WriteU32(2u);
     writeShaderBinary(writer, request.shader);
     writeGuestContext(writer, request.context);
     writeSpirvTarget(writer, request.target);
@@ -669,13 +669,16 @@ std::string RequestSerializer::Serialize(const RecompileRequest& request) const 
     if (request.graphics.has_value()) {
         writeGraphicsCompileContext(writer, *request.graphics);
     }
+    writer.WriteBool(request.useCache);
     return base64Encode(buffer);
 }
 
 DeserializedRequest RequestSerializer::Deserialize(std::string_view text) const {
     const std::string decoded = base64Decode(text);
     Reader reader(decoded);
-    if (reader.ReadU32() != 0x41505335u || reader.ReadU32() != 1u) throw std::runtime_error("unsupported recompile request serialization version");
+    if (reader.ReadU32() != 0x41505335u) throw std::runtime_error("invalid recompile request signature");
+    const auto version = reader.ReadU32();
+    if (version != 1u && version != 2u) throw std::runtime_error("unsupported recompile request serialization version");
     DeserializedRequest result{};
     result.request.shader = readShaderBinary(reader, result.shaderCode, result.shaderHeader);
     result.request.context = readGuestContext(reader, result);
@@ -685,6 +688,7 @@ DeserializedRequest RequestSerializer::Deserialize(std::string_view text) const 
         result.graphicsStorage = std::make_unique<DeserializedGraphicsCompileContext>();
         result.request.graphics = readGraphicsCompileContext(reader, *result.graphicsStorage);
     }
+    if (version == 2u) result.request.useCache = reader.ReadBool();
     return result;
 }
 

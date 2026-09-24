@@ -355,7 +355,7 @@ private:
         request.context.memory = captured;
         timing.Mark("request_memory");
         const auto compiled = ShaderRecompiler::Recompile(request);
-        timing.Mark("shader_compile");
+        timing.Mark(compiled.cacheHit ? "shader_cache_hit" : "shader_compile");
         std::vector<Graphics::GuestMemorySnapshot> snapshots;
         for (const auto& region : captured) snapshots.push_back({region.guestAddress, region.bytes});
         timing.Mark("snapshots");
@@ -481,7 +481,7 @@ private:
             request.context.memory = memory;
             shaderTiming.Mark("request_memory");
             results.push_back(ShaderRecompiler::Recompile(request));
-            shaderTiming.Mark("compile");
+            shaderTiming.Mark(results.back().cacheHit ? "cache_hit" : "compile");
             const auto& result = results.back();
             if (!drawParameters.indexed && i == 0) {
                 const auto offsetValue = [&](std::int32_t sgpr) {

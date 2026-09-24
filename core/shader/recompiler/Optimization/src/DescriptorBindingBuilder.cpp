@@ -163,14 +163,14 @@ std::vector<std::uint32_t> GuestSamplersDescriptor(const std::vector<std::uint32
     return result;
 }
 
-std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, const IrResourcePlan& resources, const ResourceSnapshot& snapshot) {
+std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, std::uint32_t userDataBase, const ResourceSnapshot& snapshot) {
     std::vector<std::uint32_t> result(layout.ShaderDataDwords(), 0u);
     for (std::size_t i = 0; i < layout.userDataRegisters.size(); i++) {
         const std::uint32_t reg = layout.userDataRegisters[i];
-        if (reg < resources.userDataBase || reg - resources.userDataBase >= snapshot.userData.size()) {
+        if (reg < userDataBase || reg - userDataBase >= snapshot.userData.size()) {
             fail("DescriptorBindingBuilder::Populate user-data register is out of range");
         }
-        result[i] = snapshot.userData[reg - resources.userDataBase];
+        result[i] = snapshot.userData[reg - userDataBase];
     }
     return result;
 }
@@ -178,9 +178,12 @@ std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, co
 }
 
 void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, const IrProgram& program, const ResourceSnapshot& snapshot) const {
+    Populate(allocation, program.Info(), program.Resources().stage, program.Resources().userDataBase, snapshot);
+}
+
+void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, const ShaderInfo& info, IrShaderStage stage, std::uint32_t userDataBase, const ResourceSnapshot& snapshot) const {
     const IrBindingLayout& layout = allocation.layout;
-    const IrShaderStage stage = program.Resources().stage;
-    const std::vector<std::uint32_t> shaderData = ShaderDataDwordsFor(layout, program.Resources(), snapshot);
+    const std::vector<std::uint32_t> shaderData = ShaderDataDwordsFor(layout, userDataBase, snapshot);
 
     std::vector<DescriptorBinding> bindings;
     bindings.reserve(layout.descriptors.size());
@@ -199,12 +202,12 @@ void DescriptorBindingBuilder::Populate(BindingAllocationResult& allocation, con
             break;
         case DescriptorRole::GuestImages:
             physical.guestDescriptor = GuestImagesDescriptor(logical.resources, snapshot);
-            physical.imageShape = ImageShapeFor(program.Info().images, logical.resources);
+            physical.imageShape = ImageShapeFor(info.images, logical.resources);
             break;
         case DescriptorRole::GuestSamplers:
             physical.guestDescriptor = GuestSamplersDescriptor(logical.resources, snapshot);
             for (std::size_t element = 0; element < logical.resources.size(); ++element) {
-                const auto& sampler = program.Info().samplers.at(logical.resources[element]);
+                const auto& sampler = info.samplers.at(logical.resources[element]);
                 physical.samplerDepthCompare.push_back(sampler.depthCompare);
                 if (sampler.forcePointFiltering) {
                     auto& filter = physical.guestDescriptor.at(element * 4u + 2u);

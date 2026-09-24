@@ -132,6 +132,7 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
             throw std::runtime_error("ShaderInputInfoBuilder: GuestContext.vertex is not set");
         }
         const auto& vertex = *context.vertex;
+        if (vertex.resourcesNum > vertex.resources.size()) throw std::runtime_error("ShaderInputInfoBuilder: invalid vertex resource count");
         vertexStorage = ShaderVertexInputInfo{};
         vertexStorage.logicalStage = _toIrShaderStage(stage);
         vertexStorage.fetchEmbedded = vertex.fetchEmbedded;

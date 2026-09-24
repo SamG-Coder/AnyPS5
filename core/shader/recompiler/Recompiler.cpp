@@ -1,4 +1,8 @@
 #include "Recompiler.hpp"
+#include "CacheKey.hpp"
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
 #include "ControlFlow/include/ControlFlow/GraphBuilder.hpp"
 #include "ControlFlow/include/ControlFlow/Structurizer.hpp"
 #include "RdnaDecoder/include/RdnaDecoder/RdnaInstructionDecoder.hpp"
@@ -121,21 +125,76 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
 
 namespace {
 
-RecompileResult RecompileImpl(const RecompileRequest& request) {
+struct CompiledVariant {
+    ResourceSpecialization specialization;
+    BindingLayout layout;
+    CompiledShaderInfo info;
+    BindingAllocationResult bindings;
+    RecompileResult result;
+};
 
-    auto program = PrepareResourceProgram(request);
+struct ResourceProgram {
+    explicit ResourceProgram(const RecompileRequest& request) : program(PrepareResourceProgram(request)), plan(ResourceMaterializer{}.ExtractPlan(program)) {}
+
+    IrProgram program;
+    IrResourcePlan plan;
+};
+
+std::shared_ptr<const IrResourcePlan> makeResourcePlan(const RecompileRequest& request) {
+    const auto resource = std::make_shared<ResourceProgram>(request);
+    return std::shared_ptr<const IrResourcePlan>(resource, &resource->plan);
+}
+
+struct SourceEntry {
+    std::mutex mutex;
+    std::shared_ptr<const IrResourcePlan> plan;
+    std::vector<std::shared_ptr<const CompiledVariant>> variants;
+};
+
+struct SourceKeyHash {
+    std::size_t operator()(const std::vector<std::uint64_t>& key) const {
+        std::size_t hash = 0;
+        for (const auto value : key) {
+            hash ^= static_cast<std::size_t>(value) + static_cast<std::size_t>(0x9e3779b97f4a7c15ull) + (hash << 6u) + (hash >> 2u);
+            if constexpr (sizeof(std::size_t) < sizeof(value)) hash ^= static_cast<std::size_t>(value >> 32u);
+        }
+        return hash;
+    }
+};
+
+std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request) {
+    static std::shared_mutex mutex;
+    static std::unordered_map<std::vector<std::uint64_t>, std::shared_ptr<SourceEntry>, SourceKeyHash> sources;
+    thread_local std::vector<std::uint64_t> key;
+    RecompileCacheKey::Build(request, key);
+    std::shared_ptr<SourceEntry> source;
+    {
+        std::shared_lock lock(mutex);
+        const auto found = sources.find(key);
+        if (found != sources.end()) source = found->second;
+    }
+    if (source == nullptr) {
+        std::unique_lock lock(mutex);
+        const auto found = sources.find(key);
+        if (found != sources.end()) source = found->second;
+        else {
+            source = std::make_shared<SourceEntry>();
+            sources.emplace(key, source);
+        }
+    }
+    {
+        std::lock_guard lock(source->mutex);
+        if (source->plan == nullptr) {
+            source->plan = makeResourcePlan(request);
+        }
+    }
+    return source;
+}
+
+CompiledVariant compileVariant(const RecompileRequest& request, IrProgram program, const ResourceSnapshot& resourceSnapshot, const ResourceSpecialization& resourceSpecialization) {
     const auto inputInfo = BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context);
     constexpr DeadCodeEliminator deadCodeEliminator;
-
     constexpr ResourceMaterializer resourceMaterializer;
-    const auto resourcePlan = resourceMaterializer.ExtractPlan(program);
-
-    RequestMemoryView requestMemoryView(request.context.memory);
-    const auto srtRuntime = requestMemoryView.MakeRuntime(request.context.userData, request.shader.codeAddress);
-
-    ResourceSnapshot resourceSnapshot;
-    ResourceSpecialization resourceSpecialization;
-    resourceMaterializer.Materialize(resourcePlan, srtRuntime, resourceSnapshot, resourceSpecialization);
     resourceMaterializer.Apply(program, resourceSpecialization);
 
     deadCodeEliminator.RemoveIdentities(program);
@@ -167,8 +226,6 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
 #endif
 
     result.bdaAbiVersion = program.Info().usesDma ? request.target.bdaAbiVersion : 0u;
-    result.bindings = bindings.bindings;
-    result.pushConstants = bindings.pushConstants;
     result.vertexOffsetSgpr = program.Info().vertexOffsetSgpr;
     result.instanceOffsetSgpr = program.Info().instanceOffsetSgpr;
     for (const auto& output : program.Info().outputs) {
@@ -184,9 +241,78 @@ RecompileResult RecompileImpl(const RecompileRequest& request) {
         }
     }
 
+    result.bindings.clear();
+    result.pushConstants.clear();
+    for (auto& attribute : result.vertexAttributes) attribute.resource = {};
+    bindings.bindings.clear();
+    bindings.pushConstants.clear();
+    return {resourceSpecialization, request.layout, std::move(program).TakeCompiledInfo(), std::move(bindings), std::move(result)};
+}
+
+RecompileResult materializeResult(const CompiledVariant& variant, const RecompileRequest& request, const ResourceSnapshot& snapshot) {
+    auto result = variant.result;
+    BindingAllocationResult bindings;
+    bindings.layout = variant.bindings.layout;
+    bindings.pushConstantOffsetBytes = variant.bindings.pushConstantOffsetBytes;
+    bindings.pushConstantSizeBytes = variant.bindings.pushConstantSizeBytes;
+    DescriptorBindingBuilder{}.Populate(bindings, variant.info.info, variant.info.stage, variant.info.userDataBase, snapshot);
+    result.bindings = std::move(bindings.bindings);
+    result.pushConstants = std::move(bindings.pushConstants);
+    for (auto& attribute : result.vertexAttributes) {
+        if (!request.context.vertex || attribute.location >= request.context.vertex->resourcesNum) throw std::runtime_error("Shader cache: invalid vertex attribute metadata");
+        attribute.resource = request.context.vertex->resources[attribute.location];
+    }
     return result;
 }
 
+bool sameLayout(const BindingLayout& left, const BindingLayout& right) {
+    return left.descriptorSet == right.descriptorSet && left.firstBinding == right.firstBinding && left.pushConstantOffsetBytes == right.pushConstantOffsetBytes && left.pushConstantSizeBytes == right.pushConstantSizeBytes;
+}
+
+RecompileResult RecompileImpl(const RecompileRequest& request) {
+    static_cast<void>(BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context));
+    RequestMemoryView memory(request.context.memory);
+    const auto runtime = memory.MakeRuntime(request.context.userData, request.shader.codeAddress);
+    ResourceSnapshot snapshot;
+    ResourceSpecialization specialization;
+    constexpr ResourceMaterializer materializer;
+    if (!request.useCache) {
+        auto program = PrepareResourceProgram(request);
+        const auto plan = materializer.ExtractPlan(program);
+        materializer.Materialize(plan, runtime, snapshot, specialization);
+        const auto variant = compileVariant(request, std::move(program), snapshot, specialization);
+        return materializeResult(variant, request, snapshot);
+    }
+    const auto source = getSource(request);
+    materializer.Materialize(*source->plan, runtime, snapshot, specialization);
+    std::shared_ptr<const CompiledVariant> variant;
+    bool cacheHit = false;
+    {
+        std::lock_guard lock(source->mutex);
+        for (const auto& candidate : source->variants) {
+            if (sameLayout(candidate->layout, request.layout) && candidate->specialization == specialization) {
+                variant = candidate;
+                cacheHit = true;
+                break;
+            }
+        }
+        if (variant == nullptr) {
+            auto program = PrepareResourceProgram(request);
+            variant = std::make_shared<CompiledVariant>(compileVariant(request, std::move(program), snapshot, specialization));
+            source->variants.push_back(variant);
+        }
+    }
+    auto result = materializeResult(*variant, request, snapshot);
+    result.cacheHit = cacheHit;
+    return result;
+}
+
+}
+
+std::shared_ptr<const IrResourcePlan> GetResourcePlan(const RecompileRequest& request) {
+    static_cast<void>(BuildShaderStageInputInfo(toShaderStageKind(request.shader.stage), request.context));
+    if (request.useCache) return getSource(request)->plan;
+    return makeResourcePlan(request);
 }
 
 RecompileResult Recompile(const RecompileRequest& request) {

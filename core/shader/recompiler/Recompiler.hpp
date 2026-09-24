@@ -198,6 +198,7 @@ struct RecompileRequest {
     SpirvTarget target;
     BindingLayout layout;
     std::optional<GraphicsCompileContext> graphics;
+    bool useCache = true;
 };
 
 enum class DescriptorKind {
@@ -265,6 +266,7 @@ struct RecompileResult {
     std::int32_t instanceOffsetSgpr = -1;
     std::vector<std::uint32_t> parameterExports;
     std::vector<FragmentParameter> fragmentParameters;
+    bool cacheHit = false;
 };
 
 [[nodiscard]] RecompileResult Recompile(const RecompileRequest& request);

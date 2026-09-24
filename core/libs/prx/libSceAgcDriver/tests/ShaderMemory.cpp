@@ -7,6 +7,7 @@
 #endif
 #include <array>
 #include <iostream>
+#include <future>
 #include <stdexcept>
 #include <string>
 
@@ -115,6 +116,38 @@ int main() {
         request.context.memory = regions;
         const auto first = Recompile(request);
         require(!first.spirv.empty(), "empty compiled shader");
+        require(!first.cacheHit, "first shader compilation unexpectedly hit the cache");
+        const auto plan = GetResourcePlan(request);
+        require(plan == GetResourcePlan(request), "resource plan was rebuilt");
+        const auto cached = Recompile(request);
+        require(cached.cacheHit, "unchanged shader did not hit the cache");
+        verifyResult(first, cached);
+        auto relocated = request;
+        relocated.shader.codeAddress += 0x1000;
+        require(Recompile(relocated).cacheHit, "shader relocation caused recompilation");
+        auto changedTarget = request;
+        changedTarget.target.subgroupSize = 32;
+        require(GetResourcePlan(changedTarget) != plan, "different target reused the source entry");
+        std::vector<std::uint32_t> changedCode(code.begin(), code.end());
+        changedCode.insert(changedCode.begin(), 0xbf800000u);
+        auto changedSource = request;
+        changedSource.shader.code = changedCode;
+        require(GetResourcePlan(changedSource) != plan, "changed code reused the source entry");
+        auto uncached = request;
+        uncached.useCache = false;
+        require(GetResourcePlan(uncached) != plan, "disabled cache reused the resource plan");
+        const auto fresh = Recompile(uncached);
+        require(!fresh.cacheHit, "disabled cache reused the compiled variant");
+        verifyResult(first, fresh);
+        require(!RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(uncached)).request.useCache, "cache policy was lost in serialization");
+        auto changedLayout = request;
+        changedLayout.layout.pushConstantSizeBytes = 64;
+        require(!Recompile(changedLayout).cacheHit, "binding layout change reused an incompatible variant");
+        require(Recompile(changedLayout).cacheHit, "new binding layout variant was not cached");
+        require(Recompile(request).cacheHit, "compiling a new variant evicted the original");
+        auto missingMemory = request;
+        missingMemory.context.memory = {};
+        expectFailure([&] { static_cast<void>(Recompile(missingMemory)); }, "SrtWalker::EvaluateRuntimeSources", "cache hit bypassed resource validation");
 #if ANYPS5_ENABLE_SPIRV_TOOLS
         auto invalidSpirv = first.spirv;
         invalidSpirv[0] = 0;
@@ -122,6 +155,29 @@ int main() {
         expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00400000u, 0x00010600u)); }, "unsupported Vulkan/SPIR-V target", "incompatible target accepted");
         expectFailure([&] { static_cast<void>(ValidateAndOptimizeSpirv(first.spirv, 0x00405000u, 0x00010600u)); }, "unsupported Vulkan target", "unknown Vulkan target accepted");
 #endif
+        payload = 0x40000000u;
+        AgcDriver::ShaderMemory updatedMemory({});
+        updatedMemory.Capture(request);
+        const auto updatedRegions = updatedMemory.Regions();
+        auto updated = request;
+        updated.context.memory = updatedRegions;
+        const auto updatedCached = Recompile(updated);
+        require(updatedCached.cacheHit, "dynamic shader data caused recompilation");
+        updated.useCache = false;
+        verifyResult(updatedCached, Recompile(updated));
+        bool changedData = updatedCached.pushConstants != first.pushConstants;
+        for (std::size_t i = 0; i < first.bindings.size(); ++i) changedData = changedData || updatedCached.bindings.at(i).guestDescriptor != first.bindings[i].guestDescriptor;
+        require(changedData, "cache hit retained stale shader data");
+        auto concurrent = request;
+        concurrent.layout.pushConstantSizeBytes = 60;
+        std::array<std::future<RecompileResult>, 4> concurrentResults;
+        for (auto& future : concurrentResults) future = std::async(std::launch::async, [concurrent] { return Recompile(concurrent); });
+        std::uint32_t compilations = 0;
+        for (auto& future : concurrentResults) {
+            const auto result = future.get();
+            if (!result.cacheHit) ++compilations;
+        }
+        require(compilations == 1, "concurrent requests compiled the same variant repeatedly");
         const auto serialized = RequestSerializer{}.Serialize(request);
         table = 0;
         payload = 0xdeadbeefu;
