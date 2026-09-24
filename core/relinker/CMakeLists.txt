@@ -65,6 +65,10 @@ if(WIN32)
         ${CMAKE_CURRENT_SOURCE_DIR}/io/src/BufferUtils.cpp
     )
     target_include_directories(windows_dependency_diagnostics_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/elfpatcher/include ${CMAKE_CURRENT_SOURCE_DIR}/domain/include ${CMAKE_CURRENT_SOURCE_DIR}/io/include ${CMAKE_CURRENT_SOURCE_DIR}/codegen/include)
+    if(BUILD_TESTING)
+        set_target_properties(windows_dependency_diagnostics_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+        add_test(NAME windows_dependency_diagnostics COMMAND windows_dependency_diagnostics_tests)
+    endif()
 endif()
 
 

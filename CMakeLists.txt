@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(Relinker CXX)
 
+option(BUILD_TESTING "Build and register relinker tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+endif()
+
 option(ANYPS5_ENABLE_SPIRV_TOOLS "Enable SPIRV-Tools validation and optimization" OFF)
 
 set(CMAKE_CXX_STANDARD 20)
