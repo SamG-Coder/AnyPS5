@@ -36,6 +36,7 @@ std::size_t APS5_VABI strlcat_nid_postfix(char* destination, const char* source,
 
 char* APS5_VABI strtok_r_nid_postfix(char* text, const char* delimiters, char** state) {
     if (text == nullptr) text = *state;
+    if (text == nullptr) return nullptr;
     text += std::strspn(text, delimiters);
     if (*text == '\0') {
         *state = text;
@@ -45,6 +46,11 @@ char* APS5_VABI strtok_r_nid_postfix(char* text, const char* delimiters, char** 
     if (*end != '\0') *end++ = '\0';
     *state = end;
     return text;
+}
+
+char* APS5_VABI strtok_nid_postfix(char* text, const char* delimiters) {
+    thread_local char* state = nullptr;
+    return strtok_r_nid_postfix(text, delimiters, &state);
 }
 
 }

@@ -10,6 +10,7 @@ char* APS5_VABI strpbrk_nid_postfix(const char*, const char*);
 std::size_t APS5_VABI strcspn_nid_postfix(const char*, const char*);
 std::size_t APS5_VABI strlcat_nid_postfix(char*, const char*, std::size_t);
 char* APS5_VABI strtok_r_nid_postfix(char*, const char*, char**);
+char* APS5_VABI strtok_nid_postfix(char*, const char*);
 char* APS5_VABI strcasestr_nid_postfix(const char*, const char*);
 }
 
@@ -49,6 +50,15 @@ int main() {
     Require(strtok_r_nid_postfix(nullptr, ",", &firstState) == nullptr);
     Require(strtok_r_nid_postfix(nullptr, ",", &firstState) == nullptr);
     Require(std::strcmp(strtok_r_nid_postfix(nullptr, "", &secondState), "y") == 0);
+    char hostTokens[] = "host:next";
+    Require(std::strcmp(std::strtok(hostTokens, ":"), "host") == 0);
+    char guestTokens[] = ",one,,two:three";
+    Require(std::strcmp(strtok_nid_postfix(guestTokens, ","), "one") == 0);
+    Require(std::strcmp(strtok_nid_postfix(nullptr, ":,"), "two") == 0);
+    Require(std::strcmp(strtok_nid_postfix(nullptr, ""), "three") == 0);
+    Require(strtok_nid_postfix(nullptr, ",") == nullptr);
+    Require(strtok_nid_postfix(nullptr, ",") == nullptr);
+    Require(std::strcmp(std::strtok(nullptr, ":"), "next") == 0);
     const char text[] = "aABAbC";
     Require(strcasestr_nid_postfix(text, "ababc") == text + 1);
     Require(strcasestr_nid_postfix(text, "") == text);

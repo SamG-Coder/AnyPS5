@@ -329,3 +329,10 @@ missing/non-directory failures, unchanged host cwd, short-buffer handling, and
 getcwd allocation freed through the guest heap. All nineteen suites pass.
 Latest unchanged-game startup resolves getcwd and stops at `oVkZ8W8-Q8A`
 (`strtok`). Guest execution and rendered output remain unverified.
+
+Added strtok using the existing strtok_r scanner with independent thread-local
+guest state. Tests exercise repeated delimiters, changing delimiter sets, empty
+delimiter sets, repeated end-of-input calls, and independence from host strtok.
+All nineteen suites pass after rebuilding the libraries. Latest unchanged-game
+startup resolves strtok and stops at `88Vv-AzHVj8` (`fmodf`). The game has still
+not reached its entry point or produced a rendered frame.
