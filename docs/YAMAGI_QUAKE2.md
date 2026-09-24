@@ -200,3 +200,20 @@ All thirteen suites pass. Latest game startup resolves these imports and stops
 at `zqJhBxAKfsc` (`__stdoutp`). The next work requires the guest FILE layout and
 standard stream exports; mapping a host FILE pointer directly would be invalid.
 The game still has not executed its entry point or rendered a frame.
+
+## Follow-up: standard stream globals and character I/O
+
+Added __stdinp, __stdoutp, __stderrp, and __isthreaded exports. FileStream now
+starts with the verified macro-accessed guest FILE prefix (position, read/write
+counts, flags, descriptor, and buffer fields); native stream state follows a
+reserved guest area. This is not a complete implementation of FreeBSD's private
+FILE operations, locking fields, or wide-stream state.
+
+Added character input/output, __srget/__swbuf fallbacks, fgets, ungetc, EOF/error
+queries, clearerr, fileno, and buffering-mode translation. Existing fread/fwrite
+and fseek now refresh the guest status fields. Tests exercise stream globals,
+field offsets, inline-macro fallback paths, temporary-file I/O, EOF, ungetc,
+and closure. All fourteen suites pass and the compatibility libraries rebuild.
+
+Latest startup resolves the stream globals and stops at `8nY19bKoiZk` (`fcntl`).
+The game has not reached its entry point or displayed a frame.

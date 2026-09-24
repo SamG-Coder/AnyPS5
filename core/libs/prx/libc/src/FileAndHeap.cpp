@@ -55,6 +55,7 @@ size_t APS5_VABI fread_nid_postfix(void* buffer, size_t size, size_t count, File
     if (size == 0 || count == 0) return 0;
     if (!buffer) throw std::runtime_error("fread: null buffer");
     const auto result = std::fread(buffer, size, count, handle);
+    stream->SyncStatus();
     if (std::ferror(handle)) throw std::runtime_error("fread: read failed");
     return result;
 }
@@ -64,6 +65,7 @@ size_t APS5_VABI fwrite_nid_postfix(const void* buffer, size_t size, size_t coun
     if (size == 0 || count == 0) return 0;
     if (!buffer) throw std::runtime_error("fwrite: null buffer");
     const auto result = std::fwrite(buffer, size, count, handle);
+    stream->SyncStatus();
     if (result != count || std::ferror(handle)) throw std::runtime_error("fwrite: write failed");
     return result;
 }
@@ -71,6 +73,7 @@ size_t APS5_VABI fwrite_nid_postfix(const void* buffer, size_t size, size_t coun
 int APS5_VABI fseek_nid_postfix(FileStream* stream, long offset, int origin) {
     if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) throw std::runtime_error("fseek: invalid origin");
     if (std::fseek(GetNativeStream(stream), offset, origin) != 0) throw std::runtime_error("fseek: seek failed");
+    stream->SyncStatus();
     return 0;
 }
 
