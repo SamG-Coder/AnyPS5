@@ -288,3 +288,27 @@ PS5 mount semantics, cross-volume behavior, or replacement of existing directori
 The unchanged converted game resolves remove and rename. Startup now stops at
 `biY+kcVB5D4` (`dlsym`), requiring dynamic-module symbol lookup. It still has not
 executed the guest entry point or displayed a frame.
+
+## Follow-up: dynamic-module lookup
+
+Added dlopen, dlsym, dlclose, and dlerror to libkernel. Handles are tracked rather
+than exposing native loader handles. Symbol lookup tries the literal export and
+then its PS5 NID, reusing the project's existing hash implementation. Repeated
+opens hold separate loader references. Error messages are thread-local and are
+consumed by dlerror. Native unload runs outside the module registry lock.
+
+A test builds and NID-patches a separate shared module, loads it, finds an export
+by its original name, and calls it through the guest SysV ABI. It also checks
+global visibility for explicitly opened modules, invalid/closed handles,
+repeated opens, missing symbols, unsupported flags, and error isolation.
+All eighteen suites pass.
+
+This is host-compatible module loading, not raw PS5 ELF loading on Windows.
+RTLD_LAZY/NOW and GLOBAL are accepted; Windows binds eagerly. Default lookup
+currently searches explicitly registered global modules only. Automatic lookup
+across the startup dependency graph, RTLD_NEXT/SELF, other flags, and console
+load/start entry points remain unsupported. The guest path resolver is reused;
+full console library-search and mount semantics are not established.
+
+Latest unchanged-game startup resolves dlsym and stops at `DYivN1nO-JQ`
+(`getcwd`). No guest entry-point execution or rendered frame has been observed.

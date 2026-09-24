@@ -104,6 +104,24 @@ endforeach()
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_library(guest_module_fixture SHARED tests/GuestModuleFixture.cpp)
+    target_include_directories(guest_module_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    add_custom_command(TARGET guest_module_fixture POST_BUILD
+        COMMAND $<TARGET_FILE:nid_patcher> guest_module_fixture $<TARGET_FILE:guest_module_fixture>
+        VERBATIM)
+    add_dependencies(guest_module_fixture nid_patcher)
+    add_executable(guest_dynamic_loader_tests tests/GuestDynamicLoader.cpp)
+    target_include_directories(guest_dynamic_loader_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_dynamic_loader_tests PRIVATE libkernel libc)
+    configure_windows_unwind(guest_dynamic_loader_tests)
+    add_dependencies(guest_dynamic_loader_tests guest_module_fixture)
+    add_test(NAME guest_dynamic_loader COMMAND guest_dynamic_loader_tests $<TARGET_FILE_NAME:guest_module_fixture>)
+    set_tests_properties(guest_dynamic_loader PROPERTIES
+        WORKING_DIRECTORY "$<TARGET_FILE_DIR:guest_module_fixture>")
+    if(WIN32)
+        set_tests_properties(guest_dynamic_loader PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
+    endif()
     add_executable(guest_filesystem_tests tests/GuestFilesystem.cpp)
     target_include_directories(guest_filesystem_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(guest_filesystem_tests PRIVATE libc)

@@ -29,6 +29,9 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Socket/src/AddressConversion.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/EventFlag/src/EventFlag.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Module/src/Module.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Module/src/DynamicLoader.cpp
+        ${LIBS_INCLUDE_DIR}/nid/src/NidCompute.cpp
+        ${LIBS_INCLUDE_DIR}/nid/src/Sha1.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Aio/src/Aio.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Coredump.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/System/src/Exception.cpp
@@ -43,6 +46,8 @@ add_library(libkernel SHARED EXCLUDE_FROM_ALL
 )
 
 target_include_directories(libkernel PRIVATE ${LIBS_INCLUDE_DIR})
+target_include_directories(libkernel PRIVATE ${LIBS_INCLUDE_DIR}/nid/include)
+target_link_libraries(libkernel PRIVATE ${CMAKE_DL_LIBS})
 target_link_libraries(libkernel PRIVATE libc)
 if(WIN32)
     target_link_libraries(libkernel PRIVATE ws2_32)
