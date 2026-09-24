@@ -180,3 +180,23 @@ only. POSIX close also closes ordinary host CRT descriptors.
 
 The unchanged game resolves ioctl and now stops at `mkawd0NA9ts` (`sysconf`),
 before guest entry-point execution. No rendered frame has been observed.
+
+## Follow-up: configuration queries and signal callbacks
+
+Added sysconf for guest page size, configured/online processor counts, and
+physical page count. The return type is explicitly 64-bit for the guest ABI.
+Memory capacity is reported in 16 KiB guest pages; CPU and capacity values
+reflect the executing host. Unsupported queries return -1 with guest EINVAL.
+The previous getpagesize placeholder now returns the same guest page size.
+
+Added signal/raise bridges for SIGINT, SIGILL, SIGABRT, SIGFPE, SIGSEGV, and
+SIGTERM. Host callbacks dispatch through the guest SysV calling convention;
+default/ignore handlers and guest-to-host signal numbers are translated.
+Tests cover repeated explicit SIGTERM delivery, ignore/default restoration,
+and invalid signals. This does not validate hardware-fault recovery, signal
+masks, sigaction, or complete asynchronous POSIX semantics.
+
+All thirteen suites pass. Latest game startup resolves these imports and stops
+at `zqJhBxAKfsc` (`__stdoutp`). The next work requires the guest FILE layout and
+standard stream exports; mapping a host FILE pointer directly would be invalid.
+The game still has not executed its entry point or rendered a frame.
