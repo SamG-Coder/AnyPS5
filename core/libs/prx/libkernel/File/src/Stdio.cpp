@@ -2,6 +2,12 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libkernel/Socket/include/SocketRuntime.hpp"
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 extern "C" {
 
@@ -13,9 +19,12 @@ int APS5_VABI chmod_nid_postfix(const char* path, int mode) {
 }
 
 int APS5_VABI close_nid_postfix(int d) {
- (void)d;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (d >= GuestSockets::FirstDescriptor) return GuestSockets::Close(d);
+#ifdef _WIN32
+    return _close(d);
+#else
+    return ::close(d);
+#endif
 }
 
 int APS5_VABI flock_nid_postfix(int d, int operation) {

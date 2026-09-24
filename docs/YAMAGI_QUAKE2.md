@@ -159,3 +159,24 @@ Latest startup stops at `PfccT7qURYE` (`ioctl`). The existing libkernel socket
 operations include unimplemented placeholders, so the socket lifecycle needs
 review before networking behavior can be considered supported. No gameplay
 or guest entry-point execution is established by resolving these imports.
+
+## Follow-up: tracked UDP sockets
+
+Replaced the UDP-path placeholders with tracked guest descriptors, IPv4/IPv6
+address conversion, bind, getsockname, sendto, recvfrom, and close. Added guest
+FIONBIO/FIONREAD ioctl translation and integer socket options for reuse-address,
+broadcast, send-buffer size, and receive-buffer size. Descriptors occupy a
+separate range from host CRT file descriptors and are not reused. In-flight
+operations retain native socket ownership while guest close removes the handle.
+Allocation failure closes the native socket and reports guest ENOMEM.
+
+The new loopback test sends and receives a real IPv4 UDP datagram through guest
+exports, checks nonblocking EAGAIN, queued-byte counts, MSG_PEEK, broadcast
+options, and closed-descriptor rejection. All eleven suites pass. IPv6 socket
+address translation is implemented but this UDP test exercises IPv4 only.
+TCP, select, connected send/recv, and unimplemented options remain unsupported;
+online multiplayer is not validated. ioctl currently accepts tracked sockets
+only. POSIX close also closes ordinary host CRT descriptors.
+
+The unchanged game resolves ioctl and now stops at `mkawd0NA9ts` (`sysconf`),
+before guest entry-point execution. No rendered frame has been observed.
