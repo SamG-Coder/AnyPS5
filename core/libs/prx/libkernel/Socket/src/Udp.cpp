@@ -18,6 +18,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <cstdarg>
 
 extern "C" int* APS5_VABI __error_nid_postfix();
 namespace {
@@ -60,6 +61,8 @@ int NativeError() {
 }
 struct Socket {
     NativeSocket value;
+    std::mutex modeMutex;
+    bool nonblocking = false;
     explicit Socket(NativeSocket value) : value(value) {}
     ~Socket() {
         if (value == Invalid) return;
@@ -139,6 +142,34 @@ int GuestSockets::Close(int descriptor) {
 }
 
 extern "C" {
+int APS5_VABI fcntl_nid_postfix(int descriptor, int command, ...) {
+    const auto socket = Lookup(descriptor);
+    if (!socket) return -1;
+    std::lock_guard lock(socket->modeMutex);
+    if (command == 3) return 2 | (socket->nonblocking ? 4 : 0); // F_GETFL, O_RDWR
+    if (command != 4) return Fail(22);
+#ifdef _WIN32
+    __builtin_sysv_va_list arguments;
+    __builtin_sysv_va_start(arguments, command);
+    const int flags = __builtin_va_arg(arguments, int);
+    __builtin_sysv_va_end(arguments);
+#else
+    std::va_list arguments;
+    va_start(arguments, command);
+    const int flags = va_arg(arguments, int);
+    va_end(arguments);
+#endif
+    if ((flags & ~7) != 0) return Fail(45);
+#ifdef _WIN32
+    unsigned long enabled = (flags & 4) != 0;
+    if (ioctlsocket(socket->value, FIONBIO, &enabled)) return Fail(NativeError());
+#else
+    int enabled = (flags & 4) != 0;
+    if (::ioctl(socket->value, FIONBIO, &enabled)) return Fail(NativeError());
+#endif
+    socket->nonblocking = enabled != 0;
+    return 0;
+}
 int APS5_VABI setsockopt_nid_postfix(int descriptor, int level, int option,
                                     const void* value, std::uint32_t length) {
     const auto socket = Lookup(descriptor);
@@ -209,6 +240,7 @@ int APS5_VABI ioctl_nid_postfix(int descriptor, std::uint64_t request, void* arg
     if (!socket) return -1;
     if (!argument) return Fail(14);
     if (request != 0x8004667e && request != 0x4004667f) return Fail(25);
+    std::lock_guard lock(socket->modeMutex);
     unsigned long value = 0;
     if (request == 0x8004667e) value = *static_cast<int*>(argument) != 0;
 #ifdef _WIN32
@@ -219,6 +251,7 @@ int APS5_VABI ioctl_nid_postfix(int descriptor, std::uint64_t request, void* arg
     value = static_cast<unsigned long>(nativeValue);
 #endif
     if (result) return Fail(NativeError());
+    if (request == 0x8004667e) socket->nonblocking = value != 0;
     if (request == 0x4004667f) *static_cast<int*>(argument) = static_cast<int>(value);
     return 0;
 }

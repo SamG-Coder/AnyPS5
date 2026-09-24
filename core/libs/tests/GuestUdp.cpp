@@ -7,6 +7,7 @@
 #include <chrono>
 extern "C" {
 int APS5_VABI socket_nid_postfix(int, int, int);
+int APS5_VABI fcntl_nid_postfix(int, int, ...);
 int APS5_VABI setsockopt_nid_postfix(int, int, int, const void*, std::uint32_t);
 int APS5_VABI getsockopt_nid_postfix(int, int, int, void*, std::uint32_t*);
 int APS5_VABI bind_nid_postfix(int, const void*, std::uint32_t);
@@ -35,6 +36,13 @@ int main() {
     Require(setsockopt_nid_postfix(sender, 0xffff, 12345, &enabled, sizeof(enabled)) == -1);
     Require(*__error_nid_postfix() == 42);
     Require(ioctl_nid_postfix(receiver, 0x8004667e, &enabled) == 0);
+    Require(fcntl_nid_postfix(receiver, 3) == 6);
+    Require(fcntl_nid_postfix(receiver, 4, 2) == 0);
+    Require(fcntl_nid_postfix(receiver, 3) == 2);
+    Require(fcntl_nid_postfix(receiver, 4, 6) == 0);
+    Require(fcntl_nid_postfix(receiver, 3) == 6);
+    Require(fcntl_nid_postfix(receiver, 4, 0x8000) == -1);
+    Require(fcntl_nid_postfix(receiver, 3) == 6);
     char buffer[64]{};
     Require(recvfrom_nid_postfix(receiver, buffer, sizeof(buffer), 0, nullptr, nullptr) == -1);
     Require(*__error_nid_postfix() == 35);
