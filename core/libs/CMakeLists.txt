@@ -104,6 +104,15 @@ endforeach()
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_executable(guest_working_directory_tests tests/GuestWorkingDirectory.cpp)
+    target_include_directories(guest_working_directory_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_working_directory_tests PRIVATE libc)
+    configure_windows_unwind(guest_working_directory_tests)
+    add_test(NAME guest_working_directory COMMAND guest_working_directory_tests)
+    if(WIN32)
+        set_tests_properties(guest_working_directory PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_library(guest_module_fixture SHARED tests/GuestModuleFixture.cpp)
     target_include_directories(guest_module_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     add_custom_command(TARGET guest_module_fixture POST_BUILD

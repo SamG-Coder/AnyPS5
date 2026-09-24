@@ -312,3 +312,20 @@ full console library-search and mount semantics are not established.
 
 Latest unchanged-game startup resolves dlsym and stops at `DYivN1nO-JQ`
 (`getcwd`). No guest entry-point execution or rendered frame has been observed.
+
+## Follow-up: working-directory state
+
+Added getcwd and chdir with shared guest path state. The initial host working
+directory is captured as the guest root; guest cwd begins at `/`. Relative paths
+follow guest cwd while absolute guest paths remain rooted at that captured
+directory. Guest chdir does not change the host process cwd. Canonical directory
+targets within that root are supported; targets outside it return EOPNOTSUPP.
+Explicit Windows drive paths remain accepted by the general resolver for
+compatibility with existing host-path callers. This is not a filesystem sandbox
+or a complete PS5 mount implementation.
+
+Tests verify root/parent traversal, relative and absolute resolution after chdir,
+missing/non-directory failures, unchanged host cwd, short-buffer handling, and
+getcwd allocation freed through the guest heap. All nineteen suites pass.
+Latest unchanged-game startup resolves getcwd and stops at `oVkZ8W8-Q8A`
+(`strtok`). Guest execution and rendered output remain unverified.
