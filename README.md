@@ -12,9 +12,9 @@ Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/U
 
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces validated via [Spirv-Tools](3rdparty/SPIRV-Tools) SPIR-V.
 
-The real game successfully presents the logo and loads the main menu, then crashes before the menu buttons appear.
+The real game reaches the main menu, which renders correctly with buttons and audio.
 
-Current error: Access Violation at ~frame 168.
+Current stop: [libScePad](core/libs/prx/libScePad) does not record the input, so the button cannot be pressed.
 
 ## Build
 
