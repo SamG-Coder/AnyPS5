@@ -10,6 +10,7 @@
 #include "prx/libSceVideoOut/include/VideoOutDriver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 
@@ -34,6 +35,7 @@ public:
         request->cfg = cfg;
         request->queue = queue;
         request->index = info.index;
+        request->outputHandle = info.handle;
         request->flipMode = static_cast<int>(info.mode);
         request->flipArg = info.argument;
         std::lock_guard queueLock(queue->mutex);
@@ -97,14 +99,20 @@ FlipRequest::~FlipRequest() {
     }
 }
 
-void FlipRequest::GpuReady() {
+void FlipRequest::GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>& frameTiming) {
+    require(frameTiming != nullptr, "missing frame timing");
+    timing = frameTiming;
     {
+        AgcDriver::PerformanceContext timingContext(timing.get());
+        AgcDriver::PerformanceTimer readiness("VideoOut.Readiness");
         std::lock_guard queueLock(queue->mutex);
         if (queue->failure) std::rethrow_exception(queue->failure);
         require(!queue->stopping, "GPU flip during shutdown");
         std::lock_guard lock(cfg->mutex);
         checkConfig(*cfg);
         require(reserved && !ready && !terminal && cfg->generation == generation, "invalid flip readiness transition");
+        readiness.Mark("locks_validate");
+        queuedAt = AgcDriver::FrameTiming::Clock::now();
         queue->requests.push_back(shared_from_this());
         ready = true;
     }
@@ -312,14 +320,19 @@ void VideoOutDriver::vblankEnd() {
 }
 
 void VideoOutDriver::processFlip(FlipRequest& req) {
+    AgcDriver::PerformanceContext timingContext(req.timing.get());
+    AgcDriver::PerformanceTimer timing("VideoOut.Flip");
     {
         std::unique_lock lock(req.cfg->mutex);
+        timing.Mark("config_mutex_wait");
         checkConfig(*req.cfg);
         require(req.ready && !req.terminal && req.generation == req.cfg->generation, "stale or incomplete flip request");
         const auto interval = static_cast<uint64_t>(req.flipRate + 1);
         require(req.cfg->lastFlipVblank <= std::numeric_limits<uint64_t>::max() - interval, "flip interval overflow");
         const auto target = req.cfg->lastFlipVblank + interval;
+        timing.Mark("validate");
         req.cfg->vblankCond.wait(lock, [&] { return req.cfg->vblankStatus.count >= target || req.cfg->failure || req.cfg->closing; });
+        timing.Mark("vblank_wait");
         checkConfig(*req.cfg);
     }
     require(req.width != 0 && req.height != 0 && req.width <= static_cast<uint32_t>(std::numeric_limits<int>::max()) && req.height <= static_cast<uint32_t>(std::numeric_limits<int>::max()), "invalid window dimensions");
@@ -339,7 +352,8 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
         *width = drawableWidth > 0 ? static_cast<std::uint32_t>(drawableWidth) : 0;
         *height = drawableHeight > 0 ? static_cast<std::uint32_t>(drawableHeight) : 0;
-    }, req.width, req.height};
+    }, req.width, req.height, req.timing};
+    timing.Mark("window_prepare");
     const auto gpuReady = [](void* context) {
         auto& request = *static_cast<FlipRequest*>(context);
         std::lock_guard lock(request.cfg->mutex);
@@ -354,8 +368,11 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     } else {
         AgcDriverPresentClear_nid_postfix(target, req.index == VIDEO_OUT_BUFFER_INDEX_BLACK, gpuReady, &req);
     }
+    timing.Mark("present");
     window.UpdateTitle();
+    timing.Mark("window_title");
     std::lock_guard lock(req.cfg->mutex);
+    timing.Mark("completion_mutex_wait");
     checkConfig(*req.cfg);
     require(!req.terminal && req.cfg->generation == req.generation, "flip cancelled during presentation");
     require(req.gpuComplete, "flip submitted before GPU completion");
@@ -374,6 +391,7 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     if (req.index >= 0) --req.cfg->bufferPending[req.index];
     req.terminal = true;
     req.cfg->vblankCond.notify_all();
+    timing.Mark("notify_game");
 }
 
 void VideoOutDriver::presentLoop(std::stop_token token) {
@@ -390,7 +408,21 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
                     flipQueue->requests.pop_front();
                 }
             }
-            if (current) processFlip(*current);
+            if (current) {
+                require(current->timing != nullptr, "missing presentation timing");
+                const auto dequeued = AgcDriver::FrameTiming::Clock::now();
+                current->timing->Add(current->timing->Get("VideoOut", "queue"), dequeued - current->queuedAt);
+                processFlip(*current);
+                const auto finished = AgcDriver::FrameTiming::Clock::now();
+                AgcDriver::FrameTiming::Clock::duration interval{};
+                {
+                    std::lock_guard lock(current->cfg->mutex);
+                    const auto previous = current->cfg->lastTimingFlip;
+                    if (previous != AgcDriver::FrameTiming::Clock::time_point{}) interval = finished - previous;
+                    current->cfg->lastTimingFlip = finished;
+                }
+                current->timing->Print(current->outputHandle, current->index, current->flipArg, finished, interval);
+            }
             current.reset();
             SDL_Event event;
             while (SDL_PollEvent(&event)) {

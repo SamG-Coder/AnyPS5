@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/shaders/ColorTransfer_spv.h"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <array>
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 
 namespace AgcDriver::Graphics {
 
@@ -91,9 +92,12 @@ void GpuColorTransfer::prepare(std::uint32_t newWidth, std::uint32_t newHeight, 
 }
 
 void GpuColorTransfer::Upload(std::uint64_t address, std::uint32_t newWidth, std::uint32_t newHeight, ColorTileMode newMode) {
+    PerformanceTimer timing("ColorTransfer.Upload");
     prepare(newWidth, newHeight, newMode);
+    timing.Mark("prepare");
     const ColorTargetLayout layout(width, height, mode);
     GuestMemory::Read(address, tiled->Bytes(), layout.Alignment());
+    timing.Mark("guest_read", layout.Bytes());
 }
 
 void GpuColorTransfer::convert(VkCommandBuffer commands, bool toTiled, bool swapRedBlue) {
@@ -123,9 +127,12 @@ void GpuColorTransfer::Tile(VkCommandBuffer commands) {
 }
 
 void GpuColorTransfer::WriteBack(std::uint64_t address) {
+    PerformanceTimer timing("ColorTransfer.WriteBack");
     Require(tiled != nullptr, "color transfer is not prepared for writeback");
     const ColorTargetLayout layout(width, height, mode);
+    timing.Mark("validate");
     GuestMemory::Write(address, tiled->Bytes(), layout.Alignment());
+    timing.Mark("guest_write", layout.Bytes());
 }
 
 VkBuffer GpuColorTransfer::LinearBuffer() const {

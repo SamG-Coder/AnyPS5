@@ -45,7 +45,7 @@ class Request final : public AgcDriver::IFlipRequest {
 public:
     explicit Request(std::shared_ptr<State> value) : state(std::move(value)) { ++state->alive; }
     ~Request() override { --state->alive; }
-    void GpuReady() override {
+    void GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>&) override {
         std::unique_lock lock(state->mutex);
         if (state->checkSelfWait) {
             check(expectFailure([] { AgcDriverSuspendPoint_nid_postfix(); }).find("itself") != std::string::npos, "self suspend was not rejected");

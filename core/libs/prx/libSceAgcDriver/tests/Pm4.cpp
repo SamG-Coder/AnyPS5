@@ -66,6 +66,10 @@ void testCatalog() {
 
 void testRegisters() {
     AgcDriver::QueueState state;
+    execute(state, makePacket(0x79, {0x242, 4}));
+    check(state.userConfig.at(0x242) == 4, "primitive type register write was lost");
+    execute(state, makePacket(0x79, {0x242, 6}));
+    check(state.userConfig.at(0x242) == 6, "primitive type register update was lost");
     const std::array<std::uint32_t, 3> indirectOpcodes{0x9f, 0x63, 0x64};
     for (auto opcode : indirectOpcodes) {
         std::array<std::uint32_t, 6> pairs{0x10, 41, 0x11, 42, 0x10, 43};

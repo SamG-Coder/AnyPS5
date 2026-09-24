@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEVIDEOOUT_INCLUDE_VIDEOOUTDRIVER_HPP
 
 #include <array>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <list>
@@ -100,6 +101,7 @@ struct VideoOutConfig {
     std::exception_ptr failure;
     int flipRate = 0;
     uint64_t lastFlipVblank = 0;
+    std::chrono::steady_clock::time_point lastTimingFlip{};
     uint64_t outputMode = VIDEO_OUT_OUTPUT_MODE_DEFAULT;
     float gamma = 1.0f;
 
@@ -123,6 +125,7 @@ struct FlipRequest final : AgcDriver::IFlipRequest, std::enable_shared_from_this
     std::shared_ptr<VideoOutConfig> cfg;
     std::shared_ptr<FlipQueue> queue;
     uint64_t generation = 0;
+    std::uint32_t outputHandle = 0;
     int index = 0;
     int flipMode = 0;
     int flipRate = 0;
@@ -136,8 +139,11 @@ struct FlipRequest final : AgcDriver::IFlipRequest, std::enable_shared_from_this
     bool gpuComplete = false;
     bool terminal = false;
 
+    std::shared_ptr<AgcDriver::FrameTiming> timing;
+    std::chrono::steady_clock::time_point queuedAt;
+
     ~FlipRequest() override;
-    void GpuReady() override;
+    void GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>& frameTiming) override;
     void Fail(std::exception_ptr error) noexcept override;
 };
 

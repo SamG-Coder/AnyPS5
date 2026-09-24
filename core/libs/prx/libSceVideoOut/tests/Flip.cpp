@@ -37,7 +37,7 @@ public:
     std::condition_variable changed;
     bool released = false;
     std::shared_ptr<AgcDriver::IFlipRequest> Reserve(const AgcDriver::FlipInfo&) override { return shared_from_this(); }
-    void GpuReady() override {
+    void GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>&) override {
         std::unique_lock lock(mutex);
         if (!changed.wait_for(lock, std::chrono::seconds(10), [&] { return released; })) throw std::runtime_error("test gate timed out");
     }

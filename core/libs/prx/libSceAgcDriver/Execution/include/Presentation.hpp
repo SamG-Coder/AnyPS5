@@ -6,9 +6,12 @@
 #include <cstdint>
 #include <exception>
 #include <span>
+#include <memory>
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 
 namespace AgcDriver {
+
+class FrameTiming;
 
 struct PresentationWindow {
     void* context;
@@ -17,6 +20,7 @@ struct PresentationWindow {
     void (*getDrawableSize)(void* context, std::uint32_t* width, std::uint32_t* height);
     std::uint32_t width;
     std::uint32_t height;
+    std::shared_ptr<FrameTiming> timing;
 };
 
 }

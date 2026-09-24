@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <algorithm>
 #include <cstring>
 #include <limits>
@@ -61,17 +62,23 @@ void CheckRange(const void* pointer, std::size_t bytes, std::size_t alignment, b
 }
 
 void Read(std::uint64_t address, std::span<std::byte> destination, std::size_t alignment) {
+    PerformanceTimer timing("GuestMemory.Read");
     if (destination.empty()) return;
     const auto* source = reinterpret_cast<const void*>(address);
     CheckRange(source, destination.size(), alignment);
+    timing.Mark("range_check");
     std::memcpy(destination.data(), source, destination.size());
+    timing.Mark("copy", destination.size());
 }
 
 void Write(std::uint64_t address, std::span<const std::byte> source, std::size_t alignment) {
+    PerformanceTimer timing("GuestMemory.Write");
     if (source.empty()) return;
     auto* destination = reinterpret_cast<void*>(address);
     CheckRange(destination, source.size(), alignment, true);
+    timing.Mark("range_check");
     std::memcpy(destination, source.data(), source.size());
+    timing.Mark("copy", source.size());
 }
 
 }

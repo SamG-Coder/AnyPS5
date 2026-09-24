@@ -7,6 +7,8 @@
 
 namespace AgcDriver {
 
+class FrameTiming;
+
 inline constexpr std::uint32_t FlipPacketHeader = 0xc004105cu;
 inline constexpr std::uint32_t FlipPacketWords = 6;
 
@@ -20,7 +22,7 @@ struct FlipInfo {
 class IFlipRequest {
 public:
     virtual ~IFlipRequest() = default;
-    virtual void GpuReady() = 0;
+    virtual void GpuReady(const std::shared_ptr<FrameTiming>& timing) = 0;
     virtual void Fail(std::exception_ptr error) noexcept = 0;
 };
 
