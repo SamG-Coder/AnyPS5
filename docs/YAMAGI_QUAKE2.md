@@ -541,3 +541,19 @@ empty and singleton arrays, and unchanged input bytes. All twenty-nine tests
 have passed (the new test was rerun after correcting its padding-byte snapshot).
 The unchanged game resolves bsearch and stops at `jbz9I9vkqkk` (`vsprintf`),
 still before guest entry with exit `0xc0000139`.
+
+## Follow-up: unbounded varargs formatting
+
+Added vsprintf through the existing guest varargs formatter on Windows and the
+native SysV va_list path on Linux. The caller remains responsible for buffer
+capacity, as with the C interface. Windows tests cover mixed integer/string/
+floating arguments, guest 64-bit long, width and precision arguments, register
+overflow onto the stack, long double, percent escapes, count writes, empty
+output, termination, and the byte immediately after the output. The formatter's
+existing unsupported conversions still fail explicitly; this does not establish
+complete printf compatibility or Linux runtime validation.
+
+All twenty-nine CTest cases pass. The unchanged Quake II executable now resolves
+vsprintf and stops at `Jc6E7N+dHz0` (`system`), before guest entry, with exit
+`0xc0000139`. No game frame has been rendered. Upstream was fetched again and
+had no new commits to merge.

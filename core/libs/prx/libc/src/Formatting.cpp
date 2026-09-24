@@ -152,6 +152,14 @@ int APS5_VABI vprintf_nid_postfix(const char* str, VaList* c) {
 #endif
 }
 
+int APS5_VABI vsprintf_nid_postfix(char* str, const char* format, VaList* args) {
+#ifdef _WIN32
+    return LibcDetail::FormatWindows(str, SIZE_MAX, format, args);
+#else
+    return std::vsprintf(str, format, *reinterpret_cast<std::va_list*>(args));
+#endif
+}
+
 int APS5_VABI vsnprintf_nid_postfix(char* str, size_t size, const char* format, VaList* c) {
 #ifdef _WIN32
     return LibcDetail::FormatWindows(str, size, format, c);

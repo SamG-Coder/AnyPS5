@@ -20,6 +20,7 @@ extern FileStream* __stderrp_nid_postfix;
 extern int __isthreaded_nid_postfix;
 int APS5_VABI fprintf_nid_postfix(FileStream*, const char*, ...);
 int APS5_VABI vfprintf_nid_postfix(FileStream*, const char*, void*);
+int APS5_VABI vsprintf_nid_postfix(char*, const char*, void*);
 int APS5_VABI fgetc_nid_postfix(FileStream*);
 int APS5_VABI fputc_nid_postfix(int, FileStream*);
 int APS5_VABI __srget_nid_postfix(FileStream*);
@@ -48,7 +49,35 @@ static int APS5_VABI WriteFormatted(FileStream* stream, const char* format, ...)
 #endif
     return result;
 }
+static int APS5_VABI FormatString(char* buffer, const char* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vsprintf_nid_postfix(buffer, format, args);
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
 int main() {
+    char stringOutput[256];
+    std::memset(stringOutput, '!', sizeof(stringOutput));
+    std::int64_t count = -1;
+    const char expectedString[] = "guest:4294967297:  3.50:1,2,3,4,5,6,7,8:%";
+    const int written = FormatString(stringOutput, "%s:%ld:%*.*f:%d,%d,%d,%d,%d,%d,%d,%d:%%%ln",
+        "guest", std::int64_t{4294967297}, 6, 2, 3.5, 1, 2, 3, 4, 5, 6, 7, 8, &count);
+    Require(written == sizeof(expectedString) - 1 && count == written);
+    Require(std::strcmp(stringOutput, expectedString) == 0 && stringOutput[written + 1] == '!');
+    Require(FormatString(stringOutput, "%.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.0f %.2Lf",
+        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 1.25L) == 25);
+    Require(std::strcmp(stringOutput, "1 2 3 4 5 6 7 8 9 10 1.25") == 0);
+    Require(FormatString(stringOutput, "") == 0 && stringOutput[0] == '\0');
     Require(__isthreaded_nid_postfix == 1);
     Require(__stdoutp_nid_postfix == &_Stdout_nid_postfix);
     Require(__stderrp_nid_postfix == &_Stderr_nid_postfix);
