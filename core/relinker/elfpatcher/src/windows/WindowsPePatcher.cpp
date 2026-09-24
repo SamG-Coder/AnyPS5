@@ -5,11 +5,27 @@
 #include <elfpatcher/windows/WindowsRelocationBuilder.hpp>
 #include <elfpatcher/windows/WindowsTlsBuilder.hpp>
 #include <io/BufferUtils.hpp>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <utility>
 
 namespace Elfpatcher::Windows {
 
 namespace {
+
+void writeDiagnosticsImports(const std::vector<PeImport>& imports) {
+    const std::filesystem::path path = std::filesystem::absolute("windows-diagnostics-imports.txt");
+    std::ofstream stream(path, std::ios::trunc);
+    if (!stream)
+        throw Domain::RelinkerException("Cannot open windows-diagnostics-imports.txt for writing");
+    for (const auto& import : imports)
+        stream << import.Name << '\n';
+    if (!stream)
+        throw Domain::RelinkerException("Cannot write windows-diagnostics-imports.txt");
+    stream.close();
+    std::cout << "Wrote Windows import diagnostics to " << path.string() << '\n';
+}
 
 void writeGotStub(std::vector<PeSection>& sections, const std::uint32_t targetRva, const std::uint32_t stubRva) {
     for (auto& section : sections) {
@@ -63,6 +79,8 @@ std::vector<std::uint8_t> WindowsPePatcher::Patch(const std::vector<std::uint8_t
     directories[12] = nativeImports.AddressTable;
     nextRva = AlignRva(nextRva + nativeImports.Section.Data.size());
     const auto libraries = importBuilder.ReadLibraries(dynamicSection);
+    if (dependencyDiagnostics)
+        writeDiagnosticsImports(relocations.Imports);
     auto entry = WindowsEntryStubBuilder().Build(nextRva, image.GetEntryRva(), nativeImports, libraries, relocations.Imports, runPath, lazyBinding, dependencyDiagnostics);
     directories[3] = entry.ExceptionDirectory;
     const auto entryRva = entry.Code.Rva;

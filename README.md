@@ -14,7 +14,7 @@ The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully prod
 
 The real game reaches the render loop and **successfully presents its first frames** (logo).
 
-Current error: [relinker](core/relinker/relinker/src/analysis/UnusedNidFilter.cpp) with `unused-filter=1` removes the used [_ZSt21_sceLibcClassicLocale](core/libs/prx/libc/src/LocaleSupport.cpp) import, causing a null-pointer access. `unused_filter=2` preserves imports for functions that are not yet implemented in the [prx](core/libs/prx).
+Current error: Access Violation after `Could not open file /_sd/SAVEDATA00/-saveindex` at ~frame 71, presumably caused by a null pointer dereference.
 
 ## Build
 

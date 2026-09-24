@@ -1,5 +1,6 @@
 #include "Unwind.cpp"
 #include "Runtime.cpp"
+#include "TypeInfo.cpp"
 #include "ExceptionPointer.cpp"
 #include "StandardExceptions.cpp"
 #include "ArraySupport.cpp"
