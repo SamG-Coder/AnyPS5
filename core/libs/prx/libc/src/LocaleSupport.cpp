@@ -7,6 +7,7 @@
 #include <mutex>
 
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 
 namespace {
 
@@ -135,6 +136,7 @@ wint_t APS5_VABI _Towctrans_nid_postfix(wint_t c, wctrans_t desc) {
 }
 
 void APS5_VABI _init_env_nid_postfix() {
+    ApplicationHeapInitialize_nid_no_patch(ApplicationProcessParameters_nid_no_patch());
 }
 
 }

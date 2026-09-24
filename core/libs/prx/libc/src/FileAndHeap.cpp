@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "prx/libc/include/FileStream.hpp"
-#include "prx/libc/include/GuestHeap.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
 
 extern "C" {
@@ -93,19 +93,27 @@ int APS5_VABI fflush_nid_postfix(FileStream* stream) {
 }
 
 void* APS5_VABI malloc_nid_postfix(size_t size) {
-    return GuestHeap::GuestHeapAllocate_nid_postfix(size);
+    return ApplicationHeapAllocate_nid_no_patch(size);
 }
 
 void APS5_VABI free_nid_postfix(void* ptr) {
-    GuestHeap::GuestHeapFree_nid_postfix(ptr);
+    ApplicationHeapFree_nid_no_patch(ptr);
 }
 
 void* APS5_VABI realloc_nid_postfix(void* ptr, size_t newSize) {
-    return GuestHeap::GuestHeapReallocate_nid_postfix(ptr, newSize);
+    return ApplicationHeapReallocate_nid_no_patch(ptr, newSize);
 }
 
 void* APS5_VABI memalign_nid_postfix(size_t alignment, size_t size) {
-    return GuestHeap::GuestHeapAlign_nid_postfix(alignment, size);
+    return ApplicationHeapAlign_nid_no_patch(alignment, size);
+}
+
+void* APS5_VABI calloc_nid_postfix(size_t count, size_t size) {
+    return ApplicationHeapCalloc_nid_no_patch(count, size);
+}
+
+int APS5_VABI posix_memalign_nid_postfix(void** pointer, size_t alignment, size_t size) {
+    return ApplicationHeapPosixAlign_nid_no_patch(pointer, alignment, size);
 }
 
 void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (APS5_VABI *compare)(const void*, const void*)) {

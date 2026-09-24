@@ -32,6 +32,17 @@ std::vector<std::uint8_t> WindowsPePatcher::Patch(const std::vector<std::uint8_t
     auto sections = image.BuildSections();
     std::array<PeDirectory, 16> directories{};
     auto nextRva = image.GetEndRva();
+    bool hasProcessParameters = false;
+    for (const auto& header : originalHeaders) {
+        if (header.Type != 0x61000001) continue;
+        if (hasProcessParameters || header.FileSize < 0x40) throw Domain::RelinkerException("Invalid process parameter segment");
+        hasProcessParameters = true;
+        std::vector<std::uint8_t> metadata(8);
+        Io::WriteU32(metadata, 0, image.GetRva(header.MappedAddress, header.FileSize));
+        Io::WriteU32(metadata, 4, CheckedRva(header.FileSize));
+        sections.push_back({".procpar", nextRva, SectionRead | 0x40u, std::move(metadata)});
+        nextRva = AlignRva(nextRva + sections.back().Data.size());
+    }
     for (const auto& header : originalHeaders) {
         if (header.Type != 0x6474e550) continue;
         std::vector<std::uint8_t> metadata(4);

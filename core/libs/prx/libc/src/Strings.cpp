@@ -1,4 +1,4 @@
-#include "prx/libc/include/GuestHeap.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 #include <cstddef>
 #include <cstring>
 #include <cstdlib>
@@ -145,7 +145,7 @@ int APS5_VABI strncasecmp_nid_postfix(const char* s1, const char* s2, size_t n) 
 
 char* APS5_VABI strdup_nid_postfix(const char* s) {
     std::size_t len = std::strlen(s) + 1;
-    char* copy = static_cast<char*>(GuestHeap::GuestHeapAllocate_nid_postfix(len));
+    char* copy = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(len));
     std::memcpy(copy, s, len);
     return copy;
 }

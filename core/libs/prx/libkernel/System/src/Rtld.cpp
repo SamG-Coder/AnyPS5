@@ -2,12 +2,12 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
 
 void APS5_VABI sceKernelRtldSetApplicationHeapAPI(void* api[]) {
- (void)api;
- NotImplemented_nid_no_patch(__func__);
+    ApplicationHeapRegister_nid_no_patch(api);
 }
 
 int APS5_VABI sceKernelRtldThreadAtexitDecrement(uint64_t* c) {

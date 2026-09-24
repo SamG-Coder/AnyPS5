@@ -103,6 +103,10 @@ endforeach()
 
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
+add_executable(application_heap_tests EXCLUDE_FROM_ALL tests/ApplicationHeap.cpp prx/libc/src/ApplicationHeap.cpp)
+target_include_directories(application_heap_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+set_target_properties(application_heap_tests PROPERTIES CXX_EXTENSIONS OFF)
+
 if(MINGW)
     foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
         string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
