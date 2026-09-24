@@ -426,3 +426,25 @@ shutdown test. All twenty-four tests pass and the libraries rebuild.
 The unchanged game resolves freopen and _Exit. Startup now stops at
 `MqAdbRMdNz4` (`sceAgcLinkShaders`), moving the next investigation into shader
 linking. No guest entry-point execution or rendered frame has been observed.
+
+## Follow-up: basic shader linking
+
+Added sceAgcLinkShaders for the basic vertex/pixel pipeline by composing the
+existing primitive-state and interpolant-mapping implementations. It produces
+34 context-register records and three user-configuration records, matching the
+buffer sizes consumed by the native ps5link-sdk gpu_cube example. The context
+layout combines two primitive-state records with 32 interpolant records; this
+composition is inferred from the existing helpers and native caller, not from
+a captured hardware result. No homebrew rendering code was copied into the library.
+
+Inputs are validated and results are staged before touching caller outputs.
+Tests check triangle/line primitive values, identity interpolants, semantic
+matching, flat shading, missing-semantic defaults, buffer boundaries, and
+unchanged outputs on invalid input. Reserved/non-basic pipeline inputs are
+rejected. All twenty-five tests pass; comparison against real console register
+output and end-to-end rendering remains outstanding.
+
+The unchanged game resolves sceAgcLinkShaders and stops at `Wi82ArQtAwg`
+(`sceAgcGetRegisterDefaults`). The project already has a versioned defaults
+implementation; the legacy entry point still needs its contract verified.
+Guest entry-point execution and rendered output remain unverified.

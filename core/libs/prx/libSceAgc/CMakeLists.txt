@@ -43,6 +43,7 @@ add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Predication/src/Predication.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/CreateShader.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/InterpolantMapping.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/LinkShaders.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/PrimState.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/ShaderUtils.cpp
 )
