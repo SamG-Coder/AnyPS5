@@ -217,3 +217,22 @@ and closure. All fourteen suites pass and the compatibility libraries rebuild.
 
 Latest startup resolves the stream globals and stops at `8nY19bKoiZk` (`fcntl`).
 The game has not reached its entry point or displayed a frame.
+
+## Follow-up: descriptor flags and formatted stream output
+
+Added fcntl F_GETFL/F_SETFL for tracked UDP sockets. Nonblocking state is shared
+with FIONBIO ioctl and protected against concurrent mode updates. Unsupported
+flags are rejected; ordinary file descriptors and other fcntl commands are not
+implemented. The UDP test checks both APIs agree, mode transitions, and unchanged
+state after rejected flags.
+
+Added fprintf and vfprintf using the guest FileStream wrapper and the existing
+SysV variadic formatter on Windows. Tests write and read back mixed strings,
+64-bit guest long integers, floating-point values, register-overflow arguments,
+and dynamic width/precision through an explicit guest va_list. Write failure
+returns a negative result and refreshes the guest stream status.
+
+All fourteen CTest suites pass and patched compatibility libraries rebuild.
+The unchanged converted game now resolves fcntl and fprintf, and startup stops
+at `smbQukfxYJM` (`getenv`). This remains an import-resolution result: guest
+entry-point execution and a rendered frame are still unverified.
