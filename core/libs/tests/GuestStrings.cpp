@@ -2,8 +2,11 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 extern "C" {
+char* APS5_VABI basename_nid_postfix(const char*);
+int* APS5_VABI __error_nid_postfix();
 std::size_t APS5_VABI strnlen_nid_postfix(const char*, std::size_t);
 char* APS5_VABI strncat_nid_postfix(char*, const char*, std::size_t);
 char* APS5_VABI strpbrk_nid_postfix(const char*, const char*);
@@ -22,6 +25,15 @@ static void Require(bool condition) {
 }
 
 int main() {
+    Require(std::strcmp(basename_nid_postfix(nullptr), ".") == 0);
+    Require(std::strcmp(basename_nid_postfix(""), ".") == 0);
+    Require(std::strcmp(basename_nid_postfix("////"), "/") == 0);
+    const char path[] = "/one/two///";
+    Require(std::strcmp(basename_nid_postfix(path), "two") == 0);
+    Require(std::strcmp(path, "/one/two///") == 0);
+    Require(std::strcmp(basename_nid_postfix("one\\two"), "one\\two") == 0);
+    const std::string longName(1024, 'x');
+    Require(basename_nid_postfix(longName.c_str()) == nullptr && *__error_nid_postfix() == 63);
     const char bounded[] = {'a', 'b', 'c'};
     Require(strnlen_nid_postfix(bounded, 0) == 0);
     Require(strnlen_nid_postfix(bounded, sizeof(bounded)) == 3);

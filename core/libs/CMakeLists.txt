@@ -104,6 +104,15 @@ endforeach()
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_executable(guest_character_tests tests/GuestCharacter.cpp)
+    target_include_directories(guest_character_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_character_tests PRIVATE libc)
+    configure_windows_unwind(guest_character_tests)
+    add_test(NAME guest_character COMMAND guest_character_tests)
+    if(WIN32)
+        set_tests_properties(guest_character PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_executable(guest_math_tests tests/GuestMath.cpp)
     target_include_directories(guest_math_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(guest_math_tests PRIVATE libc)
@@ -248,12 +257,15 @@ if(BUILD_TESTING)
         set_tests_properties(guest_memory PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libkernel>")
     endif()
-    add_executable(guest_string_tests
-        tests/GuestStrings.cpp
-        prx/libc/src/StringExtensions.cpp
-        prx/libScePosixForWebKit/Export.cpp)
+    add_executable(guest_string_tests tests/GuestStrings.cpp)
     target_include_directories(guest_string_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_string_tests PRIVATE libc libScePosixForWebKit)
+    configure_windows_unwind(guest_string_tests)
     add_test(NAME guest_strings COMMAND guest_string_tests)
+    if(WIN32)
+        set_tests_properties(guest_strings PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
 endif()
 
 add_executable(application_heap_tests EXCLUDE_FROM_ALL tests/ApplicationHeap.cpp prx/libc/src/ApplicationHeap.cpp)

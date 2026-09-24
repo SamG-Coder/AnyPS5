@@ -356,3 +356,21 @@ semantics have not been validated.
 
 The unchanged game resolves fmodf and atof. Startup now stops at `TYE4irxSmko`
 (`toupper`), still before guest entry-point execution or rendered output.
+
+## Follow-up: character classification and basename
+
+Added fourteen byte-character classification and case-conversion exports for
+the runtime's classic C locale. Tests compare every byte value and EOF against
+C-locale classification and verify case conversion agrees with existing guest
+locale tables. Non-C locales are not implemented by these exports.
+
+Added basename with non-mutating input handling, trailing-slash removal,
+root/empty/null cases, and the SDK's 1024-byte component buffer limit. The
+contract follows [FreeBSD 11 basename](https://raw.githubusercontent.com/freebsd/freebsd-src/releng/11.4/lib/libc/gen/basename.c);
+result storage is thread-local. Tests include unchanged input, literal backslash
+handling, and ENAMETOOLONG. String tests now link the built compatibility
+libraries rather than compiling implementation copies into the test executable.
+
+All twenty-one suites pass. The unchanged converted game resolves toupper and
+basename and now stops at `5qP1iVQkdck` (`ftello`). Guest entry-point execution and
+rendered output remain unverified.

@@ -1,8 +1,24 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <cstddef>
 #include <cstring>
+#include <cerrno>
+#include <string_view>
 
 extern "C" {
+
+char* APS5_VABI basename_nid_postfix(const char* path) {
+    thread_local char buffer[1024];
+    std::string_view name = path && *path ? path : ".";
+    while (name.size() > 1 && name.back() == '/') name.remove_suffix(1);
+    if (name != "/") {
+        const auto separator = name.find_last_of('/');
+        if (separator != std::string_view::npos) name.remove_prefix(separator + 1);
+    }
+    if (name.size() >= sizeof(buffer)) { errno = 63; return nullptr; }
+    std::memcpy(buffer, name.data(), name.size());
+    buffer[name.size()] = '\0';
+    return buffer;
+}
 
 std::size_t APS5_VABI strnlen_nid_postfix(const char* text, std::size_t limit) {
     std::size_t length = 0;

@@ -84,6 +84,25 @@ constexpr auto g_upperTable = MakeCaseTable(true);
 
 extern "C" {
 
+// The runtime currently exposes the classic C locale. Keep byte classification
+// independent of any locale selected by host-side libraries.
+int APS5_VABI isupper_nid_postfix(int c) { return c >= 'A' && c <= 'Z'; }
+int APS5_VABI islower_nid_postfix(int c) { return c >= 'a' && c <= 'z'; }
+int APS5_VABI isalpha_nid_postfix(int c) { return isupper_nid_postfix(c) || islower_nid_postfix(c); }
+int APS5_VABI isdigit_nid_postfix(int c) { return c >= '0' && c <= '9'; }
+int APS5_VABI isalnum_nid_postfix(int c) { return isalpha_nid_postfix(c) || isdigit_nid_postfix(c); }
+int APS5_VABI isspace_nid_postfix(int c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
+int APS5_VABI isblank_nid_postfix(int c) { return c == ' ' || c == '\t'; }
+int APS5_VABI iscntrl_nid_postfix(int c) { return (c >= 0 && c < 32) || c == 127; }
+int APS5_VABI isprint_nid_postfix(int c) { return c >= 32 && c <= 126; }
+int APS5_VABI isgraph_nid_postfix(int c) { return c >= 33 && c <= 126; }
+int APS5_VABI ispunct_nid_postfix(int c) { return isgraph_nid_postfix(c) && !isalnum_nid_postfix(c); }
+int APS5_VABI isxdigit_nid_postfix(int c) {
+    return isdigit_nid_postfix(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+int APS5_VABI toupper_nid_postfix(int c) { return islower_nid_postfix(c) ? c - ('a' - 'A') : c; }
+int APS5_VABI tolower_nid_postfix(int c) { return isupper_nid_postfix(c) ? c + ('a' - 'A') : c; }
+
 std::uint64_t _ZNSt5ctypeIcE2idE_nid_postfix = 0;
 std::uint64_t _ZNSt5ctypeIwE2idE_nid_postfix = 0;
 std::uint64_t _ZNSt7collateIwE2idE_nid_postfix = 0;
