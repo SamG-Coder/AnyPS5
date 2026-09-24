@@ -10,6 +10,14 @@
 
 extern "C" {
 
+// unknown signature
+APS5_EXPORT("zARR5aCmkoY", sceAgcDcbA_zARR5aCmkoY);
+void* APS5_VABI sceAgcDcbA_zARR5aCmkoY(void) {
+ NotImplemented_nid_no_patch(__func__);
+ return nullptr;
+}
+
+
 uint32_t* APS5_VABI sceAgcDcbJump(CommandBuffer* buf, uint8_t mode, uint8_t cache_policy, const uint32_t* target, uint32_t size_in_dwords) {
  (void)buf;
  (void)mode;

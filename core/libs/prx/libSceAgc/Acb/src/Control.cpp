@@ -9,6 +9,13 @@
 
 extern "C" {
 
+// unknown signature
+APS5_EXPORT("gQkqkLttcpw", sceAgcAcb_gQkqkLttcpw);
+void* APS5_VABI sceAgcAcb_gQkqkLttcpw (void) {
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
 std::uint32_t* APS5_VABI sceAgcAcbJump(CommandBuffer* buf, std::uint8_t cachePolicy, const std::uint32_t* target, std::uint32_t sizeInDwords) {
     (void)buf;
     (void)cachePolicy;
