@@ -486,3 +486,27 @@ Inspection of the native ps5-opengl caller establishes the wait argument order
 as command pointer, packet capacity, mode, video handle, buffer index. The
 parameter names in the link-only stub do not reflect that calling convention.
 No game runtime source was copied into the compatibility library.
+
+## Follow-up: rendering-wait command execution
+
+Implemented sceAgcDriverGetWaitRenderingPacketSizeInDwords and
+sceAgcDriverWaitUntilSafeForRendering for mode zero. The writer validates
+capacity and writable memory, emits a four-dword internal wait packet, and
+advances the guest command pointer. This encoding is owned by AnyPS5's paired
+writer/decoder; it is not claimed to reproduce console-generated packet bytes.
+
+Submission captures a VideoOut buffer ticket before reserving subsequent flips.
+The worker executes the wait outside the GPU mutex. VideoOut waits for earlier
+reservations to retire and wakes on close or failure. The captured configuration
+object prevents a reopened handle from satisfying a wait for an old port.
+
+A test submits a generated wait followed by a flip through the real AGC driver
+with a controlled output. It proves the wait blocks on earlier ownership and
+continues after that ownership is released, despite the later flip reservation.
+It also checks packet capacity, pointer advancement, and write boundaries.
+All twenty-seven CTest cases pass, along with the existing VideoOut flip lifetime
+and reopen regression executables. Actual console packet compatibility, other
+wait modes, and rendering a game frame remain unverified.
+
+The unchanged game now resolves both rendering-wait imports and stops at
+`Z4QosVuAsA0` (`pthread_once`). Guest entry-point execution has not yet occurred.

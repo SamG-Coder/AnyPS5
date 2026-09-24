@@ -91,8 +91,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
     const auto opcode = (header >> 8u) & 0xffu;
     if (opcode == 0x10) {
         switch ((header >> 2u) & 0x3fu) {
-            case 0: case 0x09: case 0x0b: case 0x0c: case 0x17: case 0x1a: return {};
-            case 0x06: return "VideoOut buffer-completion wait interface is not implemented";
+            case 0: case 0x06: case 0x09: case 0x0b: case 0x0c: case 0x17: case 0x1a: return {};
             case 0x14: case 0x18: return "guest cache actions and GPU release events are not implemented";
             default: return "custom packet has no implemented contract in the reference dispatch table";
         }
@@ -137,6 +136,7 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
                 require((packet[1] & 0xffff0000u) != 0x68750000u, "typed user-data and legacy flip markers are not implemented");
                 break;
             case 0x09: size(2); break;
+            case 0x06: graphics(); size(4); require(packet[3] == 0, "unsupported rendering wait mode"); break;
             case 0x0b: {
                 const auto data = std::as_bytes(packet.subspan(1));
                 require(std::find(data.begin(), data.end(), std::byte{}) != data.end(), "unterminated marker text");

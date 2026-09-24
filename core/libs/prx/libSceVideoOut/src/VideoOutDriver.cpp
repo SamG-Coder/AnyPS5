@@ -26,9 +26,33 @@ void checkConfig(const VideoOutConfig& cfg) {
     cfg.Check();
 }
 
+class RenderingWait final : public AgcDriver::IRenderingWait {
+    std::shared_ptr<VideoOutConfig> _config;
+    std::uint32_t _index;
+    std::uint64_t _ticket;
+public:
+    RenderingWait(std::shared_ptr<VideoOutConfig> config, std::uint32_t index, std::uint64_t ticket)
+        : _config(std::move(config)), _index(index), _ticket(ticket) {}
+    void Wait() override {
+        std::unique_lock lock(_config->mutex);
+        _config->vblankCond.wait(lock, [&] {
+            return _config->failure || _config->closing || !_config->opened ||
+                _config->bufferReuse[_index].IsComplete(_ticket);
+        });
+        checkConfig(*_config);
+    }
+};
+
 class VideoOutput final : public AgcDriver::IVideoOutput {
 public:
     VideoOutput(std::shared_ptr<VideoOutConfig> config, std::shared_ptr<FlipQueue> requests) : cfg(std::move(config)), queue(std::move(requests)) {}
+
+    std::shared_ptr<AgcDriver::IRenderingWait> CaptureRenderingWait(std::uint32_t index) override {
+        std::lock_guard lock(cfg->mutex);
+        checkConfig(*cfg);
+        require(index < VIDEO_OUT_BUFFER_NUM_MAX && cfg->buffers[index].Occupied(), "wait buffer is not registered");
+        return std::make_shared<RenderingWait>(cfg, index, cfg->bufferReuse[index].Capture());
+    }
 
     std::shared_ptr<AgcDriver::IFlipRequest> Reserve(const AgcDriver::FlipInfo& info) override {
         require(info.mode == VIDEO_OUT_FLIP_MODE_VSYNC, "unsupported flip mode");
