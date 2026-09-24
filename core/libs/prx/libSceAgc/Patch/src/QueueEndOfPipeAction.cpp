@@ -39,4 +39,18 @@ int APS5_VABI sceAgcQueueEndOfPipeActionPatchData(uint32_t* cmd, uint32_t contex
  return 0;
 }
 
+int APS5_VABI sceAgcQueueEndOfPipeActionPatchGcrCntl(std::uint32_t* cmd, std::uint16_t gcrControl) {
+    (void)cmd;
+    (void)gcrControl;
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+int APS5_VABI sceAgcQueueEndOfPipeActionPatchType(std::uint32_t* cmd, std::uint8_t action) {
+    (void)cmd;
+    (void)action;
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 }

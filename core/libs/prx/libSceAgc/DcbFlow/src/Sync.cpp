@@ -54,4 +54,18 @@ std::uint32_t* APS5_VABI sceAgcDcbStallCommandBufferParser(CommandBuffer* buf) {
     return Agc::Command::Emit(buf, 0x42u, {0}, __func__);
 }
 
+std::uint32_t APS5_VABI sceAgcDcbStallCommandBufferParserGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t* APS5_VABI sceAgcDcbMemSemaphore(CommandBuffer* buf, std::uint8_t action, std::uint8_t clientCode, const volatile void* address) {
+    (void)buf;
+    (void)action;
+    (void)clientCode;
+    (void)address;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
 }

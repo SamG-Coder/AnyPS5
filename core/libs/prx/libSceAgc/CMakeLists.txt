@@ -39,6 +39,7 @@ add_library(libSceAgc SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/QueueEndOfPipeAction.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Rewind.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/WaitRegMem.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Patch/src/Branch.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Predication/src/Predication.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/CreateShader.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Shader/src/InterpolantMapping.cpp

@@ -30,6 +30,36 @@ uint32_t* APS5_VABI sceAgcAcbResetQueue(CommandBuffer* buf, uint32_t op) {
  return nullptr;
 }
 
+std::uint32_t* APS5_VABI sceAgcAcbRewind(CommandBuffer* buf, std::uint32_t initialState) {
+    (void)buf;
+    (void)initialState;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
+std::uint32_t APS5_VABI sceAgcAcbRewindGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t* APS5_VABI sceAgcAcbWaitUntilSafeForRendering(CommandBuffer* buf, std::uint32_t videoOutHandle, std::uint32_t displayBufferIndex) {
+    (void)buf;
+    (void)videoOutHandle;
+    (void)displayBufferIndex;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
+std::uint32_t* APS5_VABI sceAgcAcbSetFlip(CommandBuffer* buf, std::uint32_t videoOutHandle, std::int32_t displayBufferIndex, std::uint32_t flipMode, std::int64_t flipArg) {
+    (void)buf;
+    (void)videoOutHandle;
+    (void)displayBufferIndex;
+    (void)flipMode;
+    (void)flipArg;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
 uint32_t* APS5_VABI sceAgcAcbPushMarker(CommandBuffer* buf, const char* str, uint32_t color) {
  (void)buf;
  (void)str;

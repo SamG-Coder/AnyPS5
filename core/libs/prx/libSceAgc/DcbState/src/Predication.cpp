@@ -19,4 +19,19 @@ uint32_t* APS5_VABI sceAgcDcbSetPredication(CommandBuffer* buf, uint8_t conditio
  return nullptr;
 }
 
+std::uint32_t APS5_VABI sceAgcDcbSetZPassPredicationEnableGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t APS5_VABI sceAgcDcbSetPredicationDisableGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t APS5_VABI sceAgcDcbSetBoolPredicationEnableGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 }

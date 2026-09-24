@@ -38,4 +38,24 @@ std::uint32_t* APS5_VABI sceAgcAcbEventWrite(CommandBuffer* buf, std::uint8_t ev
     return Agc::Command::Emit(buf, 0x46u, {eventType | (eventType == 7 ? 0x400u : 0u)}, __func__);
 }
 
+std::uint64_t APS5_VABI sceAgcAcbEventWriteGetSize(std::uint8_t eventType) {
+    (void)eventType;
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t APS5_VABI sceAgcAcbQueueEndOfShaderActionGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t* APS5_VABI sceAgcAcbMemSemaphore(CommandBuffer* buf, std::uint8_t action, std::uint8_t clientCode, const volatile void* address) {
+    (void)buf;
+    (void)action;
+    (void)clientCode;
+    (void)address;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
 }

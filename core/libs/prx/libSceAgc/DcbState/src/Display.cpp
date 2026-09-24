@@ -28,4 +28,9 @@ uint32_t* APS5_VABI sceAgcDcbPrimeUtcl2(CommandBuffer* buf, const volatile void*
     return nullptr;
 }
 
+std::uint32_t APS5_VABI sceAgcDcbPrimeUtcl2GetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 }

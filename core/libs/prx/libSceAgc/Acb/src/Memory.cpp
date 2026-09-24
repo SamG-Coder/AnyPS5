@@ -42,6 +42,47 @@ std::uint32_t* APS5_VABI sceAgcAcbDmaData(CommandBuffer* buf, std::uint8_t dst, 
     return Agc::Command::WriteDma(buf, true, 0, dst, dstCachePolicy, dstAddress, src, srcCachePolicy, srcAddress, numBytes, waitForPrevious, writeConfirm, 0, __func__);
 }
 
+std::uint32_t APS5_VABI sceAgcAcbDmaDataGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t* APS5_VABI sceAgcAcbAtomicMem(CommandBuffer* buf, std::uint8_t atomicOp, std::uint8_t command, std::uint8_t cachePolicy, const volatile void* address, std::uint64_t srcData, std::uint64_t compareData, std::uint16_t loopInterval) {
+    (void)buf;
+    (void)atomicOp;
+    (void)command;
+    (void)cachePolicy;
+    (void)address;
+    (void)srcData;
+    (void)compareData;
+    (void)loopInterval;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
+std::uint32_t APS5_VABI sceAgcAcbAtomicMemGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t APS5_VABI sceAgcAcbAtomicGdsGetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
+std::uint32_t* APS5_VABI sceAgcAcbPrimeUtcl2(CommandBuffer* buf, const volatile void* address, std::uint32_t sizeInBytes) {
+    (void)buf;
+    (void)address;
+    (void)sizeInBytes;
+    NotImplemented_nid_no_patch(__func__);
+    return nullptr;
+}
+
+std::uint32_t APS5_VABI sceAgcAcbPrimeUtcl2GetSize() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
+}
+
 std::uint32_t* APS5_VABI sceAgcAcbWriteData(CommandBuffer* buf, std::uint8_t dst, std::uint8_t cachePolicy, std::uint64_t address, const void* data, std::uint32_t numDwords, std::uint8_t increment, std::uint8_t writeConfirm) {
     return Agc::Command::WriteData(buf, true, dst, cachePolicy, address, data, numDwords, increment, writeConfirm, __func__);
 }
