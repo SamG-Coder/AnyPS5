@@ -466,3 +466,23 @@ The unchanged game now stops at `0MtUJ3BpGhE`
 sceAgcDriverWaitUntilSafeForRendering import is also absent. These need a real
 command-packet and buffer-ownership implementation, not a zero-size/no-op shim.
 Guest entry-point execution and rendered output are still unverified.
+
+## Follow-up: buffer reuse ordering
+
+Added per-buffer reservation tickets to VideoOut. Flip reservations acquire a
+monotonic ticket; presentation completion, failure, and reservation cancellation
+retire it. A captured fence is complete once all earlier tickets retire, even
+if later flips for the same buffer are already reserved. This avoids the
+self-dependency that a wait on the total pending-buffer count would create when
+submission reserves a future flip before executing its preceding wait packet.
+
+Tests cover out-of-order retirement, future reservations, empty fences, and
+invalid future fences. All twenty-six CTest cases and the existing VideoOut
+flip-lifetime executable pass. This is the ownership foundation; the rendering
+wait exports and command-dispatch connection are not implemented yet, so the
+game remains stopped at the same missing packet-size import.
+
+Inspection of the native ps5-opengl caller establishes the wait argument order
+as command pointer, packet capacity, mode, video handle, buffer index. The
+parameter names in the link-only stub do not reflect that calling convention.
+No game runtime source was copied into the compatibility library.

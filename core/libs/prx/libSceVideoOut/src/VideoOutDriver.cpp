@@ -62,6 +62,7 @@ public:
         }
         request->generation = cfg->generation;
         request->flipRate = cfg->flipRate;
+        if (info.index >= 0) request->reuseTicket = cfg->bufferReuse[info.index].Reserve();
         ++queue->reservations;
         ++cfg->flipStatus.flipPendingNum;
         if (info.index >= 0) ++cfg->bufferPending[info.index];
@@ -96,7 +97,10 @@ FlipRequest::~FlipRequest() {
     if (!terminal) {
         --cfg->flipStatus.flipPendingNum;
         --queue->reservations;
-        if (index >= 0) --cfg->bufferPending[index];
+        if (index >= 0) {
+            --cfg->bufferPending[index];
+            cfg->bufferReuse[index].Complete(reuseTicket);
+        }
         cfg->vblankCond.notify_all();
     }
 }
@@ -132,7 +136,10 @@ void FlipRequest::Fail(std::exception_ptr error) noexcept {
     if (reserved && !terminal) {
         --cfg->flipStatus.flipPendingNum;
         --queue->reservations;
-        if (index >= 0) --cfg->bufferPending[index];
+        if (index >= 0) {
+            --cfg->bufferPending[index];
+            cfg->bufferReuse[index].Complete(reuseTicket);
+        }
         terminal = true;
     }
     cfg->vblankCond.notify_all();
@@ -390,7 +397,10 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
     req.cfg->height = req.height;
     --req.cfg->flipStatus.flipPendingNum;
     --req.queue->reservations;
-    if (req.index >= 0) --req.cfg->bufferPending[req.index];
+    if (req.index >= 0) {
+        --req.cfg->bufferPending[req.index];
+        req.cfg->bufferReuse[req.index].Complete(req.reuseTicket);
+    }
     req.terminal = true;
     req.cfg->vblankCond.notify_all();
     timing.Mark("notify_game");
