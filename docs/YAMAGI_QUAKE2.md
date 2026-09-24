@@ -51,7 +51,7 @@ The compatibility libraries were built using the project's documented WinLibs
 GCC 15.2.0 toolchain. Place its `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, and
 `libwinpthread-1.dll` beside the generated executable for this startup check.
 
-Observed startup result:
+Initial startup result (before the follow-up changes below):
 
 - Loads libSceSystemService, libSceUserService, libScePad, libSceAudioOut,
   libSceVideoOut, libSceKeyboard, libSceImeDialog, libSceAgc, libSceAgcDriver,
@@ -59,9 +59,34 @@ Observed startup result:
 - Stops loading `libScePosixForWebKit.prx`, which AnyPS5 does not currently build.
 - Exits with `0xc0000135`; no transfer to the guest entry point and no game frame.
 
-The next work is to audit the game's required POSIX imports against existing
-AnyPS5 implementations before providing the missing module. Successful module
-loading alone does not establish API behavior, rendering, or playability.
+Successful module loading alone does not establish API behavior, rendering,
+or playability.
+
+## Follow-up: string exports and Windows runtime visibility
+
+The static import audit found 373 unique imported NIDs (382 relocation
+references). Before this follow-up, 168 NIDs were absent from the combined
+export tables of the built compatibility modules. This is an export-availability
+check, not proof that the other implementations satisfy the game's requirements.
+
+The seven imports attributed to libScePosixForWebKit are `getaddrinfo`,
+`freeaddrinfo`, `gai_strerror`, `getnameinfo`, `isatty`, `mkstemp`, and `strcasestr`.
+The new module implements `strcasestr`; the other six remain unsupported.
+The shared libc also gains `strnlen`, `strncat`, `strpbrk`, `strcspn`, `strlcat`,
+and `strtok_r`. None of these additions is a success-returning placeholder.
+
+After adding the module, startup exposed a separate Windows lookup problem:
+`_init_env` exists in AnyPS5's libc.prx, but GetProcAddress does not search the
+dependencies of libSceLibcInternal.prx. For Windows conversion, a request for
+libSceLibcInternal.prx now also adds libc.prx to the explicit symbol search list,
+after the game's requested modules. An existing explicit libc.prx entry is
+retained without duplication; unrelated inputs gain no dependency.
+
+Latest verified startup loads all twelve game-requested modules plus libc.prx.
+It then stops at missing import `BPE9s9vQQXo` (`mmap`) with exit `0xc0000139`.
+There is still no transfer to the guest entry point and no game frame. The next
+runtime work is guest memory-mapping support, alongside the remaining import
+gaps in file I/O, threading, libc, POSIX services, and graphics.
 
 ## Regression coverage
 
@@ -69,3 +94,9 @@ loading alone does not establish API behavior, rendering, or playability.
 `empty_tls` integration suite checks absent PE TLS for an empty guest segment,
 retained TLS for a nonempty segment, rejection of malformed sizes and empty TLS
 accesses, and execution of both valid generated Windows fixtures (exit 42).
+
+After the follow-up: five suites pass. `guest_strings` exercises the guest SysV
+calling convention, bounded unterminated input, concatenation truncation,
+interleaved tokenizer state, and case-insensitive searches. Windows dependency
+tests also cover implicit libc visibility, ordering, duplicate avoidance, and
+unrelated inputs. The complete `libs` target rebuild succeeds.
