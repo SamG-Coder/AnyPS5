@@ -104,6 +104,18 @@ endforeach()
 add_custom_target(libs DEPENDS ${PATCHED_OUTPUTS})
 
 if(BUILD_TESTING)
+    add_executable(guest_system_exit_tests tests/GuestSystemExit.cpp)
+    target_include_directories(guest_system_exit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(guest_system_exit_tests PRIVATE libSceSystemService libc)
+    configure_windows_unwind(guest_system_exit_tests)
+    add_test(NAME guest_system_exit_parameters COMMAND guest_system_exit_tests)
+    add_test(NAME guest_system_exit COMMAND guest_system_exit_tests --exit)
+    set_tests_properties(guest_system_exit PROPERTIES
+        PASS_REGULAR_EXPRESSION "Guest shutdown and atexit completed")
+    if(WIN32)
+        set_tests_properties(guest_system_exit guest_system_exit_parameters PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
     add_executable(guest_character_tests tests/GuestCharacter.cpp)
     target_include_directories(guest_character_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(guest_character_tests PRIVATE libc)

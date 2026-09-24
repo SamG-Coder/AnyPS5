@@ -391,3 +391,20 @@ Latest unchanged-game startup resolves ftello and stops at `JoBqSQt1yyA`
 shows it requests the console's `exit` operation from its quit path. This is
 source evidence only; the guest entry point still has not executed and no frame
 has been rendered.
+
+## Follow-up: console exit request
+
+Implemented sceSystemServiceLoadExec for the `exit` operation through the shared
+runtime shutdown callbacks followed by normal process exit. Null/empty paths
+return the existing system-service parameter error. Replacing the process with
+another executable remains explicitly unsupported and raises the runtime's
+existing not-implemented diagnostic; it does not report a successful launch.
+
+An isolated CTest process verifies that shutdown callbacks execute before
+atexit handlers and that the service does not return after requesting exit.
+A separate test checks invalid arguments and executable-replacement rejection.
+All twenty-three tests pass and libraries rebuild.
+
+The unchanged game resolves sceSystemServiceLoadExec and now stops at
+`gkWgn0p1AfU` (`freopen`). This does not establish that the game has executed
+its quit path: guest entry-point execution and rendered output remain unverified.
