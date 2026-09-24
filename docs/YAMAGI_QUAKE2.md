@@ -448,3 +448,21 @@ The unchanged game resolves sceAgcLinkShaders and stops at `Wi82ArQtAwg`
 (`sceAgcGetRegisterDefaults`). The project already has a versioned defaults
 implementation; the legacy entry point still needs its contract verified.
 Guest entry-point execution and rendered output remain unverified.
+
+## Follow-up: legacy register-defaults entry point
+
+Added the no-argument sceAgcGetRegisterDefaults export using the existing
+baseline public table. The legacy caller reads its context-block pointer at
+offset 0 and its context-record count at offset 0x20; tests now exercise that
+layout directly, scan all 523 context records, check render-target/rasterizer
+register presence, and verify stable pointers across calls.
+
+Selecting public version zero is a compatibility assumption based on the legacy
+API lacking a version parameter; it has not been compared with a captured
+console response. Versioned APIs remain available. All twenty-five tests pass.
+
+The unchanged game now stops at `0MtUJ3BpGhE`
+(`sceAgcDriverGetWaitRenderingPacketSizeInDwords`). The corresponding
+sceAgcDriverWaitUntilSafeForRendering import is also absent. These need a real
+command-packet and buffer-ownership implementation, not a zero-size/no-op shim.
+Guest entry-point execution and rendered output are still unverified.

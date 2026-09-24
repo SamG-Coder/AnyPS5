@@ -5,9 +5,28 @@
 #include <cstdlib>
 #include <cstring>
 extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister*, ShaderRegister*, const void*, const Shader*, const Shader*, std::uint32_t);
+extern "C" void* APS5_VABI sceAgcGetRegisterDefaults();
+extern "C" void* APS5_VABI sceAgcGetRegisterDefaults2(std::uint32_t);
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
     using namespace ShaderRegs;
+    auto* defaults = static_cast<unsigned char*>(sceAgcGetRegisterDefaults());
+    Require(defaults && defaults == sceAgcGetRegisterDefaults());
+    Require(defaults == sceAgcGetRegisterDefaults2(0));
+    // These are the byte offsets used by native callers, independent of the
+    // private C++ structure used to construct the defaults object.
+    ShaderRegister** contextBlocks = nullptr;
+    std::uint32_t contextCount = 0;
+    std::memcpy(&contextBlocks, defaults, sizeof(contextBlocks));
+    std::memcpy(&contextCount, defaults + 0x20, sizeof(contextCount));
+    Require(contextBlocks && contextBlocks[0] && contextCount == 523);
+    bool hasRenderTarget = false;
+    bool hasRasterizer = false;
+    for (std::uint32_t i = 0; i < contextCount; ++i) {
+        hasRenderTarget |= contextBlocks[0][i].offset == 0x318;
+        hasRasterizer |= contextBlocks[0][i].offset == 0x205;
+    }
+    Require(hasRenderTarget && hasRasterizer);
     ShaderSpecialRegs special{};
     special.vgt_shader_stages_en = {VGT_SHADER_STAGES_EN, VGT_SHADER_STAGES_NGG_BIT};
     special.vgt_gs_out_prim_type = {VGT_GS_OUT_PRIM_TYPE, 0};
