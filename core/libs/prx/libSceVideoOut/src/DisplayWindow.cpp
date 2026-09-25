@@ -124,21 +124,30 @@ void DisplayWindow::removeSubclass() noexcept {
 #endif
 }
 
-void DisplayWindow::applyAspectRatio(std::uintptr_t edge, void* rect) const {
+void DisplayWindow::applyAspectRatio(void* hwnd, std::uintptr_t edge, void* rect) const {
 #ifdef _WIN32
-    if (aspectWidth == 0 || aspectHeight == 0) return;
+    require(aspectWidth != 0 && aspectHeight != 0, "source extent must be non-zero during resize");
+    RECT windowBounds{};
+    RECT clientBounds{};
+    require(GetWindowRect(static_cast<HWND>(hwnd), &windowBounds) != FALSE, "GetWindowRect failed");
+    require(GetClientRect(static_cast<HWND>(hwnd), &clientBounds) != FALSE, "GetClientRect failed");
+    const auto frameWidth = (windowBounds.right - windowBounds.left) - (clientBounds.right - clientBounds.left);
+    const auto frameHeight = (windowBounds.bottom - windowBounds.top) - (clientBounds.bottom - clientBounds.top);
+    require(frameWidth >= 0 && frameHeight >= 0, "invalid window frame extent");
     auto* bounds = static_cast<RECT*>(rect);
-    const auto currentWidth = static_cast<std::uint32_t>(bounds->right - bounds->left);
-    const auto currentHeight = static_cast<std::uint32_t>(bounds->bottom - bounds->top);
+    const auto clientWidth = bounds->right - bounds->left - frameWidth;
+    const auto clientHeight = bounds->bottom - bounds->top - frameHeight;
+    require(clientWidth > 0 && clientHeight > 0, "resized client extent must be positive");
     if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM) {
-        const auto width = AgcDriver::ComputeWidthForHeight_nid_postfix(aspectWidth, aspectHeight, currentHeight);
-        bounds->right = bounds->left + static_cast<LONG>(width);
+        const auto width = AgcDriver::ComputeWidthForHeight_nid_postfix(aspectWidth, aspectHeight, static_cast<std::uint32_t>(clientHeight));
+        bounds->right = bounds->left + static_cast<LONG>(width) + frameWidth;
         return;
     }
-    const auto height = AgcDriver::ComputeHeightForWidth_nid_postfix(aspectWidth, aspectHeight, currentWidth);
-    if (edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - static_cast<LONG>(height);
-    else bounds->bottom = bounds->top + static_cast<LONG>(height);
+    const auto height = AgcDriver::ComputeHeightForWidth_nid_postfix(aspectWidth, aspectHeight, static_cast<std::uint32_t>(clientWidth));
+    if (edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - static_cast<LONG>(height) - frameHeight;
+    else bounds->bottom = bounds->top + static_cast<LONG>(height) + frameHeight;
 #else
+    static_cast<void>(hwnd);
     static_cast<void>(edge);
     static_cast<void>(rect);
 #endif
@@ -148,7 +157,8 @@ std::intptr_t __stdcall DisplayWindow::windowProc(void* hwnd, unsigned int messa
 #ifdef _WIN32
     static_cast<void>(subclassId);
     if (message == WM_SIZING) {
-        reinterpret_cast<const DisplayWindow*>(referenceData)->applyAspectRatio(wParam, reinterpret_cast<void*>(lParam));
+        reinterpret_cast<const DisplayWindow*>(referenceData)->applyAspectRatio(hwnd, wParam, reinterpret_cast<void*>(lParam));
+        return TRUE;
     }
     return DefSubclassProc(static_cast<HWND>(hwnd), message, static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
 #else

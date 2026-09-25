@@ -25,7 +25,7 @@ private:
     void updateAspectRatio(std::uint32_t sourceWidth, std::uint32_t sourceHeight);
     void installSubclass();
     void removeSubclass() noexcept;
-    void applyAspectRatio(std::uintptr_t edge, void* rect) const;
+    void applyAspectRatio(void* hwnd, std::uintptr_t edge, void* rect) const;
 
     static std::intptr_t __stdcall windowProc(void* hwnd, unsigned int message, std::uintptr_t wParam, std::intptr_t lParam, std::uintptr_t subclassId, std::uintptr_t referenceData);
 
