@@ -124,17 +124,21 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
     bool detached = false;
     if (attr && *attr) detached = ((*attr)->_detachstate == DETACH_DETACHED);
     p->_detached = detached;
-    p->stackSize = attr ? (*attr)->_stacksize : DEFAULT_STACK_SIZE;
+    p->stackSize = attr && *attr ? (*attr)->_stacksize : DEFAULT_STACK_SIZE;
+    p->guardSize = attr && *attr ? (*attr)->_guardsize : 0;
     std::promise<bool> start;
     auto args = std::make_unique<ThreadArgs>(ThreadArgs{entry, arg, p.get()});
 #ifdef _WIN32
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
-    if (p->stackSize < 16384 || p->stackSize % system.dwPageSize != 0 || p->stackSize > std::numeric_limits<unsigned>::max())
-        throw std::runtime_error("scePthreadCreate: invalid Windows stack size");
+    const auto page = system.dwPageSize == 0 ? static_cast<std::size_t>(4096) : static_cast<std::size_t>(system.dwPageSize);
+    auto hostStack = (p->stackSize + page - 1) & ~(page - 1);
+    if (hostStack < 16384) hostStack = 16384;
+    if (hostStack > std::numeric_limits<unsigned>::max())
+        throw std::runtime_error("scePthreadCreate: stack exceeds host limit");
     auto native = std::make_unique<NativeThreadArgs>(NativeThreadArgs{std::move(args), start.get_future(), {}});
     auto initialized = native->initialized.get_future();
-    const auto handle = _beginthreadex(nullptr, static_cast<unsigned>(p->stackSize), StartNativeThread, native.get(), 0, nullptr);
+    const auto handle = _beginthreadex(nullptr, static_cast<unsigned>(hostStack), StartNativeThread, native.get(), 0, nullptr);
     if (handle == 0)
         throw std::system_error(errno, std::generic_category(), "Creating guest thread");
     p->nativeHandle = reinterpret_cast<void*>(handle);
