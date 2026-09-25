@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libc/include/GuestMemoryTracking.hpp"
 #include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <algorithm>
@@ -29,6 +30,7 @@ void CheckRange(const void* pointer, std::size_t bytes, std::size_t alignment, b
     require(address != 0 && address % alignment == 0, "null or misaligned address");
     require(bytes <= std::numeric_limits<std::uintptr_t>::max() - address, "address range overflow");
     MemoryAccessScope::Resolve(address, bytes, writable);
+    GuestMemoryTracking::GuestMemoryTrackingResolve_nid_postfix(address, bytes, writable);
     auto cursor = address;
     const auto end = address + bytes;
 #ifdef _WIN32

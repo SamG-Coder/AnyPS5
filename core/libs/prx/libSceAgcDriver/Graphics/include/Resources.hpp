@@ -60,6 +60,7 @@ public:
     void SubmitAndWait();
     void Submit();
     void Wait();
+    bool IsComplete();
     void Reset();
 
 private:

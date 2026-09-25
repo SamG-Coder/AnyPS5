@@ -9,6 +9,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 #include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
+#include "prx/libc/include/GuestMemoryTracking.hpp"
 #include <bit>
 #include <algorithm>
 #include <array>
@@ -279,7 +280,7 @@ private:
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
     std::map<std::uint32_t, QueueState> queues;
     std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
-    std::mutex gpuMutex;
+    std::recursive_mutex& gpuMutex = GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix();
     std::shared_ptr<VulkanDevice> device;
     std::uint64_t accepted = 0;
     std::uint64_t completed = 0;

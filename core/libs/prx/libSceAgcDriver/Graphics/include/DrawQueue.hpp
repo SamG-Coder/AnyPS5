@@ -13,6 +13,9 @@ public:
     void Flush();
     void Resolve(std::uint64_t address, std::size_t bytes);
     void Wait();
+    void WaitGpu();
+    void Collect();
+    void RecordMemoryBarrier(const Context& context);
 
 private:
     struct Entry {
@@ -22,7 +25,9 @@ private:
     struct Batch {
         std::vector<Entry> entries;
         std::unique_ptr<CommandBatch> commands;
+        bool hasBarrier = false;
     };
+    void retire(Batch batch);
     Batch recording;
     std::vector<Batch> pending;
     std::vector<std::unique_ptr<CommandBatch>> available;

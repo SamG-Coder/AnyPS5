@@ -208,7 +208,7 @@ State DecodeState(const QueueState& queue) {
         Require((high & ~0xffu) == 0, "invalid color address extension");
         result.color.address = (static_cast<std::uint64_t>(high) << 40u) | (static_cast<std::uint64_t>(read(cx, 0x318)) << 8u);
         result.color.bytes = colorLayout.Bytes();
-        GuestMemory::CheckRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, colorLayout.Alignment(), true);
+        GuestMemory::CheckGpuRange(reinterpret_cast<const void*>(result.color.address), result.color.bytes, colorLayout.Alignment(), true);
         result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
         result.color.componentMapping = 0xe4u;
         result.renderExtent = result.color.extent;

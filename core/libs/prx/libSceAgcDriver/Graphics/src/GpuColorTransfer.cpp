@@ -149,16 +149,6 @@ void GpuColorTransfer::Tile(VkCommandBuffer commands) {
     barrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
 }
 
-void GpuColorTransfer::WriteBack(std::uint64_t address) {
-    PerformanceTimer timing("ColorTransfer.WriteBack");
-    Require(tiled != nullptr, "color transfer is not prepared for writeback");
-    const ColorTargetLayout layout(width, height, mode);
-    timing.Mark("validate");
-    readback->Invalidate();
-    GuestMemory::Write(address, readback->Bytes(), layout.Alignment());
-    timing.Mark("guest_write", layout.Bytes());
-}
-
 VkBuffer GpuColorTransfer::LinearBuffer() const {
     Require(linear != nullptr, "color transfer is not prepared");
     return linear->Handle();

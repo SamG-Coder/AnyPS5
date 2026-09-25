@@ -16,11 +16,13 @@ public:
     void Detile(VkCommandBuffer commands, bool swapRedBlue = false);
     void Tile(VkCommandBuffer commands);
     void WriteBack(std::uint64_t address);
+    void WriteBackTracked(std::uint64_t address);
     bool MatchesGuest(std::uint64_t address);
     VkBuffer LinearBuffer() const;
     RenderTarget& Target(const ColorTarget& color, bool blending);
 
 private:
+    void writeBack(std::uint64_t address, bool tracked);
     void prepare(std::uint32_t width, std::uint32_t height, ColorTileMode mode);
     void convert(VkCommandBuffer commands, bool toTiled, bool swapRedBlue);
     void release() noexcept;

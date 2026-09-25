@@ -1,4 +1,5 @@
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/GuestMemoryTracking.hpp"
 #include <limits>
 #include <iterator>
 #include <map>
@@ -14,7 +15,7 @@ namespace GuestAllocations {
 namespace {
 
 struct Registry {
-    std::mutex mutex;
+    std::recursive_mutex& mutex = GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix();
     std::map<std::uint64_t, std::shared_ptr<const Range>> ranges;
     bool mainImageRegistered = false;
 };
@@ -31,11 +32,11 @@ void require(bool condition, const char* reason) {
 }
 
 void* GuestAllocationsBegin_nid_postfix() {
-    return new std::unique_lock<std::mutex>(registry().mutex);
+    return new std::unique_lock<std::recursive_mutex>(registry().mutex);
 }
 
 void GuestAllocationsEnd_nid_postfix(void* mutation) noexcept {
-    delete static_cast<std::unique_lock<std::mutex>*>(mutation);
+    delete static_cast<std::unique_lock<std::recursive_mutex>*>(mutation);
 }
 
 #ifdef _WIN32
@@ -93,6 +94,7 @@ void GuestAllocationsAdd_nid_postfix(void*, void* pointer, std::size_t bytes, bo
 void GuestAllocationsRequireUnpinned_nid_postfix(void*, const void* pointer, std::size_t bytes) {
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     require(bytes <= std::numeric_limits<std::uint64_t>::max() - address, "guest allocation range overflow");
+    GuestMemoryTracking::GuestMemoryTrackingInvalidate_nid_postfix(address, bytes);
     const auto end = address + bytes;
     for (const auto& [base, range] : registry().ranges) {
         if (base >= end && base != address) break;

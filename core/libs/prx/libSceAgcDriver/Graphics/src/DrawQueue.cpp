@@ -11,6 +11,7 @@ DrawQueue::~DrawQueue() {
 }
 
 VkCommandBuffer DrawQueue::Begin(const Context& context) {
+    Collect();
     if (drawCount >= 64) Wait();
     if (!recording.commands) {
         if (available.empty()) recording.commands = std::make_unique<CommandBatch>(context);
@@ -32,7 +33,7 @@ void DrawQueue::Enqueue(std::shared_ptr<ShaderResources> resources, std::shared_
 
 void DrawQueue::Flush() {
     if (!recording.commands) return;
-    Require(!recording.entries.empty(), "cannot submit an incomplete draw batch");
+    Require(!recording.entries.empty() || recording.hasBarrier, "cannot submit an incomplete draw batch");
     pending.push_back(std::move(recording));
     recording = Batch{};
     pending.back().commands->Submit();
@@ -43,23 +44,5 @@ void DrawQueue::Resolve(std::uint64_t address, std::size_t bytes) {
     if (std::any_of(recording.entries.begin(), recording.entries.end(), overlaps) || std::any_of(pending.begin(), pending.end(), [&](const auto& batch) { return std::any_of(batch.entries.begin(), batch.entries.end(), overlaps); })) Wait();
 }
 
-void DrawQueue::Wait() {
-    if (pending.empty() && !recording.commands) return;
-    PerformanceTimer timing("Graphics.DrawQueue.Wait");
-    const GuestMemory::MemoryAccessScope suspended(nullptr, nullptr);
-    Flush();
-    timing.Mark("submit");
-    for (auto& batch : pending) {
-        batch.commands->Wait();
-        timing.Mark("fence_wait");
-        for (auto& entry : batch.entries) entry.resources->WriteBack();
-        timing.Mark("resources_writeback");
-        available.push_back(std::move(batch.commands));
-        batch.entries.clear();
-        timing.Mark("resources_release");
-    }
-    pending.clear();
-    drawCount = 0;
-}
 
 }
