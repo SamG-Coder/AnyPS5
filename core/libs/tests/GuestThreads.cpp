@@ -43,6 +43,14 @@ int APS5_VABI pthread_mutexattr_destroy_nid_postfix(PthreadMutexattr*);
 int APS5_VABI pthread_mutexattr_settype_nid_postfix(PthreadMutexattr*, int);
 int APS5_VABI pthread_mutexattr_setprotocol_nid_postfix(PthreadMutexattr*, int);
 int APS5_VABI clock_gettime_nid_postfix(int, KernelTimespec*);
+int APS5_VABI sem_init_nid_postfix(void*, int, unsigned);
+int APS5_VABI sem_destroy_nid_postfix(void*);
+int APS5_VABI sem_wait_nid_postfix(void*);
+int APS5_VABI sem_trywait_nid_postfix(void*);
+int APS5_VABI sem_post_nid_postfix(void*);
+int APS5_VABI sem_getvalue_nid_postfix(void*, int*);
+int APS5_VABI sem_timedwait_nid_postfix(void*, const KernelTimespec*);
+int APS5_VABI scePthreadSemInit(void*, int, unsigned, const char*);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
@@ -119,6 +127,39 @@ static void* APS5_VABI Entry(void* argument) {
     Require(pthread_join_nid_postfix(state.observed, nullptr) == 11);
     state.result = 42;
     return &state.result;
+}
+static void* APS5_VABI WaitForPost(void* arg) {
+    return reinterpret_cast<void*>(static_cast<std::intptr_t>(sem_wait_nid_postfix(arg) == 0));
+}
+static void CheckSemaphores() {
+    *__error_nid_postfix() = 13;
+    alignas(8) unsigned char storage[16]{};
+    Require(sem_init_nid_postfix(nullptr, 0, 0) == -1 && *__error_nid_postfix() == 22);
+    Require(sem_init_nid_postfix(storage, 2, 0) == -1 && *__error_nid_postfix() == 22);
+    Require(sem_init_nid_postfix(storage, 0, 1u << 31) == -1 && *__error_nid_postfix() == 22);
+    Require(sem_init_nid_postfix(storage, 0, 0) == 0 && *__error_nid_postfix() == 22);
+    int value = -1;
+    Require(sem_getvalue_nid_postfix(storage, &value) == 0 && value == 0);
+    Require(sem_trywait_nid_postfix(storage) == -1 && *__error_nid_postfix() == 35);
+    Require(sem_post_nid_postfix(storage) == 0);
+    Require(sem_getvalue_nid_postfix(storage, &value) == 0 && value == 1);
+    Require(sem_trywait_nid_postfix(storage) == 0);
+    Require(sem_post_nid_postfix(storage) == 0);
+    Pthread worker = nullptr;
+    Require(pthread_create_nid_postfix(&worker, nullptr, WaitForPost, storage) == 0);
+    void* woke = nullptr;
+    Require(pthread_join_nid_postfix(worker, &woke) == 0 && woke == reinterpret_cast<void*>(1));
+    KernelTimespec past{};
+    Require(clock_gettime_nid_postfix(0, &past) == 0);
+    past.tv_sec -= 1;
+    Require(sem_timedwait_nid_postfix(storage, &past) == -1 && *__error_nid_postfix() == 60);
+    Require(sem_destroy_nid_postfix(storage) == 0);
+    Require(sem_post_nid_postfix(storage) == -1 && *__error_nid_postfix() == 22);
+    Require(scePthreadSemInit(storage, 0, 1, "guest") == 0);
+    Require(*__error_nid_postfix() == 22);
+    Require(sem_trywait_nid_postfix(storage) == 0);
+    Require(sem_destroy_nid_postfix(storage) == 0);
+    Require(*__error_nid_postfix() == 22);
 }
 static void* APS5_VABI TryHeldMutex(void* arg) {
     return reinterpret_cast<void*>(static_cast<std::intptr_t>(
@@ -304,4 +345,5 @@ int main() {
     }
     CheckThreadKeys();
     CheckMutexes();
+    CheckSemaphores();
 }
