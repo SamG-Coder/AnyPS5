@@ -252,10 +252,28 @@ int APS5_VABI scePthreadGetthreadid(void) {
 }
 
 int APS5_VABI scePthreadRename(Pthread thread, const char* name) {
- (void)thread;
- (void)name;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!thread || !name) return SCE_KERNEL_ERROR_EINVAL;
+#ifdef _WIN32
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, nullptr, 0);
+    if (!length) return SCE_KERNEL_ERROR_EINVAL;
+    std::wstring wide(static_cast<std::size_t>(length), L'\0');
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide.data(), length))
+        return SCE_KERNEL_ERROR_EINVAL;
+    using SetDescription = HRESULT (WINAPI*)(HANDLE, PCWSTR);
+    const auto setDescription = reinterpret_cast<SetDescription>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadDescription"));
+    if (!setDescription) throw std::runtime_error("Thread descriptions are unavailable on this Windows version");
+    const auto handle = thread == scePthreadSelf() ? GetCurrentThread() : thread->nativeHandle;
+    if (!handle) return static_cast<int>(0x80020003u);
+    const auto result = setDescription(handle, wide.c_str());
+    if (FAILED(result)) throw std::runtime_error("Setting host thread description failed");
+#else
+    if (thread != scePthreadSelf() && !thread->_thr.joinable()) return static_cast<int>(0x80020003u);
+    const int result = pthread_setname_np(thread == scePthreadSelf() ? pthread_self() : thread->_thr.native_handle(), name);
+    if (result == ERANGE) return static_cast<int>(0x80020022u);
+    if (result) throw std::system_error(result, std::generic_category(), "Setting host thread name");
+#endif
+    return 0;
 }
 
 int APS5_VABI scePthreadSetaffinity(Pthread thread, KernelCpumask mask) {

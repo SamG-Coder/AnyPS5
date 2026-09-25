@@ -2,7 +2,16 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
+#include <cwchar>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <pthread.h>
+#endif
 extern "C" {
+void APS5_VABI pthread_set_name_np_nid_postfix(Pthread, const char*);
+int APS5_VABI pthread_rename_np_nid_postfix(Pthread, const char*);
 int APS5_VABI pthread_create_nid_postfix(Pthread*, const PthreadAttr*, PthreadEntry, void*);
 int APS5_VABI pthread_join_nid_postfix(Pthread, void**);
 Pthread APS5_VABI pthread_self_nid_postfix();
@@ -13,6 +22,22 @@ Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 }
 static void Require(bool value) { if (!value) std::abort(); }
+static void CheckName() {
+#ifdef _WIN32
+    using GetDescription = HRESULT (WINAPI*)(HANDLE, PWSTR*);
+    const auto getDescription = reinterpret_cast<GetDescription>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetThreadDescription"));
+    Require(getDescription != nullptr);
+    PWSTR text = nullptr;
+    Require(SUCCEEDED(getDescription(GetCurrentThread(), &text)));
+    Require(std::wcscmp(text, L"guest-worker") == 0);
+    LocalFree(text);
+#else
+    char text[16]{};
+    Require(pthread_getname_np(pthread_self(), text, sizeof(text)) == 0);
+    Require(std::strcmp(text, "guest-worker") == 0);
+#endif
+}
 struct State {
     Pthread created = nullptr;
     Pthread parent = nullptr;
@@ -27,6 +52,7 @@ static void* APS5_VABI Entry(void* argument) {
         Require(sched_yield_nid_postfix() == 0);
     }
     state.observed = pthread_self_nid_postfix();
+    CheckName();
     Require(state.observed && state.observed == scePthreadSelf());
     Require(pthread_equal_nid_postfix(state.observed, state.created));
     Require(scePthreadEqual(state.observed, state.created));
@@ -39,6 +65,10 @@ int main() {
     const auto mainThread = pthread_self_nid_postfix();
     Require(mainThread && mainThread == scePthreadSelf());
     Require(pthread_self_nid_postfix() == mainThread);
+    pthread_set_name_np_nid_postfix(mainThread, "guest-worker");
+    CheckName();
+    Require(pthread_rename_np_nid_postfix(nullptr, "invalid") == 22);
+    Require(pthread_rename_np_nid_postfix(mainThread, nullptr) == 22);
     Require(pthread_join_nid_postfix(mainThread, nullptr) == 11);
     Require(pthread_create_nid_postfix(nullptr, nullptr, Entry, nullptr) == 22);
     Pthread untouched = mainThread;
@@ -50,6 +80,7 @@ int main() {
     for (auto& state : states) {
         state.parent = mainThread;
         Require(pthread_create_nid_postfix(&state.created, nullptr, Entry, &state) == 0);
+        pthread_set_name_np_nid_postfix(state.created, "guest-worker");
     }
     for (std::size_t first = 0; first < states.size(); ++first)
         for (std::size_t second = first + 1; second < states.size(); ++second)
