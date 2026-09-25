@@ -20,6 +20,10 @@
 #endif
 struct GuestResourceLimit { std::uint64_t current; std::uint64_t maximum; };
 extern "C" {
+std::uint32_t APS5_VABI getuid_nid_postfix();
+std::uint32_t APS5_VABI geteuid_nid_postfix();
+std::uint32_t APS5_VABI getgid_nid_postfix();
+std::uint32_t APS5_VABI getegid_nid_postfix();
 int APS5_VABI isatty_nid_postfix(int);
 int APS5_VABI socket_nid_postfix(int, int, int);
 int APS5_VABI close_nid_postfix(int);
@@ -31,6 +35,19 @@ int APS5_VABI sysctl_nid_postfix(const int*, unsigned, void*, std::size_t*, cons
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    const auto user = getuid_nid_postfix();
+    const auto group = getgid_nid_postfix();
+#ifdef _WIN32
+    Require(user >= 1000 && group >= 1000);
+    Require(geteuid_nid_postfix() == user && getegid_nid_postfix() == group);
+    Require(ImpersonateSelf(SecurityImpersonation));
+    Require(geteuid_nid_postfix() == user && getegid_nid_postfix() == group);
+    Require(getuid_nid_postfix() == user && getgid_nid_postfix() == group);
+    Require(RevertToSelf());
+#else
+    Require(user == ::getuid() && group == ::getgid());
+    Require(geteuid_nid_postfix() == ::geteuid() && getegid_nid_postfix() == ::getegid());
+#endif
     Require(isatty_nid_postfix(-1) == 0 && *__error_nid_postfix() == 9);
     Require(isatty_nid_postfix(INT_MAX) == 0 && *__error_nid_postfix() == 9);
     auto* file = std::tmpfile();
