@@ -7,6 +7,16 @@
 #include <limits>
 #include <utility>
 #include <cerrno>
+#include <new>
+#ifdef _WIN32
+#include <fcntl.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#ifdef __MINGW32__
+extern "C" __declspec(dllimport) _invalid_parameter_handler __cdecl
+_set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
+#endif
+#endif
 
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
@@ -15,6 +25,60 @@
 extern "C" {
 
 [[noreturn]] void APS5_VABI _ZSt11_Xbad_allocv_nid_postfix();
+
+FileStream* APS5_VABI fdopen_nid_postfix(int descriptor, const char* mode) {
+    if (!mode) { errno = 22; return nullptr; }
+    const char* supported[] = {"r", "w", "a", "rb", "wb", "ab", "r+", "w+", "a+",
+        "rb+", "wb+", "ab+", "r+b", "w+b", "a+b"};
+    bool valid = false;
+    for (const auto* candidate : supported) if (std::strcmp(mode, candidate) == 0) valid = true;
+    if (!valid) { errno = 22; return nullptr; }
+    void* storage = ::operator new(sizeof(FileStream), std::nothrow);
+    if (!storage) { errno = 12; return nullptr; }
+#ifdef _WIN32
+    const auto previous = _set_thread_local_invalid_parameter_handler(
+        [](const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {});
+    const int oldMode = _setmode(descriptor, _O_BINARY);
+    const auto attach = [&]() -> std::FILE* {
+        if (oldMode < 0) return nullptr;
+        if (*mode != 'a') return _fdopen(descriptor, mode);
+        const int backup = _dup(descriptor);
+        if (backup < 0) return nullptr;
+        HANDLE duplicate = nullptr;
+        if (!DuplicateHandle(GetCurrentProcess(), reinterpret_cast<HANDLE>(_get_osfhandle(descriptor)),
+            GetCurrentProcess(), &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+            _close(backup);
+            errno = 5;
+            return nullptr;
+        }
+        const int append = _open_osfhandle(reinterpret_cast<intptr_t>(duplicate), _O_APPEND | _O_BINARY);
+        if (append < 0) { CloseHandle(duplicate); _close(backup); return nullptr; }
+        if (_dup2(append, descriptor) != 0) {
+            const int error = errno;
+            _close(append);
+            _close(backup);
+            errno = error;
+            return nullptr;
+        }
+        _close(append);
+        auto* result = _fdopen(descriptor, mode);
+        const int error = errno;
+        if (!result && _dup2(backup, descriptor) != 0) std::terminate();
+        _close(backup);
+        errno = error;
+        return result;
+    };
+    auto* handle = attach();
+    const int error = errno;
+    if (!handle && oldMode >= 0) _setmode(descriptor, oldMode);
+    _set_thread_local_invalid_parameter_handler(previous);
+    errno = error;
+#else
+    auto* handle = ::fdopen(descriptor, mode);
+#endif
+    if (!handle) { ::operator delete(storage); return nullptr; }
+    return new (storage) FileStream(handle, true);
+}
 
 FileStream* APS5_VABI freopen_nid_postfix(const char* filename, const char* mode, FileStream* stream) {
     if (!stream || !mode) { errno = 22; return nullptr; }

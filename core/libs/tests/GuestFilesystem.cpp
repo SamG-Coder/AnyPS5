@@ -1,4 +1,5 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
+#include "prx/libc/include/FileStream.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -7,6 +8,10 @@
 #include <cstring>
 #include <set>
 #include <vector>
+#include <fcntl.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -16,6 +21,9 @@
 #include <sys/stat.h>
 #endif
 extern "C" {
+FileStream* APS5_VABI fdopen_nid_postfix(int, const char*);
+int APS5_VABI fclose_nid_postfix(FileStream*);
+int APS5_VABI fileno_nid_postfix(FileStream*);
 int APS5_VABI access_nid_postfix(const char*, int);
 int APS5_VABI chdir_nid_postfix(const char*);
 int APS5_VABI mkstemp_nid_postfix(char*);
@@ -35,6 +43,33 @@ int main() {
     const auto root = std::filesystem::path("anyps5-filesystem-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
+    Require(fdopen_nid_postfix(-1, "r") == nullptr && *__error_nid_postfix() == 9);
+    Require(fdopen_nid_postfix(0, "invalid") == nullptr && *__error_nid_postfix() == 22);
+    auto fdPattern = (root / "fdopen-XXXXXX").string();
+    const int fd = mkstemp_nid_postfix(fdPattern.data());
+    Require(fd >= 0);
+    Require(fdopen_nid_postfix(fd, "bad") == nullptr && *__error_nid_postfix() == 22);
+    auto* guestStream = fdopen_nid_postfix(fd, "w+");
+    Require(guestStream && fileno_nid_postfix(guestStream) == fd);
+    const unsigned char binary[] = {10, 26, 0, 255};
+    Require(std::fwrite(binary, 1, sizeof(binary), guestStream->GetHandle()) == sizeof(binary));
+    Require(std::fflush(guestStream->GetHandle()) == 0);
+    Require(std::filesystem::file_size(fdPattern) == sizeof(binary));
+    Require(fclose_nid_postfix(guestStream) == 0);
+    Require(fdopen_nid_postfix(fd, "r") == nullptr && *__error_nid_postfix() == 9);
+#ifdef _WIN32
+    const int appendFd = _open(fdPattern.c_str(), _O_RDWR | _O_BINARY);
+#else
+    const int appendFd = ::open(fdPattern.c_str(), O_RDWR);
+#endif
+    Require(appendFd >= 0);
+    guestStream = fdopen_nid_postfix(appendFd, "a");
+    Require(guestStream != nullptr);
+    Require(std::fseek(guestStream->GetHandle(), 0, SEEK_SET) == 0);
+    Require(std::fwrite(binary, 1, sizeof(binary), guestStream->GetHandle()) == sizeof(binary));
+    Require(fclose_nid_postfix(guestStream) == 0);
+    Require(std::filesystem::file_size(fdPattern) == 2 * sizeof(binary));
+    Require(unlink_nid_postfix(fdPattern.c_str()) == 0);
     Require(mkstemp_nid_postfix(nullptr) == -1 && *__error_nid_postfix() == 14);
     char invalid[] = "temp-XXXXX";
     Require(mkstemp_nid_postfix(invalid) == -1 && *__error_nid_postfix() == 22);
