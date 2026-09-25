@@ -36,8 +36,8 @@ inline constexpr std::array InputMapping{
     InputBinding{SDL_SCANCODE_RETURN, 0, InputControl::Button, 0x4000},
     InputBinding{SDL_SCANCODE_ESCAPE, 0, InputControl::Button, 0x8},
     InputBinding{SDL_SCANCODE_I, 0, InputControl::Button, 0x1000},
-    InputBinding{SDL_SCANCODE_K, 0, InputControl::Button, 0x8000},
-    InputBinding{SDL_SCANCODE_L, 0, InputControl::Button, 0x2000},
+    InputBinding{SDL_SCANCODE_C, 0, InputControl::Button, 0x2000},
+    InputBinding{SDL_SCANCODE_SPACE, 0, InputControl::Button, 0x8000},
     InputBinding{SDL_SCANCODE_Q, 0, InputControl::Button, 0x400},
     InputBinding{SDL_SCANCODE_E, 0, InputControl::Button, 0x800},
     InputBinding{SDL_SCANCODE_LSHIFT, 0, InputControl::Button, 0x2},
@@ -60,7 +60,7 @@ inline constexpr std::array InputMapping{
     InputBinding{SDL_SCANCODE_TAB, 0, InputControl::TouchRight},
     InputBinding{SDL_SCANCODE_UNKNOWN, SDL_BUTTON_MIDDLE, InputControl::ToggleMouse},
     InputBinding{SDL_SCANCODE_UNKNOWN, SDL_BUTTON_LEFT, InputControl::Button, 0x200},
-    InputBinding{SDL_SCANCODE_UNKNOWN, SDL_BUTTON_RIGHT, InputControl::Button, 0x100},
+    InputBinding{SDL_SCANCODE_UNKNOWN, SDL_BUTTON_RIGHT, InputControl::Button, 0x800},
     InputBinding{SDL_SCANCODE_UNKNOWN, 0, InputControl::Button, 0x10, 1},
     InputBinding{SDL_SCANCODE_UNKNOWN, 0, InputControl::Button, 0x40, -1}
 };
