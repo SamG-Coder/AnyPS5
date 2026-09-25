@@ -6,9 +6,14 @@
 #include <array>
 #include <cstdarg>
 #include <cstdint>
+#include <cmath>
+#include <limits>
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+float APS5_VABI wcstof_nid_postfix(const std::uint16_t*, std::uint16_t**);
+double APS5_VABI wcstod_nid_postfix(const std::uint16_t*, std::uint16_t**);
+long double APS5_VABI wcstold_nid_postfix(const std::uint16_t*, std::uint16_t**);
 std::int64_t APS5_VABI wcstol_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
 std::uint64_t APS5_VABI wcstoul_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
 std::int64_t APS5_VABI wcstoll_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
@@ -87,6 +92,29 @@ int main() {
         return result;
     };
     std::uint16_t* end = nullptr;
+    auto floating = wideNumber("  -12.5tail");
+    Require(wcstof_nid_postfix(floating.c_str(), &end) == -12.5f && end == floating.data() + 7);
+    Require(wcstod_nid_postfix(floating.c_str(), &end) == -12.5 && end == floating.data() + 7);
+    Require(wcstold_nid_postfix(floating.c_str(), &end) == -12.5L && end == floating.data() + 7);
+    floating = wideNumber("0x1.8p+2!");
+    Require(wcstod_nid_postfix(floating.c_str(), &end) == 6.0 && *end == '!');
+    floating = wideNumber("1.000000000000000000108420217248550443400745280086994171142578125");
+    Require(wcstold_nid_postfix(floating.c_str(), &end) == 1.0L + std::numeric_limits<long double>::epsilon());
+    Require(*end == 0);
+    floating = wideNumber("1e4000");
+    Require(std::isfinite(wcstold_nid_postfix(floating.c_str(), &end)) && *end == 0);
+    floating = wideNumber("1e99999!");
+    Require(std::isinf(wcstof_nid_postfix(floating.c_str(), &end)) && *__error_nid_postfix() == 34 && *end == '!');
+    floating = wideNumber("1e-99999!");
+    Require(wcstod_nid_postfix(floating.c_str(), &end) == 0 && *__error_nid_postfix() == 34 && *end == '!');
+    floating = wideNumber("-0");
+    Require(std::signbit(wcstod_nid_postfix(floating.c_str(), nullptr)));
+    floating = wideNumber("nan!");
+    Require(std::isnan(wcstof_nid_postfix(floating.c_str(), &end)) && *end == '!');
+    floating = wideNumber("+infinity!");
+    Require(std::isinf(wcstod_nid_postfix(floating.c_str(), &end)) && *end == '!');
+    floating = wideNumber("  invalid");
+    Require(wcstod_nid_postfix(floating.c_str(), &end) == 0 && end == floating.data());
     auto number = wideNumber("  +4294967297tail");
     Require(wcstoul_nid_postfix(number.c_str(), &end, 10) == UINT64_C(4294967297));
     Require(end == number.data() + 13);
