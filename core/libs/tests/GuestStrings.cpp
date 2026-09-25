@@ -9,6 +9,12 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+std::int64_t APS5_VABI wcstol_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
+std::uint64_t APS5_VABI wcstoul_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
+std::int64_t APS5_VABI wcstoll_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
+std::uint64_t APS5_VABI wcstoull_nid_postfix(const std::uint16_t*, std::uint16_t**, int);
+std::int64_t APS5_VABI strtol_nid_postfix(const char*, char**, int);
+std::uint64_t APS5_VABI strtoul_nid_postfix(const char*, char**, int);
 std::size_t APS5_VABI wcslen_nid_postfix(const std::uint16_t*);
 int APS5_VABI wcscmp_nid_postfix(const std::uint16_t*, const std::uint16_t*);
 int APS5_VABI wcsncmp_nid_postfix(const std::uint16_t*, const std::uint16_t*, std::size_t);
@@ -75,6 +81,39 @@ static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
     return result;
 }
 int main() {
+    const auto wideNumber = [](const char* text) {
+        std::basic_string<std::uint16_t> result;
+        while (*text) result += static_cast<unsigned char>(*text++);
+        return result;
+    };
+    std::uint16_t* end = nullptr;
+    auto number = wideNumber("  +4294967297tail");
+    Require(wcstoul_nid_postfix(number.c_str(), &end, 10) == UINT64_C(4294967297));
+    Require(end == number.data() + 13);
+    number = wideNumber("18446744073709551615!");
+    Require(wcstoull_nid_postfix(number.c_str(), &end, 10) == UINT64_MAX && end == number.data() + 20);
+    number = wideNumber("18446744073709551616!");
+    Require(wcstoul_nid_postfix(number.c_str(), &end, 10) == UINT64_MAX && *__error_nid_postfix() == 34);
+    Require(end == number.data() + 20);
+    number = wideNumber("-9223372036854775808");
+    Require(wcstol_nid_postfix(number.c_str(), &end, 10) == INT64_MIN && *end == 0);
+    number = wideNumber("9223372036854775808");
+    Require(wcstoll_nid_postfix(number.c_str(), &end, 10) == INT64_MAX && *__error_nid_postfix() == 34);
+    number = wideNumber("-1");
+    Require(wcstoul_nid_postfix(number.c_str(), nullptr, 10) == UINT64_MAX);
+    number = wideNumber("0x100000001!");
+    Require(wcstoul_nid_postfix(number.c_str(), &end, 0) == UINT64_C(4294967297) && *end == '!');
+    number = wideNumber("077!");
+    Require(wcstol_nid_postfix(number.c_str(), &end, 0) == 63 && *end == '!');
+    number = wideNumber("z!");
+    Require(wcstol_nid_postfix(number.c_str(), &end, 36) == 35 && *end == '!');
+    Require(wcstol_nid_postfix(number.c_str(), &end, 1) == 0 && *__error_nid_postfix() == 22 && end == number.data());
+    number = wideNumber("  -not-a-number");
+    Require(wcstol_nid_postfix(number.c_str(), &end, 10) == 0 && end == number.data());
+    const std::uint16_t stopped[] = {'1', '2', 0x1234, '3', 0};
+    Require(wcstol_nid_postfix(stopped, &end, 10) == 12 && end == stopped + 2);
+    Require(strtol_nid_postfix("4294967297", nullptr, 10) == INT64_C(4294967297));
+    Require(strtoul_nid_postfix("18446744073709551615", nullptr, 10) == UINT64_MAX);
     const std::uint16_t wide[] = {'A', 0x1234, 0xd83d, 0xde00, 'Z', 0};
     const std::uint16_t emptyWide[] = {0};
     const std::uint16_t pattern[] = {0xd83d, 0xde00, 0};
