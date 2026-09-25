@@ -6,44 +6,60 @@
 namespace AgcDriver::Graphics {
 
 DrawQueue::~DrawQueue() {
-    for (auto& entry : pending) entry.commands.reset();
+    recording.commands.reset();
+    for (auto& batch : pending) batch.commands.reset();
 }
 
-std::unique_ptr<CommandBatch> DrawQueue::Begin(const Context& context) {
-    if (available.empty()) return std::make_unique<CommandBatch>(context);
-    auto commands = std::move(available.back());
-    available.pop_back();
-    commands->Reset();
-    return commands;
-}
-
-void DrawQueue::Submit(std::unique_ptr<CommandBatch> commands, std::shared_ptr<ShaderResources> resources, std::shared_ptr<void> storage) {
-    if (pending.size() >= 64) Wait();
-    pending.push_back({std::move(storage), std::move(resources), std::move(commands)});
-    try {
-        pending.back().commands->Submit();
-    } catch (...) {
-        pending.pop_back();
-        throw;
+VkCommandBuffer DrawQueue::Begin(const Context& context) {
+    if (drawCount >= 64) Wait();
+    if (!recording.commands) {
+        if (available.empty()) recording.commands = std::make_unique<CommandBatch>(context);
+        else {
+            recording.commands = std::move(available.back());
+            available.pop_back();
+            recording.commands->Reset();
+        }
     }
+    return recording.commands->Handle();
+}
+
+void DrawQueue::Enqueue(std::shared_ptr<ShaderResources> resources, std::shared_ptr<void> storage) {
+    Require(recording.commands != nullptr && resources != nullptr && storage != nullptr, "draw batch is incomplete");
+    recording.entries.push_back({std::move(storage), std::move(resources)});
+    ++drawCount;
+    if (recording.entries.size() >= 8) Flush();
+}
+
+void DrawQueue::Flush() {
+    if (!recording.commands) return;
+    Require(!recording.entries.empty(), "cannot submit an incomplete draw batch");
+    pending.push_back(std::move(recording));
+    recording = Batch{};
+    pending.back().commands->Submit();
 }
 
 void DrawQueue::Resolve(std::uint64_t address, std::size_t bytes) {
-    if (std::any_of(pending.begin(), pending.end(), [&](const auto& entry) { return entry.resources->WritesOverlap(address, bytes); })) Wait();
+    const auto overlaps = [&](const auto& entry) { return entry.resources->WritesOverlap(address, bytes); };
+    if (std::any_of(recording.entries.begin(), recording.entries.end(), overlaps) || std::any_of(pending.begin(), pending.end(), [&](const auto& batch) { return std::any_of(batch.entries.begin(), batch.entries.end(), overlaps); })) Wait();
 }
 
 void DrawQueue::Wait() {
-    if (pending.empty()) return;
+    if (pending.empty() && !recording.commands) return;
     PerformanceTimer timing("Graphics.DrawQueue.Wait");
     const GuestMemory::MemoryAccessScope suspended(nullptr, nullptr);
-    for (auto& entry : pending) {
-        entry.commands->Wait();
+    Flush();
+    timing.Mark("submit");
+    for (auto& batch : pending) {
+        batch.commands->Wait();
         timing.Mark("fence_wait");
-        entry.resources->WriteBack();
+        for (auto& entry : batch.entries) entry.resources->WriteBack();
         timing.Mark("resources_writeback");
-        available.push_back(std::move(entry.commands));
+        available.push_back(std::move(batch.commands));
+        batch.entries.clear();
+        timing.Mark("resources_release");
     }
     pending.clear();
+    drawCount = 0;
 }
 
 }

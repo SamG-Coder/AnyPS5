@@ -1,6 +1,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureCache.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libc/include/General.hpp"
 #include "Optimization/include/Optimization/ShaderStageInputInfo.hpp"
 #include <cstring>
@@ -70,6 +71,7 @@ ShaderResources::ShaderResources(const Context& context, const CompiledShader& c
 }
 
 void ShaderResources::build(std::span<const CompiledShader> shaders, const ColorTarget* target, std::uint64_t indexAddress, std::size_t indexBytes) {
+    PerformanceTimer timing("Graphics.ShaderResources");
     try {
         Require(!shaders.empty() && context.limits.maxBoundDescriptorSets >= 1, "shader descriptor set exceeds device limits");
         std::vector<Binding> bindings;
@@ -112,36 +114,35 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
             }
         }
         Require(storageBuffers <= context.limits.maxDescriptorSetStorageBuffers, "pipeline descriptors exceed device limits");
+        timing.Mark("bindings");
         guestMemory.Upload(usesBda);
         if (usesBda) bda = std::make_unique<BdaResources>(context, guestMemory);
         else if (usesFaultBuffer) bda = std::make_unique<BdaResources>(context);
+        timing.Mark("memory_upload");
         std::vector<VkDescriptorSetLayoutBinding> description;
         for (const auto& binding : bindings) {
             description.push_back(binding.layout);
             layoutKey.insert(layoutKey.end(), {binding.layout.binding, static_cast<std::uint32_t>(binding.layout.descriptorType), binding.layout.descriptorCount, binding.layout.stageFlags});
         }
-        VkDescriptorSetLayoutCreateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        info.bindingCount = static_cast<std::uint32_t>(description.size());
-        info.pBindings = description.data();
-        Check(context.Function<PFN_vkCreateDescriptorSetLayout>("vkCreateDescriptorSetLayout")(context.device, &info, nullptr, &_layout), "vkCreateDescriptorSetLayout");
-        if (bindings.empty()) return;
         std::vector<VkDescriptorPoolSize> sizes;
         if (storageBuffers != 0) sizes.push_back({VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, static_cast<std::uint32_t>(storageBuffers)});
         if (!textures.empty()) sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, static_cast<std::uint32_t>(textures.size())});
         if (!samplers.empty()) sizes.push_back({VK_DESCRIPTOR_TYPE_SAMPLER, static_cast<std::uint32_t>(samplers.size())});
-        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        poolInfo.maxSets = 1;
-        poolInfo.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
-        poolInfo.pPoolSizes = sizes.data();
-        Check(context.Function<PFN_vkCreateDescriptorPool>("vkCreateDescriptorPool")(context.device, &poolInfo, nullptr, &pool), "vkCreateDescriptorPool");
-        VkDescriptorSetAllocateInfo allocation{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        allocation.descriptorPool = pool;
-        allocation.descriptorSetCount = 1;
-        allocation.pSetLayouts = &_layout;
-        Check(context.Function<PFN_vkAllocateDescriptorSets>("vkAllocateDescriptorSets")(context.device, &allocation, &_set), "vkAllocateDescriptorSets");
+        if (!context.descriptorCache) context.descriptorCache = std::make_shared<DescriptorCache>();
+        descriptors = context.descriptorCache->Take(layoutKey);
+        if (!descriptors) descriptors = std::make_unique<DescriptorAllocation>(context, layoutKey, description, sizes);
+        _layout = descriptors->Layout();
+        _set = descriptors->Set();
+        timing.Mark("descriptor_acquire");
+        std::vector<VkDescriptorBufferInfo> buffers;
+        std::vector<VkDescriptorImageInfo> images;
+        std::vector<VkWriteDescriptorSet> writes;
+        buffers.reserve(allocations.size());
+        images.reserve(textures.size() + samplers.size());
+        writes.reserve(bindings.size());
         for (const auto& binding : bindings) {
-            std::vector<VkDescriptorBufferInfo> buffers;
-            std::vector<VkDescriptorImageInfo> images;
+            const auto bufferOffset = buffers.size();
+            const auto imageOffset = images.size();
             VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             write.dstSet = _set;
             write.dstBinding = binding.layout.binding;
@@ -150,20 +151,22 @@ void ShaderResources::build(std::span<const CompiledShader> shaders, const Color
             switch (binding.layout.descriptorType) {
                 case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
                     for (const auto index : binding.allocations) buffers.push_back(descriptor(allocations[index]));
-                    write.pBufferInfo = buffers.data();
+                    write.pBufferInfo = buffers.data() + bufferOffset;
                     break;
                 case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                     for (const auto index : binding.imageAllocations) images.push_back({VK_NULL_HANDLE, textures[index]->View(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
-                    write.pImageInfo = images.data();
+                    write.pImageInfo = images.data() + imageOffset;
                     break;
                 case VK_DESCRIPTOR_TYPE_SAMPLER:
                     for (const auto index : binding.imageAllocations) images.push_back({samplers[index]->Handle(), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED});
-                    write.pImageInfo = images.data();
+                    write.pImageInfo = images.data() + imageOffset;
                     break;
                 default: throw std::runtime_error("AGC graphics: ShaderResources encountered an unknown descriptor type while writing the descriptor set");
             }
-            context.Function<PFN_vkUpdateDescriptorSets>("vkUpdateDescriptorSets")(context.device, 1, &write, 0, nullptr);
+            writes.push_back(write);
         }
+        if (!writes.empty()) context.Function<PFN_vkUpdateDescriptorSets>("vkUpdateDescriptorSets")(context.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+        timing.Mark("descriptor_update");
     } catch (...) {
         release();
         throw;
@@ -233,7 +236,8 @@ void ShaderResources::addImageBinding(const ShaderRecompiler::DescriptorBinding&
             const auto words = std::span<const std::uint32_t>(binding.guestDescriptor).subspan(static_cast<std::size_t>(element) * elementWords, elementWords);
             auto resource = DecodeSamplerResource(words);
             resource.compareEnable = binding.samplerDepthCompare.at(element);
-            samplers.push_back(std::make_unique<Sampler>(context, resource));
+            if (!context.samplerCache) context.samplerCache = std::make_shared<SamplerCache>();
+            samplers.push_back(context.samplerCache->Get(context, words, resource));
             item.imageAllocations.push_back(samplers.size() - 1);
         }
         Require(samplers.size() <= context.limits.maxDescriptorSetSamplers, "pipeline sampler descriptors exceed device limits");
@@ -247,8 +251,9 @@ ShaderResources::~ShaderResources() {
 }
 
 void ShaderResources::release() noexcept {
-    if (pool) context.Function<PFN_vkDestroyDescriptorPool>("vkDestroyDescriptorPool")(context.device, pool, nullptr);
-    if (_layout) context.Function<PFN_vkDestroyDescriptorSetLayout>("vkDestroyDescriptorSetLayout")(context.device, _layout, nullptr);
+    if (descriptors) context.descriptorCache->Put(std::move(descriptors));
+    _layout = VK_NULL_HANDLE;
+    _set = VK_NULL_HANDLE;
 }
 
 VkDescriptorSetLayout ShaderResources::Layout() const {

@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/BdaResources.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Sampler.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DescriptorCache.hpp"
 #include "Recompiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Shaders.hpp"
 #include <array>
@@ -57,10 +58,10 @@ private:
     bool usesFaultBuffer = false;
     VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
     VkDescriptorSet _set = VK_NULL_HANDLE;
-    VkDescriptorPool pool = VK_NULL_HANDLE;
+    std::unique_ptr<DescriptorAllocation> descriptors;
     std::vector<Allocation> allocations;
     std::vector<std::shared_ptr<Texture>> textures;
-    std::vector<std::unique_ptr<Sampler>> samplers;
+    std::vector<std::shared_ptr<Sampler>> samplers;
 };
 
 }

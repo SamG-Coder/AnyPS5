@@ -30,15 +30,30 @@ public:
     void Put(const BufferAllocation& allocation) noexcept;
 
 private:
+    static constexpr std::size_t capacity = 1024;
+    static constexpr std::size_t bucketCount = 256;
+    static constexpr std::size_t none = capacity;
+    struct Slot {
+        std::optional<BufferAllocation> allocation;
+        std::size_t next = none;
+        std::size_t older = none;
+        std::size_t newer = none;
+    };
+    static std::size_t bucket(std::size_t bytes, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) noexcept;
+    BufferAllocation remove(std::size_t index) noexcept;
     void destroy(const BufferAllocation& allocation) noexcept;
     VkDevice device;
     PFN_vkUnmapMemory unmap;
     PFN_vkDestroyBuffer destroyBuffer;
     PFN_vkFreeMemory freeMemory;
     std::mutex mutex;
-    std::array<std::optional<BufferAllocation>, 64> free;
+    std::array<Slot, capacity> slots;
+    std::array<std::size_t, bucketCount> buckets;
+    std::array<std::size_t, capacity> freeSlots;
+    std::size_t freeCount = capacity;
+    std::size_t oldest = none;
+    std::size_t newest = none;
     VkDeviceSize retainedBytes = 0;
-    std::size_t cursor = 0;
     static constexpr VkDeviceSize budget = 512ull * 1024 * 1024;
 };
 

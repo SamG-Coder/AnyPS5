@@ -3,6 +3,9 @@
 
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GuestSamplerResource.hpp"
+#include <array>
+#include <map>
+#include <mutex>
 
 namespace AgcDriver::Graphics {
 
@@ -18,8 +21,18 @@ public:
 private:
     void release() noexcept;
 
-    Context context;
+    VkDevice device;
+    PFN_vkDestroySampler destroySampler;
     VkSampler sampler = VK_NULL_HANDLE;
+};
+
+class SamplerCache {
+public:
+    std::shared_ptr<Sampler> Get(const Context& context, std::span<const std::uint32_t> words, const GuestSamplerResource& descriptor);
+
+private:
+    std::mutex mutex;
+    std::map<std::array<std::uint32_t, 5>, std::shared_ptr<Sampler>> entries;
 };
 
 }

@@ -37,7 +37,7 @@ endif()
 
 foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests)
     if(TARGET ${agcTarget})
-        target_sources(${agcTarget} PRIVATE Graphics/src/RenderCache.cpp Graphics/src/DrawQueue.cpp Graphics/src/RenderTexture.cpp)
+        target_sources(${agcTarget} PRIVATE Graphics/src/RenderCache.cpp Graphics/src/DrawQueue.cpp Graphics/src/RenderTexture.cpp Graphics/src/DescriptorCache.cpp)
     endif()
 endforeach()
 

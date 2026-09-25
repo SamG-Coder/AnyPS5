@@ -11,6 +11,8 @@
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GpuColorTransfer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/BufferPool.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DescriptorCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Sampler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureCache.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineCache.hpp"
 #include "prx/libc/include/General.hpp"
@@ -84,6 +86,8 @@ struct VulkanDevice::State {
     std::unique_ptr<Graphics::TextureDetiler> detiler;
     std::unique_ptr<Graphics::GpuColorTransfer> colorTransfer;
     std::shared_ptr<Graphics::BufferPool> bufferPool;
+    std::shared_ptr<Graphics::DescriptorCache> descriptorCache;
+    std::shared_ptr<Graphics::SamplerCache> samplerCache;
     std::unique_ptr<Graphics::TextureCache> textureCache;
     std::unique_ptr<Graphics::PipelineCache> pipelineCache;
     std::unique_ptr<Graphics::DrawQueue> drawQueue;
@@ -174,6 +178,8 @@ struct VulkanDevice::State {
             rgbaScaler.reset();
             pipelineCache.reset();
             bufferPool.reset();
+            descriptorCache.reset();
+            samplerCache.reset();
             const auto destroyFence = reinterpret_cast<PFN_vkDestroyFence>(deviceProc(device, "vkDestroyFence"));
             if (acquireFence) destroyFence(device, acquireFence, nullptr);
             if (renderFence) destroyFence(device, renderFence, nullptr);
@@ -417,6 +423,8 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     poolInfo.queueFamilyIndex = family;
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
     state->bufferPool = std::make_shared<Graphics::BufferPool>(graphicsContext());
+    state->descriptorCache = std::make_shared<Graphics::DescriptorCache>();
+    state->samplerCache = std::make_shared<Graphics::SamplerCache>();
     state->pipelineCache = std::make_unique<Graphics::PipelineCache>(graphicsContext());
     state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
     state->drawQueue = std::make_unique<Graphics::DrawQueue>();
@@ -731,7 +739,9 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->pipelineCache ? state->pipelineCache->Handle() : VK_NULL_HANDLE,
         state->renderCache.get(),
         state->drawQueue.get(),
-        state->graphicsPipelines.get()
+        state->graphicsPipelines.get(),
+        state->descriptorCache,
+        state->samplerCache
     };
 }
 
