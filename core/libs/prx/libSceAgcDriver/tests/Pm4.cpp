@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Submit/include/Dcb.hpp"
 #include "prx/libc/include/Shutdown.hpp"
@@ -228,6 +229,44 @@ void testCopies() {
 #endif
 }
 
+void testMemorySynchronization() {
+    struct MemoryState {
+        std::uint32_t source = 0;
+        std::uint32_t destination = 0;
+        bool read = false;
+        bool written = false;
+    } memory;
+    AgcDriver::QueueState state;
+    const auto resolve = [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
+        auto& memory = *static_cast<MemoryState*>(context);
+        check(bytes == sizeof(std::uint32_t), "memory transfer resolved an unrelated range");
+        if (writable) {
+            check(address == reinterpret_cast<std::uintptr_t>(&memory.destination), "memory transfer resolved an unrelated destination");
+            memory.written = true;
+        } else {
+            check(address == reinterpret_cast<std::uintptr_t>(&memory.source), "memory transfer resolved an unrelated source");
+            memory.source = 42;
+            memory.read = true;
+        }
+    };
+    const AgcDriver::GuestMemory::MemoryAccessScope scope(&memory, resolve);
+    execute(state, makePacket(0x37, {0x100, low(&memory.destination), high(&memory.destination), 17}));
+    check(memory.written && !memory.read && memory.destination == 17, "WRITE_DATA did not synchronize its destination");
+    for (const auto opcode : {0x40u, 0x50u}) {
+        memory = {};
+        const auto packet = opcode == 0x40
+            ? makePacket(opcode, {0x101, low(&memory.source), high(&memory.source), low(&memory.destination), high(&memory.destination)})
+            : makePacket(opcode, {0x60000000, low(&memory.source), high(&memory.source), low(&memory.destination), high(&memory.destination), 4});
+        execute(state, packet);
+        check(memory.read && memory.written && memory.destination == 42, "memory copy used stale data before range synchronization");
+    }
+    const AgcDriver::GuestMemory::MemoryAccessScope rejecting(&memory, [](void*, std::uint64_t, std::size_t, bool) {
+        throw std::runtime_error("range synchronization failed");
+    });
+    expectFailure([&] { execute(state, makePacket(0x37, {0x100, low(&memory.destination), high(&memory.destination), 99})); }, "range synchronization failed");
+    check(memory.destination == 42, "failed synchronization changed the destination");
+}
+
 void testEventWrite() {
     for (const auto eventType : {0x07u, 0x0fu, 0x10u}) {
         AgcDriver::Pm4::Validate(makePacket(0x46, {0x400u | eventType}), 0);
@@ -262,6 +301,20 @@ void testEventWrite() {
 void testAcquireMem() {
     const auto captured = makePacket(0x58, {0x02007fc0, 0, 0, 0, 0, 10, 0x200});
     AgcDriver::Pm4::Validate(captured, 0);
+    check(AgcDriver::Pm4::UsesGpuCacheBarrier(captured), "L1 acquire must preserve GPU render targets");
+    for (const auto flags : {0u, 0x200u, 0x3ffu, 0x10200u, 0x20200u}) {
+        auto packet = captured;
+        packet[7] = flags;
+        check(AgcDriver::Pm4::UsesGpuCacheBarrier(packet), "GPU cache acquire requires an unnecessary host writeback");
+    }
+    for (const auto flags : {0x400u, 0x800u, 0x1000u, 0x4000u, 0x8000u}) {
+        auto packet = captured;
+        packet[7] = flags;
+        check(!AgcDriver::Pm4::UsesGpuCacheBarrier(packet), "L2 acquire lost host synchronization");
+    }
+    check(!AgcDriver::Pm4::UsesGpuCacheBarrier(makePacket(0x58, {0x00800000, 0xffffffff, 0, 0, 0, 10})), "legacy acquire lost host synchronization");
+    expectFailure([] { AgcDriver::Pm4::UsesGpuCacheBarrier({}); }, "requires ACQUIRE_MEM");
+    expectFailure([] { AgcDriver::Pm4::UsesGpuCacheBarrier(makePacket(0x58, {0, 0, 0, 0, 0, 0, 0x2000})); }, "cache discard");
     AgcDriver::Pm4::Validate(makePacket(0x58, {0x82007fc0, 1, 0, 0xffffffff, 0, 0xffff, 0x200}), 0);
     AgcDriver::Pm4::Validate(makePacket(0x58, {0x80000000, 0, 0, 0, 0, 10, 0x200}), 0x20);
     AgcDriver::Pm4::Validate(makePacket(0x58, {0x00800000, 0xffffffff, 0, 0, 0, 10}), 0);
@@ -359,6 +412,7 @@ int main(int argc, char** argv) {
         testAutoDraw();
         testMemory();
         testCopies();
+        testMemorySynchronization();
         testEventWrite();
         testAcquireMem();
         testDriverSubmission();

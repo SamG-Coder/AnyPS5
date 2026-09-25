@@ -19,6 +19,8 @@ public:
     VulkanDevice& operator=(const VulkanDevice&) = delete;
     ShaderRecompiler::SpirvTarget Target() const;
     void WaitIdle();
+    void WaitDraws();
+    void AcquireGpuMemory();
     void ResolveMemory(std::uint64_t address, std::size_t bytes, bool writable);
     void* Window() const;
     void Resize(std::uint32_t width, std::uint32_t height);

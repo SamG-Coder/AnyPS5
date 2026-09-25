@@ -38,15 +38,14 @@ void DisplayWindow::Ensure(std::uint32_t sourceWidth, std::uint32_t sourceHeight
 void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
     SDL_Rect usable{};
     require(SDL_GetDisplayUsableBounds(0, &usable) == 0, SDL_GetError());
-    std::uint32_t initialWidth = sourceWidth;
-    std::uint32_t initialHeight = sourceHeight;
-    if (usable.w > 0 && usable.h > 0 && (sourceWidth > static_cast<std::uint32_t>(usable.w) || sourceHeight > static_cast<std::uint32_t>(usable.h))) {
-        const auto fitted = AgcDriver::ComputeContainSize_nid_postfix(sourceWidth, sourceHeight, static_cast<std::uint32_t>(usable.w), static_cast<std::uint32_t>(usable.h), false);
-        initialWidth = fitted.width;
-        initialHeight = fitted.height;
-    }
+    require(DisplayWindowInitialSizePercent > 0 && DisplayWindowInitialSizePercent <= 100, "initial window size percent must be between 1 and 100");
+    require(usable.w > 0 && usable.h > 0, "usable display extent must be positive");
+    const auto boundsWidth = static_cast<std::uint32_t>(static_cast<std::uint64_t>(usable.w) * DisplayWindowInitialSizePercent / 100);
+    const auto boundsHeight = static_cast<std::uint32_t>(static_cast<std::uint64_t>(usable.h) * DisplayWindowInitialSizePercent / 100);
+    const auto initialSize = AgcDriver::ComputeContainSize_nid_postfix(sourceWidth, sourceHeight, boundsWidth, boundsHeight, true);
+    require(initialSize.width >= DisplayWindowMinimumWidth && initialSize.height >= DisplayWindowMinimumHeight, "initial window extent is smaller than the minimum");
     const auto title = GetAppTitle_nid_postfix();
-    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialWidth), static_cast<int>(initialHeight), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialSize.width), static_cast<int>(initialSize.height), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     require(window != nullptr, SDL_GetError());
     SDL_SetWindowMinimumSize(window, static_cast<int>(DisplayWindowMinimumWidth), static_cast<int>(DisplayWindowMinimumHeight));
     installSubclass();
@@ -66,6 +65,12 @@ void DisplayWindow::Destroy() noexcept {
 
 SDL_Window* DisplayWindow::Handle() const {
     return window;
+}
+
+void DisplayWindow::ToggleFullscreen() {
+    require(window != nullptr, "window must exist before toggling fullscreen");
+    const auto flags = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0 ? 0u : static_cast<Uint32>(SDL_WINDOW_FULLSCREEN_DESKTOP);
+    require(SDL_SetWindowFullscreen(window, flags) == 0, SDL_GetError());
 }
 
 void DisplayWindow::DrawableSize(std::uint32_t& width, std::uint32_t& height) const {
@@ -98,7 +103,7 @@ void DisplayWindow::UpdateTitle() {
         fpsFrames = 0;
     }
     char text[160];
-    std::snprintf(text, sizeof(text), "%s | %llu", title.value, static_cast<unsigned long long>(frameNum));
+    std::snprintf(text, sizeof(text), "%s | FPS: %.2f (%llu)", title.value, currentFps, static_cast<unsigned long long>(frameNum));
     SDL_SetWindowTitle(window, text);
 }
 
@@ -124,21 +129,30 @@ void DisplayWindow::removeSubclass() noexcept {
 #endif
 }
 
-void DisplayWindow::applyAspectRatio(std::uintptr_t edge, void* rect) const {
+void DisplayWindow::applyAspectRatio(void* hwnd, std::uintptr_t edge, void* rect) const {
 #ifdef _WIN32
-    if (aspectWidth == 0 || aspectHeight == 0) return;
+    require(aspectWidth != 0 && aspectHeight != 0, "source extent must be non-zero during resize");
+    RECT windowBounds{};
+    RECT clientBounds{};
+    require(GetWindowRect(static_cast<HWND>(hwnd), &windowBounds) != FALSE, "GetWindowRect failed");
+    require(GetClientRect(static_cast<HWND>(hwnd), &clientBounds) != FALSE, "GetClientRect failed");
+    const auto frameWidth = (windowBounds.right - windowBounds.left) - (clientBounds.right - clientBounds.left);
+    const auto frameHeight = (windowBounds.bottom - windowBounds.top) - (clientBounds.bottom - clientBounds.top);
+    require(frameWidth >= 0 && frameHeight >= 0, "invalid window frame extent");
     auto* bounds = static_cast<RECT*>(rect);
-    const auto currentWidth = static_cast<std::uint32_t>(bounds->right - bounds->left);
-    const auto currentHeight = static_cast<std::uint32_t>(bounds->bottom - bounds->top);
+    const auto clientWidth = bounds->right - bounds->left - frameWidth;
+    const auto clientHeight = bounds->bottom - bounds->top - frameHeight;
+    require(clientWidth > 0 && clientHeight > 0, "resized client extent must be positive");
     if (edge == WMSZ_TOP || edge == WMSZ_BOTTOM) {
-        const auto width = AgcDriver::ComputeWidthForHeight_nid_postfix(aspectWidth, aspectHeight, currentHeight);
-        bounds->right = bounds->left + static_cast<LONG>(width);
+        const auto width = AgcDriver::ComputeWidthForHeight_nid_postfix(aspectWidth, aspectHeight, static_cast<std::uint32_t>(clientHeight));
+        bounds->right = bounds->left + static_cast<LONG>(width) + frameWidth;
         return;
     }
-    const auto height = AgcDriver::ComputeHeightForWidth_nid_postfix(aspectWidth, aspectHeight, currentWidth);
-    if (edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - static_cast<LONG>(height);
-    else bounds->bottom = bounds->top + static_cast<LONG>(height);
+    const auto height = AgcDriver::ComputeHeightForWidth_nid_postfix(aspectWidth, aspectHeight, static_cast<std::uint32_t>(clientWidth));
+    if (edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT) bounds->top = bounds->bottom - static_cast<LONG>(height) - frameHeight;
+    else bounds->bottom = bounds->top + static_cast<LONG>(height) + frameHeight;
 #else
+    static_cast<void>(hwnd);
     static_cast<void>(edge);
     static_cast<void>(rect);
 #endif
@@ -148,7 +162,8 @@ std::intptr_t __stdcall DisplayWindow::windowProc(void* hwnd, unsigned int messa
 #ifdef _WIN32
     static_cast<void>(subclassId);
     if (message == WM_SIZING) {
-        reinterpret_cast<const DisplayWindow*>(referenceData)->applyAspectRatio(wParam, reinterpret_cast<void*>(lParam));
+        reinterpret_cast<const DisplayWindow*>(referenceData)->applyAspectRatio(hwnd, wParam, reinterpret_cast<void*>(lParam));
+        return TRUE;
     }
     return DefSubclassProc(static_cast<HWND>(hwnd), message, static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
 #else

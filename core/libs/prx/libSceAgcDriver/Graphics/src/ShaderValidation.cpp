@@ -1,6 +1,7 @@
 #include "BdaAbi.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <map>
@@ -8,6 +9,8 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <memory>
+#include <type_traits>
 
 namespace AgcDriver::Graphics {
 namespace {
@@ -463,6 +466,76 @@ Module Inspect(const CompiledShader& compiled, const State& state, const VkPhysi
 
 }
 
+namespace {
+
+struct ValidatedInterface {
+    std::map<std::uint32_t, std::string> inputs;
+    std::map<std::uint32_t, std::string> outputs;
+};
+
+std::shared_ptr<const ValidatedInterface> inspectCached(const CompiledShader& compiled, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric) {
+    PerformanceTimer timing("Graphics.ShaderValidation");
+    Require(compiled.program != nullptr, "missing compiled shader");
+    const auto& shader = *compiled.program;
+    std::string key;
+    const auto append = [&]<typename TValue>(const TValue& value) {
+        static_assert(std::is_trivially_copyable_v<TValue>);
+        key.append(reinterpret_cast<const char*>(&value), sizeof(value));
+    };
+    append(compiled.stage);
+    append(state.rectList);
+    append(state.stages.mesh.has_value());
+    if (state.stages.mesh) {
+        append(state.stages.mesh->threadsPerGroup);
+        append(state.stages.mesh->maxVertices);
+        append(state.stages.mesh->maxPrimitives);
+    }
+    append(state.stages.tessellation.has_value());
+    if (state.stages.tessellation) {
+        append(state.stages.tessellation->inputControlPoints);
+        append(state.stages.tessellation->outputControlPoints);
+    }
+    append(subgroup.supportedStages);
+    append(subgroup.supportedOperations);
+    append(fragmentShaderBarycentric);
+    append(shader.bdaAbiVersion);
+    append(shader.pushConstants.empty());
+    append(shader.bindings.size());
+    for (const auto& binding : shader.bindings) {
+        append(binding.kind);
+        append(binding.role);
+        append(binding.descriptorSet);
+        append(binding.binding);
+        append(binding.count);
+        append(binding.readOnly);
+        append(binding.guestDescriptor.empty());
+    }
+    append(shader.vertexAttributes.size());
+    for (const auto& attribute : shader.vertexAttributes) {
+        append(attribute.location);
+        append(attribute.components);
+        append(attribute.resource.fields[3]);
+    }
+    append(shader.spirv.size());
+    const auto code = std::as_bytes(std::span(shader.spirv));
+    if (!code.empty()) key.append(reinterpret_cast<const char*>(code.data()), code.size());
+    timing.Mark("key", key.size());
+    static thread_local std::map<std::string, std::shared_ptr<const ValidatedInterface>> cache;
+    const auto found = cache.find(key);
+    if (found != cache.end()) {
+        timing.Mark("hit");
+        return found->second;
+    }
+    auto module = Inspect(compiled, state, subgroup, fragmentShaderBarycentric);
+    auto result = std::make_shared<const ValidatedInterface>(ValidatedInterface{std::move(module.inputs), std::move(module.outputs)});
+    if (cache.size() >= 128) cache.clear();
+    cache.emplace(std::move(key), result);
+    timing.Mark("inspect");
+    return result;
+}
+
+}
+
 void ValidateShaders(std::span<const CompiledShader> shaders, const State& state, const VkPhysicalDeviceSubgroupProperties& subgroup, bool fragmentShaderBarycentric) {
     using Stage = ShaderRecompiler::ShaderStage;
     const bool tessellation = state.stages.path == ShaderPath::Tessellation;
@@ -473,22 +546,22 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
     Require(shaders.size() == (tessellation || state.rectList ? 4u : 2u), "incorrect graphics stage count");
     const std::array<Stage, 4> tessStages{Stage::Local, Stage::TessellationControl, Stage::TessellationEvaluation, Stage::Fragment};
     static_cast<void>(AssemblePushConstants(shaders));
-    Module previous;
+    std::shared_ptr<const ValidatedInterface> previous;
     for (std::size_t i = 0; i < shaders.size(); ++i) {
         const auto expected = state.rectList ? (i == 0 ? Stage::Vertex : tessStages[i]) : tessellation ? tessStages[i] : i == 1 ? Stage::Fragment : state.stages.path == ShaderPath::Geometry ? Stage::Mesh : Stage::Vertex;
         Require(shaders[i].program != nullptr, "missing compiled shader");
         Require(shaders[i].stage == expected, "graphics stage order disagrees");
         for (const auto& binding : shaders[i].program->bindings) Require(binding.descriptorSet == 0, "graphics resource uses a descriptor set other than zero");
-        const auto current = Inspect(shaders[i], state, subgroup, fragmentShaderBarycentric);
+        const auto current = inspectCached(shaders[i], state, subgroup, fragmentShaderBarycentric);
         if (i != 0) {
-            for (const auto& [location, signature] : current.inputs) {
-                const auto output = previous.outputs.find(location);
-                Require(output != previous.outputs.end() && output->second == signature, "graphics interfaces disagree at location " + std::to_string(location));
+            for (const auto& [location, signature] : current->inputs) {
+                const auto output = previous->outputs.find(location);
+                Require(output != previous->outputs.end() && output->second == signature, "graphics interfaces disagree at location " + std::to_string(location));
             }
         }
         previous = current;
     }
-    Require(previous.outputs.size() == 1 && previous.outputs.contains(0) && previous.outputs.at(0) == "vertex:f32x4", "fragment shader must export one float4 color at location zero");
+    Require(previous->outputs.size() == 1 && previous->outputs.contains(0) && previous->outputs.at(0) == "vertex:f32x4", "fragment shader must export one float4 color at location zero");
 }
 
 void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) {

@@ -107,8 +107,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     storage->pipeline = context.graphicsPipelines->Get(state, storage->color, *resources, shaders);
     auto& pipeline = *storage->pipeline;
     timing.Mark("pipeline_cache");
-    auto batch = std::make_unique<CommandBatch>(context);
-    const auto commands = batch->Handle();
+    const auto commands = context.drawQueue->Begin(context);
     VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
     upload.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
@@ -134,8 +133,8 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
     timing.Mark("command_record");
-    context.drawQueue->Submit(std::move(batch), std::move(resources), std::move(storage));
-    timing.Mark("submit");
+    context.drawQueue->Enqueue(std::move(resources), std::move(storage));
+    timing.Mark("enqueue");
 }
 
 }

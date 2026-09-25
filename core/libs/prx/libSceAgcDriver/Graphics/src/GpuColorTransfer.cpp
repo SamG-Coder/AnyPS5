@@ -72,9 +72,10 @@ void GpuColorTransfer::prepare(std::uint32_t newWidth, std::uint32_t newHeight, 
     Require(layout.Bytes() <= context.limits.maxStorageBufferRange && layout.LinearBytes() <= context.limits.maxStorageBufferRange, "color transfer exceeds storage buffer limits");
     Require((newWidth + 7u) / 8u <= context.limits.maxComputeWorkGroupCount[0] && (newHeight + 7u) / 8u <= context.limits.maxComputeWorkGroupCount[1], "color transfer exceeds workgroup limits");
     if (tiled && width == newWidth && height == newHeight && mode == newMode) return;
-    auto newTiled = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
-    auto newLinear = std::make_unique<Buffer>(context, layout.LinearBytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    auto newTiled = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    auto newLinear = std::make_unique<Buffer>(context, layout.LinearBytes(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     auto newReadback = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_TRANSFER_DST_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+    auto newUpload = std::make_unique<Buffer>(context, layout.Bytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
     const std::array<VkDescriptorBufferInfo, 2> buffers{{{newTiled->Handle(), 0, layout.Bytes()}, {newLinear->Handle(), 0, layout.LinearBytes()}}};
     std::array<VkWriteDescriptorSet, 2> writes{};
     for (std::uint32_t i = 0; i < writes.size(); ++i) {
@@ -89,6 +90,7 @@ void GpuColorTransfer::prepare(std::uint32_t newWidth, std::uint32_t newHeight, 
     tiled = std::move(newTiled);
     linear = std::move(newLinear);
     readback = std::move(newReadback);
+    upload = std::move(newUpload);
     width = newWidth;
     height = newHeight;
     mode = newMode;
@@ -99,7 +101,7 @@ void GpuColorTransfer::Upload(std::uint64_t address, std::uint32_t newWidth, std
     prepare(newWidth, newHeight, newMode);
     timing.Mark("prepare");
     const ColorTargetLayout layout(width, height, mode);
-    GuestMemory::Read(address, tiled->Bytes(), layout.Alignment());
+    GuestMemory::Read(address, upload->Bytes(), layout.Alignment());
     timing.Mark("guest_read", layout.Bytes());
 }
 
@@ -117,11 +119,18 @@ void GpuColorTransfer::convert(VkCommandBuffer commands, bool toTiled, bool swap
     context.Function<PFN_vkCmdDispatch>("vkCmdDispatch")(commands, (width + 7u) / 8u, (height + 7u) / 8u, 1);
     VkMemoryBarrier after{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     after.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    after.dstAccessMask = toTiled ? VK_ACCESS_HOST_READ_BIT : VK_ACCESS_TRANSFER_READ_BIT;
-    barrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, toTiled ? VK_PIPELINE_STAGE_HOST_BIT : VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
+    after.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    barrier(commands, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
 }
 
 void GpuColorTransfer::Detile(VkCommandBuffer commands, bool swapRedBlue) {
+    Require(commands != VK_NULL_HANDLE && upload && tiled, "color upload is not prepared");
+    VkMemoryBarrier before{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    before.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    before.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+    const VkBufferCopy copy{0, 0, upload->Bytes().size()};
+    context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer")(commands, upload->Handle(), tiled->Handle(), 1, &copy);
     convert(commands, false, swapRedBlue);
 }
 
@@ -138,16 +147,6 @@ void GpuColorTransfer::Tile(VkCommandBuffer commands) {
     after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
     barrier(commands, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
-}
-
-void GpuColorTransfer::WriteBack(std::uint64_t address) {
-    PerformanceTimer timing("ColorTransfer.WriteBack");
-    Require(tiled != nullptr, "color transfer is not prepared for writeback");
-    const ColorTargetLayout layout(width, height, mode);
-    timing.Mark("validate");
-    readback->Invalidate();
-    GuestMemory::Write(address, readback->Bytes(), layout.Alignment());
-    timing.Mark("guest_write", layout.Bytes());
 }
 
 VkBuffer GpuColorTransfer::LinearBuffer() const {

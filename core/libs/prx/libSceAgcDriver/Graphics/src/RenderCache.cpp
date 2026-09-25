@@ -6,8 +6,6 @@
 
 namespace AgcDriver::Graphics {
 
-ResidentColor::ResidentColor(const Context& context, const ColorTarget& color) : context(context), color(color), transfer(context) {}
-
 void ResidentColor::Transition(VkCommandBuffer commands, VkImageLayout next) {
     VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
     barrier.srcAccessMask = layout == VK_IMAGE_LAYOUT_UNDEFINED ? 0u : VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
@@ -26,7 +24,9 @@ void ResidentColor::Begin(VkCommandBuffer commands) {
     PerformanceTimer timing("Graphics.ResidentColor.Begin");
     Require(generation != std::numeric_limits<std::uint64_t>::max(), "resident color generation overflow");
     ++generation;
-    if (!valid && !MatchesGuest()) {
+    Require(memoryWatch != nullptr, "render target memory ownership was released");
+    if (!valid) {
+        memoryWatch->Protect(GuestMemoryTracking::Protection::Read);
         const GuestMemory::MemoryAccessScope suspended(nullptr, nullptr);
         transfer.Upload(color.address, color.extent.width, color.extent.height, color.tileMode);
         transfer.Detile(commands);
@@ -42,7 +42,7 @@ void ResidentColor::Begin(VkCommandBuffer commands) {
     Transition(commands, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     valid = true;
     dirty = true;
-    hasSnapshot = false;
+    memoryWatch->Protect(GuestMemoryTracking::Protection::None);
 }
 
 void ResidentColor::Download(VkCommandBuffer commands) {
@@ -62,14 +62,9 @@ void ResidentColor::Download(VkCommandBuffer commands) {
 void ResidentColor::Commit() {
     if (!dirty) return;
     const GuestMemory::MemoryAccessScope suspended(nullptr, nullptr);
-    transfer.WriteBack(color.address);
+    transfer.WriteBackTracked(color.address);
     dirty = false;
-    hasSnapshot = true;
-}
-
-bool ResidentColor::MatchesGuest() {
-    const GuestMemory::MemoryAccessScope suspended(nullptr, nullptr);
-    return hasSnapshot && transfer.MatchesGuest(color.address);
+    memoryWatch->Protect(GuestMemoryTracking::Protection::Read);
 }
 
 std::shared_ptr<ResidentColor> RenderCache::Get(const ColorTarget& color, bool blending) {
@@ -82,16 +77,18 @@ std::shared_ptr<ResidentColor> RenderCache::Get(const ColorTarget& color, bool b
     }
     for (auto it = entries.begin(); it != entries.end();) {
         const auto& previous = it->second->Description();
-        if (color.address >= previous.address + previous.bytes || previous.address >= color.address + color.bytes) {
+        if (!it->second->SharesPages(color)) {
             ++it;
             continue;
         }
         if (previous.address == color.address && previous.bytes == color.bytes && previous.extent.width == color.extent.width && previous.extent.height == color.extent.height && previous.format == color.format && previous.tileMode == color.tileMode) return it->second;
         Resolve(previous.address, previous.bytes, true);
+        it->second->ReleaseMemory();
         it = entries.erase(it);
     }
     if (entries.size() >= 64) {
         Flush();
+        for (const auto& [address, resident] : entries) resident->ReleaseMemory();
         entries.clear();
     }
     auto entry = std::make_shared<ResidentColor>(context, color);
@@ -102,7 +99,7 @@ std::shared_ptr<ResidentColor> RenderCache::Get(const ColorTarget& color, bool b
 std::shared_ptr<ResidentColor> RenderCache::Find(std::uint64_t address) const {
     const auto it = entries.find(address);
     if (it != entries.end() && context.drawQueue) context.drawQueue->Resolve(address, it->second->Description().bytes);
-    return it != entries.end() && (it->second->Valid() || it->second->MatchesGuest()) ? it->second : nullptr;
+    return it != entries.end() && it->second->Valid() ? it->second : nullptr;
 }
 
 void RenderCache::Resolve(std::uint64_t address, std::size_t bytes, bool writable) {

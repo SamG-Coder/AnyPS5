@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/Texture.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/RenderCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DrawQueue.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureFormat.hpp"
 
 namespace AgcDriver::Graphics {
@@ -38,6 +39,7 @@ Texture::Texture(const Context& context, const std::shared_ptr<ResidentColor>& s
         viewInfo.components = components;
         viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         Check(context.Function<PFN_vkCreateImageView>("vkCreateImageView")(context.device, &viewInfo, nullptr, &view), "vkCreateImageView resident texture");
+        if (context.drawQueue) context.drawQueue->Flush();
         upload = std::make_unique<CommandBatch>(context);
         const auto commands = upload->Handle();
         source->Transition(commands, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);

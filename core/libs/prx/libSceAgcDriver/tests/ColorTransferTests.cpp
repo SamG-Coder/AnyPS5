@@ -68,10 +68,50 @@ void checkBufferReuse(const Context& context) {
     Require(simultaneous.Handle() != reused.Handle(), "buffer cache reused an active allocation");
 }
 
+void checkDeviceBuffer(const Context& context) {
+    constexpr std::size_t bytes = 4096;
+    constexpr auto usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VkBuffer handle = VK_NULL_HANDLE;
+    {
+        Buffer local(context, bytes, usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        handle = local.Handle();
+        bool rejected = false;
+        try { static_cast<void>(local.Bytes()); }
+        catch (const std::runtime_error&) { rejected = true; }
+        Require(rejected, "GPU-only buffer exposed a CPU mapping");
+        rejected = false;
+        try { local.Invalidate(); }
+        catch (const std::runtime_error&) { rejected = true; }
+        Require(rejected, "GPU-only buffer accepted host invalidation");
+        Buffer upload(context, bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        Buffer readback(context, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        std::fill(upload.Bytes().begin(), upload.Bytes().end(), std::byte{0x5a});
+        CommandBatch batch(context);
+        VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        const auto sync = context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier");
+        sync(batch.Handle(), VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+        const VkBufferCopy copy{0, 0, bytes};
+        const auto transfer = context.Function<PFN_vkCmdCopyBuffer>("vkCmdCopyBuffer");
+        transfer(batch.Handle(), upload.Handle(), local.Handle(), 1, &copy);
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        sync(batch.Handle(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+        transfer(batch.Handle(), local.Handle(), readback.Handle(), 1, &copy);
+        barrier.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+        sync(batch.Handle(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+        batch.SubmitAndWait();
+        Require(std::equal(upload.Bytes().begin(), upload.Bytes().end(), readback.Bytes().begin()), "device-local buffer transfer corrupted data");
+    }
+    Buffer reused(context, bytes, usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    Require(reused.Handle() == handle, "device-local buffer was not retained for reuse");
+}
+
 }
 
 void RunColorTransferTests(const AgcDriver::Graphics::Context& context) {
     checkBufferReuse(context);
+    checkDeviceBuffer(context);
     checkConversion(context, 130, 129, AgcDriver::Graphics::ColorTileMode::RenderTarget, false);
     checkConversion(context, 257, 17, AgcDriver::Graphics::ColorTileMode::RenderTarget, true);
     checkConversion(context, 192, 13, AgcDriver::Graphics::ColorTileMode::Linear, false);

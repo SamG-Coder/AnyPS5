@@ -19,6 +19,8 @@ class TextureCache;
 class RenderCache;
 class DrawQueue;
 class GraphicsPipelineCache;
+class DescriptorCache;
+class SamplerCache;
 
 inline void Require(bool condition, const std::string& reason) {
     if (!condition) throw std::runtime_error("AGC graphics: " + reason);
@@ -60,6 +62,8 @@ struct Context {
     RenderCache* renderCache = nullptr;
     DrawQueue* drawQueue = nullptr;
     GraphicsPipelineCache* graphicsPipelines = nullptr;
+    mutable std::shared_ptr<DescriptorCache> descriptorCache;
+    mutable std::shared_ptr<SamplerCache> samplerCache;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

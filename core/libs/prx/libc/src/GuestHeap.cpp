@@ -1,5 +1,6 @@
 #include "prx/libc/include/GuestHeap.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/GuestHeapStorage.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -13,18 +14,11 @@ namespace {
 void* allocate(GuestAllocations::Mutation& mutation, std::size_t alignment, std::size_t bytes) {
     if (alignment == 0 || (alignment & (alignment - 1)) != 0) throw std::invalid_argument("invalid guest heap alignment");
     alignment = std::max(alignment, alignof(void*));
-    constexpr auto headerBytes = 2 * sizeof(void*);
-    if (alignment - 1 > std::numeric_limits<std::size_t>::max() - headerBytes || bytes > std::numeric_limits<std::size_t>::max() - headerBytes - (alignment - 1)) throw std::length_error("guest heap allocation overflow");
-    void* raw = std::malloc(bytes + headerBytes + alignment - 1);
-    if (raw == nullptr) throw std::bad_alloc();
-    const auto address = (reinterpret_cast<std::uintptr_t>(raw) + headerBytes + alignment - 1) & ~(static_cast<std::uintptr_t>(alignment) - 1);
-    auto* pointer = reinterpret_cast<void*>(address);
-    reinterpret_cast<void**>(pointer)[-2] = raw;
-    reinterpret_cast<std::uintptr_t*>(pointer)[-1] = 1;
+    void* pointer = GuestHeapStorage::Allocate(alignment, bytes);
     try {
         mutation.Add(pointer, bytes, true, true);
     } catch (...) {
-        std::free(raw);
+        GuestHeapStorage::Free(pointer);
         throw;
     }
     return pointer;
@@ -32,7 +26,7 @@ void* allocate(GuestAllocations::Mutation& mutation, std::size_t alignment, std:
 
 void free(GuestAllocations::Mutation& mutation, void* pointer) {
     mutation.Remove(pointer);
-    std::free(reinterpret_cast<void**>(pointer)[-2]);
+    GuestHeapStorage::Free(pointer);
 }
 
 }

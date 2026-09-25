@@ -6,9 +6,11 @@
 #include <array>
 #include <chrono>
 
+class DisplayWindow;
+
 class PadInput {
 public:
-    void HandleEvent(const SDL_Event& event);
+    void HandleEvent(const SDL_Event& event, DisplayWindow& window);
     void Update();
 
 private:

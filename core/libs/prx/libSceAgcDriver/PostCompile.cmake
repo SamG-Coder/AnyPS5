@@ -12,7 +12,13 @@ add_custom_command(
 
 foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests agc_driver_bda_device_tests)
     if(TARGET ${agcTarget})
-        target_sources(${agcTarget} PRIVATE Graphics/src/BufferPool.cpp)
+        target_sources(${agcTarget} PRIVATE Graphics/src/BufferPool.cpp Graphics/src/CommandCompletion.cpp)
+    endif()
+endforeach()
+
+foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests agc_driver_bda_device_tests)
+    if(TARGET ${agcTarget})
+        target_sources(${agcTarget} PRIVATE Execution/src/GuestGpuRange.cpp)
     endif()
 endforeach()
 
@@ -24,7 +30,7 @@ endforeach()
 
 foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests agc_driver_bda_device_tests)
     if(TARGET ${agcTarget})
-        target_sources(${agcTarget} PRIVATE Graphics/src/GpuColorTransfer.cpp ${agcColorTransferHeader})
+        target_sources(${agcTarget} PRIVATE Graphics/src/GpuColorTransfer.cpp Graphics/src/ColorMemoryWriteback.cpp ${agcColorTransferHeader})
     endif()
 endforeach()
 
@@ -37,12 +43,12 @@ endif()
 
 foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test agc_driver_graphics_tests)
     if(TARGET ${agcTarget})
-        target_sources(${agcTarget} PRIVATE Graphics/src/RenderCache.cpp Graphics/src/DrawQueue.cpp Graphics/src/RenderTexture.cpp)
+        target_sources(${agcTarget} PRIVATE Graphics/src/RenderCache.cpp Graphics/src/RenderMemoryOwnership.cpp Graphics/src/DrawQueue.cpp Graphics/src/DrawCompletion.cpp Graphics/src/RenderTexture.cpp Graphics/src/DescriptorCache.cpp)
     endif()
 endforeach()
 
 foreach(agcTarget IN ITEMS libSceAgcDriver agc_driver_visual_test)
     if(TARGET ${agcTarget})
-        target_sources(${agcTarget} PRIVATE Execution/src/PresentationImage.cpp Graphics/src/GraphicsPipelineCache.cpp)
+        target_sources(${agcTarget} PRIVATE Execution/src/PresentationImage.cpp Execution/src/DeviceSynchronization.cpp Graphics/src/GraphicsPipelineCache.cpp)
     endif()
 endforeach()

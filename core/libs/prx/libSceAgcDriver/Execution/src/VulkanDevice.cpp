@@ -7,9 +7,12 @@
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/BdaFeatures.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PresentationScaler.hpp"
+#include "prx/libSceAgcDriver/Execution/include/SwapchainState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/GpuColorTransfer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/BufferPool.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DescriptorCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Sampler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureCache.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineCache.hpp"
 #include "prx/libc/include/General.hpp"
@@ -52,6 +55,7 @@ struct VulkanDevice::State {
     void* window = nullptr;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    SwapchainState swapchainState;
     VkExtent2D extent{};
     std::vector<VkImage> images;
     VkFence acquireFence = VK_NULL_HANDLE;
@@ -82,6 +86,8 @@ struct VulkanDevice::State {
     std::unique_ptr<Graphics::TextureDetiler> detiler;
     std::unique_ptr<Graphics::GpuColorTransfer> colorTransfer;
     std::shared_ptr<Graphics::BufferPool> bufferPool;
+    std::shared_ptr<Graphics::DescriptorCache> descriptorCache;
+    std::shared_ptr<Graphics::SamplerCache> samplerCache;
     std::unique_ptr<Graphics::TextureCache> textureCache;
     std::unique_ptr<Graphics::PipelineCache> pipelineCache;
     std::unique_ptr<Graphics::DrawQueue> drawQueue;
@@ -159,7 +165,10 @@ struct VulkanDevice::State {
     }
 
     ~State() {
+        std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
         if (device != VK_NULL_HANDLE) {
+            if (drawQueue) drawQueue->Wait();
+            if (renderCache) renderCache->Flush();
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();
             drawQueue.reset();
@@ -172,6 +181,8 @@ struct VulkanDevice::State {
             rgbaScaler.reset();
             pipelineCache.reset();
             bufferPool.reset();
+            descriptorCache.reset();
+            samplerCache.reset();
             const auto destroyFence = reinterpret_cast<PFN_vkDestroyFence>(deviceProc(device, "vkDestroyFence"));
             if (acquireFence) destroyFence(device, acquireFence, nullptr);
             if (renderFence) destroyFence(device, renderFence, nullptr);
@@ -415,6 +426,8 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     poolInfo.queueFamilyIndex = family;
     check(state->DeviceFunction<PFN_vkCreateCommandPool>("vkCreateCommandPool")(state->device, &poolInfo, nullptr, &state->pool), "vkCreateCommandPool");
     state->bufferPool = std::make_shared<Graphics::BufferPool>(graphicsContext());
+    state->descriptorCache = std::make_shared<Graphics::DescriptorCache>();
+    state->samplerCache = std::make_shared<Graphics::SamplerCache>();
     state->pipelineCache = std::make_unique<Graphics::PipelineCache>(graphicsContext());
     state->detiler = std::make_unique<Graphics::TextureDetiler>(graphicsContext());
     state->drawQueue = std::make_unique<Graphics::DrawQueue>();
@@ -480,10 +493,18 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
 VulkanDevice::~VulkanDevice() = default;
 
 void VulkanDevice::WaitIdle() {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     PerformanceTimer timing("Vulkan.WaitIdle");
     state->drawQueue->Wait();
-    state->renderCache->Flush();
+    timing.Mark("draw_wait");
     check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
+    timing.Mark("device_wait");
+}
+
+void VulkanDevice::WaitDraws() {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
+    PerformanceTimer timing("Vulkan.WaitDraws");
+    state->drawQueue->Wait();
 }
 
 void* VulkanDevice::Window() const {
@@ -491,16 +512,24 @@ void* VulkanDevice::Window() const {
 }
 
 void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     require(state->swapchain != VK_NULL_HANDLE, "cannot resize an unavailable swapchain");
     if (width == 0 || height == 0) {
         state->extent = {0, 0};
         return;
     }
-    if (state->extent.width == width && state->extent.height == height) return;
-    WaitIdle();
     VkSurfaceCapabilitiesKHR surface{};
     check(state->InstanceFunction<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>("vkGetPhysicalDeviceSurfaceCapabilitiesKHR")(state->physical, state->surface, &surface), "vkGetPhysicalDeviceSurfaceCapabilitiesKHR resize");
-    require(surface.currentExtent.width == std::numeric_limits<std::uint32_t>::max() || (surface.currentExtent.width == width && surface.currentExtent.height == height), "resized surface extent differs from output");
+    if (surface.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
+        width = surface.currentExtent.width;
+        height = surface.currentExtent.height;
+    }
+    if (width == 0 || height == 0) {
+        state->extent = {0, 0};
+        return;
+    }
+    if (!state->swapchainState.NeedsRecreation() && state->extent.width == width && state->extent.height == height) return;
+    WaitIdle();
     require(width >= surface.minImageExtent.width && width <= surface.maxImageExtent.width && height >= surface.minImageExtent.height && height <= surface.maxImageExtent.height, "unsupported resized output extent");
     require((surface.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0 && (surface.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) != 0 && (surface.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0, "resized surface capabilities are unsupported");
     VkSwapchainCreateInfoKHR create{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
@@ -529,6 +558,7 @@ void VulkanDevice::Resize(std::uint32_t width, std::uint32_t height) {
     check(getImages(state->device, replacement, &count, state->images.data()), "vkGetSwapchainImagesKHR resize");
     state->images.resize(count);
     state->rendered.assign(count, VK_NULL_HANDLE);
+    state->swapchainState.Recreated();
 }
 
 bool VulkanDevice::Presentable() const {
@@ -550,7 +580,10 @@ void VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer) {
 }
 
 void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaque, std::span<const std::byte> pixels, const DisplayBuffer* display) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     PerformanceTimer timing("Vulkan.Present");
+    state->drawQueue->Wait();
+    timing.Mark("draw_wait");
     require(state->swapchain != VK_NULL_HANDLE, "device has no swapchain");
     require(state->extent.width != 0 && state->extent.height != 0, "output window is minimized");
     std::shared_ptr<Graphics::ResidentColor> resident;
@@ -575,7 +608,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     check(reset(state->device, static_cast<std::uint32_t>(fences.size()), fences.data()), "vkResetFences");
     std::uint32_t index = 0;
     timing.Mark("fence_reset");
-    check(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR");
+    if (!state->swapchainState.ProcessResult(state->DeviceFunction<PFN_vkAcquireNextImageKHR>("vkAcquireNextImageKHR")(state->device, state->swapchain, 5'000'000'000ULL, VK_NULL_HANDLE, state->acquireFence, &index), "vkAcquireNextImageKHR")) return;
     timing.Mark("acquire_image");
     check(wait(state->device, 1, &state->acquireFence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences acquire");
     timing.Mark("acquire_fence_wait");
@@ -654,7 +687,7 @@ void VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     present.swapchainCount = 1;
     present.pSwapchains = &state->swapchain;
     present.pImageIndices = &index;
-    check(state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present), "vkQueuePresentKHR");
+    state->swapchainState.ProcessResult(state->DeviceFunction<PFN_vkQueuePresentKHR>("vkQueuePresentKHR")(state->queue, &present), "vkQueuePresentKHR");
     timing.Mark("queue_present");
 }
 
@@ -697,11 +730,14 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->pipelineCache ? state->pipelineCache->Handle() : VK_NULL_HANDLE,
         state->renderCache.get(),
         state->drawQueue.get(),
-        state->graphicsPipelines.get()
+        state->graphicsPipelines.get(),
+        state->descriptorCache,
+        state->samplerCache
     };
 }
 
 void VulkanDevice::ResolveMemory(std::uint64_t address, std::size_t bytes, bool writable) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     state->drawQueue->Resolve(address, bytes);
     state->renderCache->Resolve(address, bytes, writable);
 }
@@ -712,6 +748,7 @@ void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParamete
 }
 
 void VulkanDevice::EnqueueDraw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     const GuestMemory::MemoryAccessScope memoryScope(this, [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
         static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
     });
@@ -720,6 +757,7 @@ void VulkanDevice::EnqueueDraw(const Graphics::State& graphics, const Pm4::DrawP
 }
 
 void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std::uint32_t x, std::uint32_t y, std::uint32_t z, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     PerformanceTimer timing("Vulkan.Dispatch");
     const GuestMemory::MemoryAccessScope memoryScope(this, [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
         static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
@@ -738,6 +776,8 @@ void VulkanDevice::Dispatch(const ShaderRecompiler::RecompileResult& shader, std
     if (x > limit[0] || y > limit[1] || z > limit[2]) {
         throw std::runtime_error("Vulkan dispatch: workgroup count exceeds device limits");
     }
+    state->drawQueue->Wait();
+    timing.Mark("draw_wait");
     const auto destroyModule = state->DeviceFunction<PFN_vkDestroyShaderModule>("vkDestroyShaderModule");
     const auto destroyLayout = state->DeviceFunction<PFN_vkDestroyPipelineLayout>("vkDestroyPipelineLayout");
     const auto destroyPipeline = state->DeviceFunction<PFN_vkDestroyPipeline>("vkDestroyPipeline");

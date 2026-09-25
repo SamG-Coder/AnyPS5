@@ -16,6 +16,7 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         mapping = allocation->mapping;
         deviceAddress = allocation->address;
         allocationBytes = allocation->allocationBytes;
+        reusable = true;
         return;
     }
     try {
@@ -35,7 +36,8 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory buffer");
         Check(context.Function<PFN_vkBindBufferMemory>("vkBindBufferMemory")(context.device, buffer, memory, 0), "vkBindBufferMemory");
         initializeAddress(usage);
-        Check(context.Function<PFN_vkMapMemory>("vkMapMemory")(context.device, memory, 0, VK_WHOLE_SIZE, 0, &mapping), "vkMapMemory");
+        if ((properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0) Check(context.Function<PFN_vkMapMemory>("vkMapMemory")(context.device, memory, 0, VK_WHOLE_SIZE, 0, &mapping), "vkMapMemory");
+        reusable = true;
     } catch (...) {
         release();
         throw;
@@ -47,7 +49,7 @@ Buffer::~Buffer() {
 }
 
 void Buffer::release() noexcept {
-    if (mapping && buffer && memory && cache) {
+    if (reusable && buffer && memory && cache) {
         cache->Put({buffer, memory, mapping, deviceAddress, allocationBytes, size, usage, properties});
         return;
     }
@@ -61,10 +63,12 @@ VkBuffer Buffer::Handle() const {
 }
 
 std::span<std::byte> Buffer::Bytes() {
+    Require(mapping != nullptr, "GPU-only buffer has no CPU mapping");
     return {static_cast<std::byte*>(mapping), size};
 }
 
 void Buffer::Invalidate() {
+    Require(mapping != nullptr, "cannot invalidate an unmapped GPU buffer");
     VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
     range.memory = memory;
     range.size = VK_WHOLE_SIZE;
@@ -170,6 +174,16 @@ VkCommandBuffer CommandBatch::Handle() const {
 void CommandBatch::SubmitAndWait() {
     Submit();
     Wait();
+}
+
+void CommandBatch::Reset() {
+    Require(submitted && !pending, "command batch must complete before reuse");
+    Check(context.Function<PFN_vkResetFences>("vkResetFences")(context.device, 1, &fence), "vkResetFences graphics");
+    Check(context.Function<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(commands, 0), "vkResetCommandBuffer graphics");
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    Check(context.Function<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer graphics");
+    submitted = false;
 }
 
 void CommandBatch::Submit() {

@@ -1,20 +1,23 @@
 #include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <type_traits>
 #include <algorithm>
+#include <iterator>
 
 namespace AgcDriver::Graphics {
 namespace {
 
 template<typename TValue>
-void append(std::vector<std::byte>& key, const TValue& value) {
+void append(std::string& key, const TValue& value) {
     static_assert(std::is_trivially_copyable_v<TValue>);
-    const auto bytes = std::as_bytes(std::span(&value, 1));
-    key.insert(key.end(), bytes.begin(), bytes.end());
+    key.append(reinterpret_cast<const char*>(&value), sizeof(value));
 }
 
-std::vector<std::byte> makeKey(const Context& context, const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
-    std::vector<std::byte> key;
+std::string makeKey(const Context& context, const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
+    PerformanceTimer timing("Graphics.PipelineKey");
+    std::string key;
+    key.reserve(512);
     append(key, target ? target->Target().View() : VK_NULL_HANDLE);
     append(key, state.hasColorTarget);
     append(key, state.rectList);
@@ -64,7 +67,9 @@ std::vector<std::byte> makeKey(const Context& context, const State& state, const
         append(key, tessellation.partitioning);
         append(key, tessellation.outputTopology);
     }
+    timing.Mark("state");
     const auto input = BuildVertexInputLayout(context, shaders.front().program->vertexAttributes);
+    timing.Mark("vertex_layout");
     append(key, input.bindings.size());
     for (const auto& binding : input.bindings) {
         append(key, binding.binding);
@@ -79,33 +84,52 @@ std::vector<std::byte> makeKey(const Context& context, const State& state, const
         append(key, attribute.offset);
     }
     append(key, resources.LayoutKey().size());
-    for (const auto value : resources.LayoutKey()) append(key, value);
+    const auto layout = std::span(resources.LayoutKey());
+    if (!layout.empty()) key.append(reinterpret_cast<const char*>(layout.data()), layout.size_bytes());
     append(key, PushConstantStages(shaders));
     append(key, shaders.size());
+    timing.Mark("resources");
+    std::uint64_t shaderBytes = 0;
     for (const auto& shader : shaders) {
         append(key, shader.stage);
         append(key, shader.program->spirv.size());
         const auto bytes = std::as_bytes(std::span(shader.program->spirv));
-        key.insert(key.end(), bytes.begin(), bytes.end());
+        if (!bytes.empty()) key.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        shaderBytes += bytes.size();
     }
+    timing.Mark("shader_code", shaderBytes);
     return key;
 }
 
 }
 
 std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
+    PerformanceTimer timing("Graphics.PipelineCache");
     auto key = makeKey(context, state, target, resources, shaders);
-    for (auto it = entries.begin(); it != entries.end(); ++it) {
-        if (it->key != key) continue;
+    timing.Mark("key");
+    const auto found = lookup.find(key);
+    if (found != lookup.end()) {
+        const auto it = found->second;
         auto pipeline = it->pipeline;
         entries.splice(entries.end(), entries, it);
+        timing.Mark("hit");
         return pipeline;
     }
+    timing.Mark("miss");
     auto pipeline = std::make_shared<Pipeline>(context, state, target ? &target->Target() : nullptr, resources, shaders);
+    timing.Mark("create");
     entries.push_back({std::move(key), target, pipeline});
+    try {
+        const auto it = std::prev(entries.end());
+        Require(lookup.emplace(it->key, it).second, "duplicate graphics pipeline cache key");
+    } catch (...) {
+        entries.pop_back();
+        throw;
+    }
     while (entries.size() > 128) {
         const auto it = std::find_if(entries.begin(), entries.end(), [](const auto& entry) { return entry.pipeline.use_count() == 1; });
         if (it == entries.end()) break;
+        lookup.erase(it->key);
         entries.erase(it);
     }
     return pipeline;
