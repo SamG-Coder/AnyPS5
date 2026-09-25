@@ -35,6 +35,36 @@ void Dispatch(int native) {
 }
 }
 extern "C" {
+int APS5_VABI sigemptyset_nid_postfix(std::uint32_t* set) {
+    if (!set) { *__error_nid_postfix() = 14; return -1; }
+    for (unsigned index = 0; index < 4; ++index) set[index] = 0;
+    return 0;
+}
+int APS5_VABI sigfillset_nid_postfix(std::uint32_t* set) {
+    if (!set) { *__error_nid_postfix() = 14; return -1; }
+    for (unsigned index = 0; index < 4; ++index) set[index] = UINT32_MAX;
+    return 0;
+}
+int APS5_VABI sigaddset_nid_postfix(std::uint32_t* set, int signal) {
+    if (!set) { *__error_nid_postfix() = 14; return -1; }
+    if (signal < 1 || signal > 128) { *__error_nid_postfix() = 22; return -1; }
+    const auto index = static_cast<unsigned>(signal - 1);
+    set[index / 32] |= std::uint32_t{1} << (index % 32);
+    return 0;
+}
+int APS5_VABI sigdelset_nid_postfix(std::uint32_t* set, int signal) {
+    if (!set) { *__error_nid_postfix() = 14; return -1; }
+    if (signal < 1 || signal > 128) { *__error_nid_postfix() = 22; return -1; }
+    const auto index = static_cast<unsigned>(signal - 1);
+    set[index / 32] &= ~(std::uint32_t{1} << (index % 32));
+    return 0;
+}
+int APS5_VABI sigismember_nid_postfix(const std::uint32_t* set, int signal) {
+    if (!set) { *__error_nid_postfix() = 14; return -1; }
+    if (signal < 1 || signal > 128) { *__error_nid_postfix() = 22; return -1; }
+    const auto index = static_cast<unsigned>(signal - 1);
+    return (set[index / 32] >> (index % 32)) & 1u;
+}
 GuestHandler APS5_VABI signal_nid_postfix(int guest, GuestHandler handler) {
     const auto invalid = reinterpret_cast<GuestHandler>(static_cast<std::uintptr_t>(-1));
     const int native = NativeSignal(guest);
