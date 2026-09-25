@@ -18,6 +18,28 @@
 #endif
 
 namespace AgcDriver::GuestMemory {
+thread_local void* MemoryAccessScope::currentContext = nullptr;
+thread_local MemoryAccessScope::Resolver MemoryAccessScope::currentResolver = nullptr;
+
+MemoryAccessScope::MemoryAccessScope(void* context, Resolver resolver)
+    : previousContext(currentContext), previousResolver(currentResolver) {
+    currentContext = context;
+    currentResolver = resolver;
+}
+
+MemoryAccessScope::~MemoryAccessScope() {
+    currentContext = previousContext;
+    currentResolver = previousResolver;
+}
+
+void MemoryAccessScope::Resolve(std::uint64_t address, std::size_t bytes, bool writable) {
+    const auto resolver = currentResolver;
+    const auto context = currentContext;
+    if (resolver == nullptr || bytes == 0) return;
+    const MemoryAccessScope suspended(nullptr, nullptr);
+    resolver(context, address, bytes, writable);
+}
+
 namespace {
 void require(bool condition, const char* reason) {
     if (!condition) throw std::runtime_error(std::string("AGC driver: ") + reason);
