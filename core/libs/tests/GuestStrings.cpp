@@ -3,8 +3,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <array>
+#include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+char* APS5_VABI strndup_nid_postfix(const char*, std::size_t);
+void APS5_VABI free_nid_postfix(void*);
 char* APS5_VABI basename_nid_postfix(const char*);
 int* APS5_VABI __error_nid_postfix();
 std::size_t APS5_VABI strnlen_nid_postfix(const char*, std::size_t);
@@ -24,7 +28,39 @@ static void Require(bool condition) {
     }
 }
 
+static std::array<char, 64> allocation;
+static std::size_t allocationSize = 0;
+static unsigned frees = 0;
+static bool failAllocation = false;
+static void APS5_VABI UnexpectedHeapCall() { std::abort(); }
+static void* APS5_VABI Allocate(std::size_t size) {
+    Require(size <= allocation.size());
+    allocationSize = size;
+    allocation.fill('!');
+    return failAllocation ? nullptr : allocation.data();
+}
+static void APS5_VABI Free(void* pointer) { Require(pointer == allocation.data()); ++frees; }
 int main() {
+    std::array<void*, 10> api{};
+    api.fill(reinterpret_cast<void*>(UnexpectedHeapCall));
+    api[0] = reinterpret_cast<void*>(Allocate);
+    api[1] = reinterpret_cast<void*>(Free);
+    ApplicationHeapRegister_nid_no_patch(api.data());
+    const char source[] = {'a', 'b', 'c'};
+    auto* copy = strndup_nid_postfix(source, sizeof(source));
+    Require(copy == allocation.data() && allocationSize == 4 && std::strcmp(copy, "abc") == 0);
+    Require(allocation[4] == '!' && source[2] == 'c');
+    free_nid_postfix(copy);
+    copy = strndup_nid_postfix("short", 99);
+    Require(allocationSize == 6 && std::strcmp(copy, "short") == 0);
+    free_nid_postfix(copy);
+    copy = strndup_nid_postfix(source, 0);
+    Require(allocationSize == 1 && copy[0] == '\0' && allocation[1] == '!');
+    free_nid_postfix(copy);
+    Require(frees == 3);
+    failAllocation = true;
+    Require(strndup_nid_postfix("failure", 3) == nullptr && *__error_nid_postfix() == 12);
+    Require(strndup_nid_postfix(nullptr, 0) == nullptr && *__error_nid_postfix() == 14);
     Require(std::strcmp(basename_nid_postfix(nullptr), ".") == 0);
     Require(std::strcmp(basename_nid_postfix(""), ".") == 0);
     Require(std::strcmp(basename_nid_postfix("////"), "/") == 0);
