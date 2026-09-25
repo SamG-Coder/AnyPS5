@@ -14,6 +14,7 @@ namespace {
 
 using Allocate = void* (APS5_VABI *)(std::size_t);
 using Free = void (APS5_VABI *)(void*);
+using UsableSize = std::size_t (APS5_VABI *)(const void*);
 using Reallocate = void* (APS5_VABI *)(void*, std::size_t);
 using Calloc = void* (APS5_VABI *)(std::size_t, std::size_t);
 using Align = void* (APS5_VABI *)(std::size_t, std::size_t);
@@ -135,6 +136,13 @@ void ApplicationHeapFree_nid_no_patch(void* pointer) {
     const auto free = callback<Free>(1);
     CallbackScope scope;
     free(pointer);
+}
+
+std::size_t ApplicationHeapUsableSize_nid_no_patch(const void* pointer) {
+    if (!pointer) return 0;
+    const auto usableSize = callback<UsableSize>(9);
+    CallbackScope scope;
+    return usableSize(pointer);
 }
 
 void* ApplicationHeapReallocate_nid_no_patch(void* pointer, std::size_t bytes) {

@@ -205,6 +205,10 @@ void APS5_VABI free_nid_postfix(void* ptr) {
     ApplicationHeapFree_nid_no_patch(ptr);
 }
 
+std::size_t APS5_VABI malloc_usable_size_nid_postfix(const void* pointer) {
+    return ApplicationHeapUsableSize_nid_no_patch(pointer);
+}
+
 void* APS5_VABI realloc_nid_postfix(void* ptr, size_t newSize) {
     return ApplicationHeapReallocate_nid_no_patch(ptr, newSize);
 }
