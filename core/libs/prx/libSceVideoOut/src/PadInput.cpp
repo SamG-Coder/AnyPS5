@@ -1,11 +1,13 @@
-#include "prx/libSceVideoOut/include/PadInput.hpp"
-#include "prx/libSceVideoOut/include/DisplayWindow.hpp"
-#include "prx/libScePad/include/PadState.hpp"
-#include "SDL.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
+
+#include "SDL.h"
+#include "prx/libSceVideoOut/include/PadInput.hpp"
+#include "prx/libSceVideoOut/include/DisplayWindow.hpp"
+#include "prx/libScePad/include/PadState.hpp"
+#include "prx/libScePad/include/PadInputTypes.hpp"
 
 void PadInput::setMouseMode(bool enabled) {
     if (SDL_SetRelativeMouseMode(enabled ? SDL_TRUE : SDL_FALSE) != 0) throw std::runtime_error(std::string("Pad: relative mouse mode failed: ") + SDL_GetError());
@@ -46,7 +48,10 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     const bool down = event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
     for (std::size_t index = 0; index < Pad::InputMapping.size(); ++index) {
         const auto& binding = Pad::InputMapping[index];
-        const bool matches = keyboard ? binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode : binding.mouseButton != 0 && binding.mouseButton == event.button.button;
+        const bool keyMatches = binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode;
+        const bool mouseMatches = binding.mouseButton != Pad::MouseButton::None && binding.mouseButton == static_cast<Pad::MouseButton>(event.button.button);
+        const bool matches = keyboard ? keyMatches : mouseMatches;
+
         if (!matches) continue;
         if (binding.control == Pad::InputControl::ToggleFullscreen) {
             if (keyboard && down && !pressed[index] && window.Handle() != nullptr && event.key.windowID == SDL_GetWindowID(window.Handle())) window.ToggleFullscreen();
@@ -98,7 +103,7 @@ void PadInput::publish() {
         if (!pressed[index]) continue;
         const auto& binding = Pad::InputMapping[index];
         switch (binding.control) {
-            case Pad::InputControl::Button: state.buttons |= binding.button; break;
+            case Pad::InputControl::Button: state.buttons |= static_cast<std::uint32_t>(binding.button); break;
             case Pad::InputControl::LeftStickLeft: negative[0] = true; break;
             case Pad::InputControl::LeftStickRight: positive[0] = true; break;
             case Pad::InputControl::LeftStickUp: negative[1] = true; break;
