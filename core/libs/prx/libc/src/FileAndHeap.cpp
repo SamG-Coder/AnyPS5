@@ -19,6 +19,34 @@ _set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
 #endif
 
 #include "prx/libc/include/FileStream.hpp"
+
+namespace {
+int OpenFailure(int error) {
+    switch (error) {
+    case ENOENT: return 2;
+    case EACCES: return 13;
+    case EPERM: return 1;
+    case ENOTDIR: return 20;
+    case EISDIR: return 21;
+    case EBUSY: return 16;
+    case EROFS: return 30;
+    case ENAMETOOLONG: return 63;
+    case ELOOP: return 62;
+    case ENOMEM: return 12;
+    case EINVAL: return 22;
+    case EXDEV: return 18;
+    case EEXIST: return 17;
+    case ENOSPC: return 28;
+    case EMFILE: return 24;
+    case ENFILE: return 23;
+    case EFAULT: return 14;
+    case EBADF: return 9;
+    case EIO: return 5;
+    default: return 5;
+    }
+}
+}
+
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
 
@@ -101,30 +129,26 @@ FileStream* APS5_VABI freopen_nid_postfix(const char* filename, const char* mode
 
 FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) {
     if (!filename || !mode) throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_NULL_ARG);
-    const std::filesystem::path fpath = ResolvePath_nid_no_patch(filename);
-    const auto abs_path = fpath.string();
-    std::unique_ptr<std::FILE, decltype(&std::fclose)> handle(std::fopen(abs_path.c_str(), mode), std::fclose);
-    if (!handle) {
-        const auto reason = std::strerror(errno);
-        std::error_code ec;
-        std::filesystem::path sibling;
-        for (const auto& entry : std::filesystem::directory_iterator(fpath.parent_path(), ec)) {
-            if (ec) break;
-            if (entry.path().stem() == fpath.stem() && entry.path().extension() != fpath.extension()) {
-                sibling = std::filesystem::absolute(entry.path());
-                break;
-            }
-        }
-        if (!sibling.empty()) {
-            // APS5_LOG_OUT("%s: \"%s\": %s. Sibling: \"%s\"", FOPEN_MSG_NOT_FOUND, abs_path.c_str(), reason, sibling.filename().string().c_str());
-            return nullptr;
-        }
-        throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_OPEN_FAILED + ": \"" + abs_path + "\": " + reason);
-    }
-    // APS5_LOG_OUT("success: \"%s\"", abs_path.c_str());
-    auto stream = std::make_unique<FileStream>(handle.get(), true);
-    handle.release();
-    return stream.release();
+    if (!*filename) { errno = 2; return nullptr; }
+    if (!*mode) { errno = 22; return nullptr; }
+    try {
+        const auto absolute = ResolvePath_nid_no_patch(filename).string();
+#ifdef _WIN32
+        const auto previous = _set_thread_local_invalid_parameter_handler(
+            [](const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {});
+#endif
+        auto* raw = std::fopen(absolute.c_str(), mode);
+        const int error = errno;
+#ifdef _WIN32
+        _set_thread_local_invalid_parameter_handler(previous);
+#endif
+        if (!raw) { errno = OpenFailure(error); return nullptr; }
+        std::unique_ptr<std::FILE, decltype(&std::fclose)> handle(raw, std::fclose);
+        auto stream = std::make_unique<FileStream>(handle.get(), true);
+        handle.release();
+        return stream.release();
+    } catch (const std::bad_alloc&) { errno = 12; return nullptr; }
+      catch (const std::filesystem::filesystem_error&) { errno = 5; return nullptr; }
 }
 
 int APS5_VABI fclose_nid_postfix(FileStream* stream) {

@@ -6,6 +6,7 @@
 
 extern "C" {
 FileStream* fopen_nid_postfix(const char* filename, const char* mode);
+int* __error_nid_postfix();
 int fclose_nid_postfix(FileStream* stream);
 std::size_t fread_nid_postfix(void* buffer, std::size_t size, std::size_t count, FileStream* stream);
 std::size_t fwrite_nid_postfix(const void* buffer, std::size_t size, std::size_t count, FileStream* stream);
@@ -62,6 +63,8 @@ int main(int argc, char** argv) {
     closed.Close();
     ExpectException([&] { fflush_nid_postfix(&closed); });
     Require(std::remove(argv[1]) == 0);
-    ExpectException([&] { fopen_nid_postfix(argv[1], "rb"); });
+    *__error_nid_postfix() = 13;
+    Require(fopen_nid_postfix(argv[1], "rb") == nullptr && *__error_nid_postfix() == 2);
+    Require(fopen_nid_postfix(argv[1], "") == nullptr && *__error_nid_postfix() == 22);
     std::cout << "PASS: stream objects, file operations, EOF and error handling\n";
 }
