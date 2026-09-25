@@ -1,15 +1,48 @@
 #include <cstdint>
 #include <cstddef>
+#include <cerrno>
+#include <cstdlib>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Socket/include/SocketRuntime.hpp"
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <io.h>
+#ifdef __MINGW32__
+extern "C" __declspec(dllimport) _invalid_parameter_handler __cdecl
+_set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
+#endif
 #else
 #include <unistd.h>
 #endif
 
 extern "C" {
+
+int APS5_VABI isatty_nid_postfix(int descriptor) {
+    if (descriptor >= GuestSockets::FirstDescriptor) {
+        errno = GuestSockets::IsOpen(descriptor) ? 25 : 9;
+        return 0;
+    }
+#ifdef _WIN32
+    const auto previous = _set_thread_local_invalid_parameter_handler(
+        [](const wchar_t*, const wchar_t*, const wchar_t*, unsigned, uintptr_t) {});
+    const auto native = _get_osfhandle(descriptor);
+    _set_thread_local_invalid_parameter_handler(previous);
+    if (native == -1 || native == -2) { errno = 9; return 0; }
+    DWORD mode = 0;
+    if (GetConsoleMode(reinterpret_cast<HANDLE>(native), &mode)) return 1;
+    errno = 25;
+    return 0;
+#else
+    const int result = ::isatty(descriptor);
+    if (!result) errno = errno == EBADF ? 9 : 25;
+    return result;
+#endif
+}
 
 int APS5_VABI chmod_nid_postfix(const char* path, int mode) {
  (void)path;

@@ -141,6 +141,11 @@ int GuestSockets::Close(int descriptor) {
     return sockets.erase(descriptor) ? 0 : Fail(9);
 }
 
+bool GuestSockets::IsOpen(int descriptor) {
+    std::lock_guard lock(socketsMutex);
+    return sockets.contains(descriptor);
+}
+
 extern "C" {
 int APS5_VABI fcntl_nid_postfix(int descriptor, int command, ...) {
     const auto socket = Lookup(descriptor);
