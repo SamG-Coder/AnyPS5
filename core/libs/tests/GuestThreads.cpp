@@ -12,6 +12,10 @@
 #include <pthread.h>
 #endif
 extern "C" {
+int APS5_VABI pthread_setcancelstate_nid_postfix(int, int*);
+int APS5_VABI pthread_setcanceltype_nid_postfix(int, int*);
+int APS5_VABI scePthreadSetcancelstate(int, int*);
+int APS5_VABI scePthreadSetcanceltype(int, int*);
 int APS5_VABI pthread_getcpuclockid_nid_postfix(Pthread, int*);
 int APS5_VABI clock_gettime_nid_postfix(int, KernelTimespec*);
 int APS5_VABI clock_getres_nid_postfix(int, KernelTimespec*);
@@ -28,6 +32,33 @@ Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 }
 static void Require(bool value) { if (!value) std::abort(); }
+static void* APS5_VABI CheckCancellationDefaults(void*) {
+    int previous = -1;
+    Require(pthread_setcancelstate_nid_postfix(1, &previous) == 0 && previous == 0);
+    Require(pthread_setcanceltype_nid_postfix(2, &previous) == 0 && previous == 0);
+    Require(scePthreadSetcancelstate(0, &previous) == 0 && previous == 1);
+    Require(scePthreadSetcanceltype(0, &previous) == 0 && previous == 2);
+    return nullptr;
+}
+static void CheckCancellationSettings() {
+    struct Guarded { int before; int previous; int after; } value{123, -1, 456};
+    *__error_nid_postfix() = 13;
+    Require(pthread_setcancelstate_nid_postfix(1, &value.previous) == 0 && value.previous == 0);
+    Require(pthread_setcanceltype_nid_postfix(2, &value.previous) == 0 && value.previous == 0);
+    Require(*__error_nid_postfix() == 13);
+    value.previous = -1;
+    Require(pthread_setcancelstate_nid_postfix(2, &value.previous) == 22 && value.previous == -1);
+    Require(pthread_setcanceltype_nid_postfix(1, &value.previous) == 22 && value.previous == -1);
+    Require(scePthreadSetcanceltype(-1, &value.previous) == static_cast<int>(0x80020016u));
+    Require(value.previous == -1 && value.before == 123 && value.after == 456 && *__error_nid_postfix() == 13);
+    Pthread worker = nullptr;
+    Require(pthread_create_nid_postfix(&worker, nullptr, CheckCancellationDefaults, nullptr) == 0);
+    Require(pthread_join_nid_postfix(worker, nullptr) == 0);
+    Require(scePthreadSetcancelstate(0, &value.previous) == 0 && value.previous == 1);
+    Require(scePthreadSetcanceltype(0, &value.previous) == 0 && value.previous == 2);
+    Require(pthread_setcancelstate_nid_postfix(0, nullptr) == 0);
+    Require(pthread_setcanceltype_nid_postfix(0, nullptr) == 0);
+}
 static void CheckName() {
 #ifdef _WIN32
     using GetDescription = HRESULT (WINAPI*)(HANDLE, PWSTR*);
@@ -71,6 +102,7 @@ static void* APS5_VABI Entry(void* argument) {
     return &state.result;
 }
 int main() {
+    CheckCancellationSettings();
     const auto mainThread = pthread_self_nid_postfix();
     int mainClock = 0;
     Require(pthread_getcpuclockid_nid_postfix(mainThread, &mainClock) == 0 && mainClock < 0);

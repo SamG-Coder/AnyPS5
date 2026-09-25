@@ -13,6 +13,8 @@ Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 void APS5_VABI scePthreadYield();
 int APS5_VABI scePthreadRename(Pthread, const char*);
+int APS5_VABI scePthreadSetcancelstate(int, int*);
+int APS5_VABI scePthreadSetcanceltype(int, int*);
 
 void APS5_VABI pthread_set_name_np_nid_postfix(Pthread thread, const char* name) {
     if (scePthreadRename(thread, name) != 0)
@@ -82,10 +84,13 @@ int APS5_VABI pthread_equal_nid_postfix(Pthread first, Pthread second) {
 }
 
 int APS5_VABI pthread_setcancelstate_nid_postfix(int state, int* old_state) {
- (void)state;
- (void)old_state;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    const int result = scePthreadSetcancelstate(state, old_state);
+    return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff;
+}
+
+int APS5_VABI pthread_setcanceltype_nid_postfix(int type, int* old_type) {
+    const int result = scePthreadSetcanceltype(type, old_type);
+    return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff;
 }
 
 int APS5_VABI pthread_setprio_nid_postfix(Pthread thread, int prio) {
