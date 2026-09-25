@@ -1,8 +1,15 @@
 #include "prx/libc/include/General.hpp"
 #include <cerrno>
+#include <cstring>
+#include <random>
+#include <fcntl.h>
+#include <sys/stat.h>
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#include <io.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -22,8 +29,50 @@ int FilesystemError(const std::error_code& error) {
     if (error == std::errc::cross_device_link) return 18;
     if (error == std::errc::file_exists) return 17;
     if (error == std::errc::no_space_on_device) return 28;
+    if (error == std::errc::too_many_files_open) return 24;
+    if (error == std::errc::too_many_files_open_in_system) return 23;
     return 5;
 }
+}
+
+extern "C" int APS5_VABI mkstemp_nid_postfix(char* pattern) {
+    if (!pattern) { errno = 14; return -1; }
+    const auto length = std::strlen(pattern);
+    if (length < 6 || std::strcmp(pattern + length - 6, "XXXXXX") != 0) {
+        errno = 22;
+        return -1;
+    }
+    try {
+        std::string candidate(pattern);
+        std::random_device random;
+        std::uniform_int_distribution<unsigned> character(0, 61);
+        constexpr char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        for (unsigned attempt = 0; attempt < 256; ++attempt) {
+            for (auto index = length - 6; index < length; ++index)
+                candidate[index] = alphabet[character(random)];
+            const auto resolved = ResolvePath_nid_no_patch(candidate.c_str());
+#ifdef _WIN32
+            const int descriptor = ::_wopen(resolved.c_str(), _O_RDWR | _O_CREAT | _O_EXCL | _O_BINARY,
+                _S_IREAD | _S_IWRITE);
+#else
+            const int descriptor = ::open(resolved.c_str(), O_RDWR | O_CREAT | O_EXCL, 0600);
+#endif
+            if (descriptor >= 0) {
+                std::memcpy(pattern + length - 6, candidate.data() + length - 6, 6);
+                return descriptor;
+            }
+            if (errno != EEXIST) {
+                errno = FilesystemError(std::error_code(errno, std::generic_category()));
+                return -1;
+            }
+        }
+        errno = 17;
+        return -1;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+      catch (const std::filesystem::filesystem_error& error) {
+        errno = FilesystemError(error.code());
+        return -1;
+    }
 }
 
 extern "C" int APS5_VABI rename_nid_postfix(const char* from, const char* to) {
