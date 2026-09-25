@@ -32,6 +32,7 @@ target_sources(libc PRIVATE
 )
 
 if(WIN32)
+    target_link_libraries(libc PRIVATE advapi32)
     target_sources(libc PRIVATE src/MemoryTrackingWindows.cpp src/MemoryBackingWindows.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
     target_sources(libc PRIVATE src/MemoryTrackingLinux.cpp src/MemoryBackingLinux.cpp)

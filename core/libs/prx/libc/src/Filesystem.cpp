@@ -2,11 +2,14 @@
 #include <cerrno>
 #include <cstring>
 #include <random>
+#include <memory>
+#include <vector>
 #include <fcntl.h>
 #include <sys/stat.h>
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#include <aclapi.h>
 #include <io.h>
 #else
 #include <unistd.h>
@@ -33,6 +36,68 @@ int FilesystemError(const std::error_code& error) {
     if (error == std::errc::too_many_files_open_in_system) return 23;
     return 5;
 }
+}
+
+extern "C" int APS5_VABI access_nid_postfix(const char* path, int mode) {
+    if (!path) { errno = 14; return -1; }
+    if (mode < 0 || (mode & ~7)) { errno = 22; return -1; }
+    if (!*path) { errno = 2; return -1; }
+    try {
+        const auto resolved = ResolvePath_nid_no_patch(path);
+#ifdef _WIN32
+        const auto fail = [](DWORD error) {
+            errno = FilesystemError(std::error_code(error, std::system_category()));
+            return -1;
+        };
+        std::error_code pathError;
+        const auto target = std::filesystem::canonical(resolved, pathError);
+        if (pathError) { errno = FilesystemError(pathError); return -1; }
+        const auto attributes = GetFileAttributesW(target.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES) return fail(GetLastError());
+        if (mode == 0) return 0;
+        if ((mode & 2) && !(attributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            (attributes & FILE_ATTRIBUTE_READONLY)) { errno = 13; return -1; }
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        const auto error = GetNamedSecurityInfoW(target.c_str(), SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, nullptr, nullptr, &descriptor);
+        if (error != ERROR_SUCCESS) return fail(error);
+        const std::unique_ptr<void, decltype(&LocalFree)> security(descriptor, LocalFree);
+        HANDLE processToken = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &processToken))
+            return fail(GetLastError());
+        const std::unique_ptr<void, decltype(&CloseHandle)> process(processToken, CloseHandle);
+        HANDLE impersonationToken = nullptr;
+        if (!DuplicateToken(processToken, SecurityImpersonation, &impersonationToken))
+            return fail(GetLastError());
+        const std::unique_ptr<void, decltype(&CloseHandle)> token(impersonationToken, CloseHandle);
+        GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
+        DWORD desired = ((mode & 4) ? FILE_READ_DATA : 0) |
+            ((mode & 2) ? FILE_WRITE_DATA : 0) | ((mode & 1) ? FILE_EXECUTE : 0);
+        DWORD granted = 0;
+        BOOL allowed = FALSE;
+        DWORD size = sizeof(PRIVILEGE_SET);
+        std::vector<unsigned char> privileges(size);
+        for (;;) {
+            if (AccessCheck(descriptor, impersonationToken, desired, &mapping,
+                reinterpret_cast<PRIVILEGE_SET*>(privileges.data()), &size, &granted, &allowed)) break;
+            const auto checkError = GetLastError();
+            if (checkError != ERROR_INSUFFICIENT_BUFFER) return fail(checkError);
+            privileges.resize(size);
+        }
+        if (!allowed) { errno = 13; return -1; }
+#else
+        if (::access(resolved.c_str(), mode) != 0) {
+            errno = FilesystemError(std::error_code(errno, std::generic_category()));
+            return -1;
+        }
+#endif
+        return 0;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+      catch (const std::filesystem::filesystem_error& error) {
+        errno = FilesystemError(error.code());
+        return -1;
+    }
 }
 
 extern "C" int APS5_VABI mkstemp_nid_postfix(char* pattern) {
