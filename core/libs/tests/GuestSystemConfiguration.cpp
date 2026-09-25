@@ -5,7 +5,14 @@
 #include <cstring>
 #include <vector>
 #include "prx/libc/include/General.hpp"
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+struct GuestResourceLimit { std::uint64_t current; std::uint64_t maximum; };
 extern "C" {
+int APS5_VABI getrlimit_nid_postfix(int, GuestResourceLimit*);
 std::int64_t APS5_VABI sysconf_nid_postfix(int);
 int APS5_VABI getpagesize_nid_postfix();
 int* APS5_VABI __error_nid_postfix();
@@ -13,6 +20,26 @@ int APS5_VABI sysctl_nid_postfix(const int*, unsigned, void*, std::size_t*, cons
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    struct GuardedLimit { GuestResourceLimit value; std::uint64_t guard; } limit{{0, 0}, UINT64_MAX};
+    *__error_nid_postfix() = 13;
+    Require(getrlimit_nid_postfix(8, &limit.value) == 0);
+    Require(limit.value.current > 0 && limit.value.maximum >= limit.value.current && limit.guard == UINT64_MAX);
+    Require(*__error_nid_postfix() == 13);
+    Require(getrlimit_nid_postfix(3, &limit.value) == 0 && limit.value.current > 0);
+#ifdef _WIN32
+    MEMORY_BASIC_INFORMATION stack{};
+    Require(VirtualQuery(&limit, &stack, sizeof(stack)) == sizeof(stack));
+    const auto* tib = reinterpret_cast<const NT_TIB*>(NtCurrentTeb());
+    const auto actualReserve = reinterpret_cast<std::uintptr_t>(tib->StackBase) -
+        reinterpret_cast<std::uintptr_t>(stack.AllocationBase);
+    Require(limit.value.current == actualReserve && limit.value.maximum == actualReserve);
+#endif
+    const auto saved = limit.value;
+    Require(getrlimit_nid_postfix(-1, &limit.value) == -1 && *__error_nid_postfix() == 22);
+    Require(getrlimit_nid_postfix(15, &limit.value) == -1 && *__error_nid_postfix() == 22);
+    Require(getrlimit_nid_postfix(8, nullptr) == -1 && *__error_nid_postfix() == 14);
+    Require(getrlimit_nid_postfix(9, &limit.value) == -1 && *__error_nid_postfix() == 45);
+    Require(limit.value.current == saved.current && limit.value.maximum == saved.maximum && limit.guard == UINT64_MAX);
     *__error_nid_postfix() = 13;
     Require(sysconf_nid_postfix(47) == 0x4000);
     Require(getpagesize_nid_postfix() == sysconf_nid_postfix(47));
