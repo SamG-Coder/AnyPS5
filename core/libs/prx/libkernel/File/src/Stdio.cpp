@@ -5,6 +5,7 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Socket/include/SocketRuntime.hpp"
+#include "prx/libkernel/File/include/NativeStat.hpp"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -137,10 +138,15 @@ int64_t APS5_VABI write_nid_postfix(int d, const char* str, int64_t size) {
 }
 
 int APS5_VABI stat_nid_postfix(const char* path, FileStat* sb) {
- (void)path;
- (void)sb;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!path || !sb) { errno = 14; return -1; }
+    if (!*path) { errno = 2; return -1; }
+    try {
+        const int previous = errno;
+        const int error = File::FillFileStat(ResolvePath_nid_no_patch(path), sb);
+        errno = error ? error : previous;
+        return error ? -1 : 0;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+      catch (const std::filesystem::filesystem_error&) { errno = 5; return -1; }
 }
 
 int APS5_VABI sceKernelCheckReachability(const char* path) {

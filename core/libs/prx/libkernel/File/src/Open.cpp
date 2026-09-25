@@ -1,5 +1,4 @@
 #include "prx/libkernel/File/include/FileFlags.hpp"
-#include "prx/libkernel/File/include/NativeStat.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/File/include/File.hpp"
 #include "SceTypes.hpp"
@@ -89,6 +88,8 @@ static int MapFlags(int sceFlags) {
 
 extern "C" {
 
+int APS5_VABI stat_nid_postfix(const char*, FileStat*);
+
 int APS5_VABI sceKernelOpen(const char* path, int flags, std::uint16_t mode) {
     APS5_LOG_OUT("path=%s flags=0x%X nativeFlags=0x%X mode=0%o", path, flags, MapFlags(flags), mode);
     auto native = ResolvePath_nid_no_patch(path);
@@ -147,14 +148,11 @@ int APS5_VABI sceKernelLseek(int d, std::int64_t offset, int whence) {
 }
 
 int APS5_VABI sceKernelStat(const char* path, FileStat* sb) {
-    if (path == nullptr) {
-        throw std::invalid_argument(std::string(__func__) + ": path is null");
-    }
-    if (sb == nullptr) {
-        throw std::invalid_argument(std::string(__func__) + ": sb is null");
-    }
-    File::FillFileStat(ResolvePath_nid_no_patch(path), sb);
-    return 0;
+    const int previous = errno;
+    const int result = stat_nid_postfix(path, sb);
+    const int error = errno;
+    errno = previous;
+    return result == 0 ? 0 : static_cast<int>(0x80020000u | static_cast<unsigned>(error));
 }
 
 int APS5_VABI sceKernelUnlink(const char* path) {

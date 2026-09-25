@@ -1,7 +1,7 @@
 #include "prx/libkernel/File/include/NativeStat.hpp"
 
-#include <stdexcept>
-#include <string>
+#include <cerrno>
+#include <system_error>
 
 #ifdef _WIN32
 #include <sys/stat.h>
@@ -20,10 +20,19 @@ static int DoStat(const std::filesystem::path& p, NativeStat* st) {
 
 namespace File {
 
-void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
+int FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
     NativeStat st{};
     if (DoStat(nativePath, &st) != 0) {
-        throw std::runtime_error(std::string("FillFileStat: stat failed for ") + nativePath.string());
+        const std::error_code error(errno, std::generic_category());
+        if (error == std::errc::no_such_file_or_directory) return 2;
+        if (error == std::errc::not_a_directory) return 20;
+        if (error == std::errc::permission_denied) return 13;
+        if (error == std::errc::filename_too_long) return 63;
+        if (error == std::errc::too_many_symbolic_link_levels) return 62;
+        if (error == std::errc::value_too_large) return 84;
+        if (error == std::errc::not_enough_memory) return 12;
+        if (error == std::errc::invalid_argument) return 22;
+        return 5;
     }
     *sb = FileStat{};
     sb->st_mode = static_cast<std::uint16_t>(st.st_mode);
@@ -70,6 +79,7 @@ void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb) {
     sb->st_birthtim.tv_nsec = static_cast<std::int64_t>(st.st_birthtim.tv_nsec);
 #endif
 #endif
+    return 0;
 }
 
 }
