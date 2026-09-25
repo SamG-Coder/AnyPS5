@@ -175,20 +175,6 @@ int APS5_VABI sprintf_nid_postfix(VA_ARGS) {
 
 #endif
 
-int APS5_VABI sscanf_nid_postfix(VA_ARGS) {
-    LibcDetail::RegSaveArea regs;
-    LibcDetail::FillRegSaveArea(regs, rdx, rcx, r8, r9, 0, 0,
-        xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7);
-    LibcDetail::VaListLayout layout;
-    std::va_list* va = LibcDetail::BuildVaList(layout, regs, 0u,
-        reinterpret_cast<void*>(overflow_arg_area));
-    return std::vsscanf(
-        reinterpret_cast<const char*>(rdi),
-        reinterpret_cast<const char*>(rsi),
-        *va
-    );
-}
-
 int APS5_VABI vprintf_nid_postfix(const char* str, VaList* c) {
 #ifdef _WIN32
     return LibcDetail::PrintWindows(str, c);
