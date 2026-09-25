@@ -6,6 +6,7 @@
 #include <vector>
 #include <cstdio>
 #include <climits>
+#include <chrono>
 #ifdef _WIN32
 #include <io.h>
 #include <fcntl.h>
@@ -20,6 +21,7 @@
 #endif
 struct GuestResourceLimit { std::uint64_t current; std::uint64_t maximum; };
 extern "C" {
+int APS5_VABI usleep_nid_postfix(std::uint32_t);
 std::uint32_t APS5_VABI getuid_nid_postfix();
 std::uint32_t APS5_VABI geteuid_nid_postfix();
 std::uint32_t APS5_VABI getgid_nid_postfix();
@@ -35,6 +37,12 @@ int APS5_VABI sysctl_nid_postfix(const int*, unsigned, void*, std::size_t*, cons
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    Require(usleep_nid_postfix(0) == 0);
+    for (const std::uint32_t delay : {500u, 1500u, 1001000u}) {
+        const auto start = std::chrono::steady_clock::now();
+        Require(usleep_nid_postfix(delay) == 0);
+        Require(std::chrono::steady_clock::now() - start >= std::chrono::microseconds(delay));
+    }
     const auto user = getuid_nid_postfix();
     const auto group = getgid_nid_postfix();
 #ifdef _WIN32

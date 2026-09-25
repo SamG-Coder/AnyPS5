@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <chrono>
 extern "C" Pthread APS5_VABI scePthreadSelf();
 extern "C" int APS5_VABI pthread_getcpuclockid_nid_postfix(Pthread, int*);
 
@@ -44,9 +45,18 @@ static void SleepNanos(std::uint64_t nanos) {
         return;
     }
 #ifdef _WIN32
-    const DWORD millis = static_cast<DWORD>(nanos / 1000000ULL);
-    if (millis > 0) {
-        Sleep(millis);
+    const auto start = std::chrono::steady_clock::now();
+    const auto capacity = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::time_point::max() - start).count();
+    if (nanos > static_cast<std::uint64_t>(capacity))
+        throw std::runtime_error("Sleep interval exceeds the host clock range");
+    const auto deadline = start + std::chrono::nanoseconds(nanos);
+    for (;;) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) break;
+        const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now).count();
+        const auto millis = (static_cast<std::uint64_t>(remaining) + 999999u) / 1000000u;
+        Sleep(static_cast<DWORD>(millis < 0xfffffffeu ? millis : 0xfffffffeu));
     }
 #else
     struct timespec req{};
@@ -73,6 +83,17 @@ std::uint64_t APS5_VABI sceKernelGetProcessTimeCounterFrequency() {
 int APS5_VABI sceKernelUsleep_nid_postfix(KernelUseconds microseconds) {
     SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
     return 0;
+}
+
+int APS5_VABI usleep_nid_postfix(std::uint32_t microseconds) {
+#ifdef _WIN32
+    SleepNanos(static_cast<std::uint64_t>(microseconds) * 1000ULL);
+    return 0;
+#else
+    const timespec request{static_cast<time_t>(microseconds / 1000000u),
+        static_cast<long>(microseconds % 1000000u) * 1000L};
+    return ::nanosleep(&request, nullptr);
+#endif
 }
 
 int APS5_VABI sceKernelNanosleep(const KernelTimespec* rqtp, KernelTimespec* rmtp) {
