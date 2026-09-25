@@ -12,6 +12,12 @@ int APS5_VABI scePthreadJoin(Pthread, void**);
 Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 void APS5_VABI scePthreadYield();
+int APS5_VABI scePthreadRename(Pthread, const char*);
+
+void APS5_VABI pthread_set_name_np_nid_postfix(Pthread thread, const char* name) {
+    if (scePthreadRename(thread, name) != 0)
+        throw std::runtime_error("pthread_set_name_np: cannot name guest thread");
+}
 
 int APS5_VABI pthread_create_nid_postfix(Pthread* thread, const PthreadAttr* attr, pthread_entry_func_t entry, void* arg) {
     if (!thread || !entry || (attr && !*attr)) return 22;
@@ -63,10 +69,8 @@ int APS5_VABI pthread_join_nid_postfix(Pthread thread, void** value) {
 }
 
 int APS5_VABI pthread_rename_np_nid_postfix(Pthread thread, const char* name) {
- (void)thread;
- (void)name;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    const int result = scePthreadRename(thread, name);
+    return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff;
 }
 
 Pthread APS5_VABI pthread_self_nid_postfix(void) {
