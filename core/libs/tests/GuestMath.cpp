@@ -3,7 +3,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
+#include <array>
 extern "C" {
+int APS5_VABI rand_nid_postfix();
+void APS5_VABI srand_nid_postfix(std::uint32_t);
+int APS5_VABI rand_r_nid_postfix(std::uint32_t*);
 double APS5_VABI atof_nid_postfix(const char*);
 float APS5_VABI strtof_nid_postfix(const char*, char**);
 long double APS5_VABI strtold_nid_postfix(const char*, char**);
@@ -30,6 +34,30 @@ int APS5_VABI __isinff_nid_postfix(float);
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    constexpr std::array<int, 5> seededOne{33613, 564950497, 1097816498, 1969887315, 140734212};
+    for (const int expected : seededOne) Require(rand_nid_postfix() == expected);
+    struct RandomVector { std::uint32_t seed; std::array<int, 5> values; };
+    const RandomVector vectors[] = {
+        {0, {16806, 282475248, 1622650072, 984943657, 1144108929}},
+        {1, seededOne},
+        {UINT32_MAX, {67227, 1129900995, 48149350, 1792290984, 281468425}}
+    };
+    for (const auto& vector : vectors) {
+        srand_nid_postfix(vector.seed);
+        auto localSeed = vector.seed;
+        for (const int expected : vector.values) {
+            std::srand(9);
+            std::rand();
+            Require(rand_nid_postfix() == expected);
+            Require(rand_r_nid_postfix(&localSeed) == expected);
+            Require(localSeed == static_cast<std::uint32_t>(expected));
+        }
+    }
+    srand_nid_postfix(UINT32_MAX);
+    for (unsigned index = 0; index < 10000; ++index) {
+        const int value = rand_nid_postfix();
+        Require(value >= 0 && value <= 0x7ffffffd);
+    }
     Require(atof_nid_postfix(" -12.5tail") == -12.5);
     char* end = nullptr;
     const char input[] = "0x1.8p+2 remainder";
