@@ -2,7 +2,7 @@
 
 ### Build
 
-- Building on Windows requires a specific version of mingw MinGW-w64 GCC 15.2.0 (`winlibs-gcc15`, `x86_64-ucrt-posix-seh`)
+- Building on Windows requires a specific version of mingw - MinGW-w64 GCC 15.2.0 (`winlibs-gcc15`, `x86_64-ucrt-posix-seh`)
 - Even compiled prx libraries on Windows require nearby (static linking of these dependencies causes conflicts):
   - libgcc_s_seh-1.dll
   - libstdc++-6.dll

@@ -14,7 +14,7 @@ The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully prod
 
 The real game reaches the logo, main menu, and [gameplay](https://gist.github.com/user-attachments/assets/81d28e9b-c237-4545-b2ca-720071129816) with audio.
 
-[Technical debt of the project](docs/TechnicalDebt.md)
+[Technical debt of the project](docs/TechnicalDebt.md), [code style conventions](docs/CONVENTIONS.md)
 
 ## Build
 
