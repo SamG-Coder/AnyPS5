@@ -9,6 +9,7 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+void* APS5_VABI aligned_alloc_nid_postfix(std::size_t, std::size_t);
 int APS5_VABI asprintf_nid_postfix(char**, const char*, ...);
 int APS5_VABI vasprintf_nid_postfix(char**, const char*, void*);
 char* APS5_VABI strndup_nid_postfix(const char*, std::size_t);
@@ -32,7 +33,8 @@ static void Require(bool condition) {
     }
 }
 
-static std::array<char, 4096> allocation;
+alignas(64) static std::array<char, 4096> allocation;
+static std::size_t requestedAlignment = 0;
 static std::size_t allocationSize = 0;
 static unsigned frees = 0;
 static bool failAllocation = false;
@@ -44,6 +46,10 @@ static void* APS5_VABI Allocate(std::size_t size) {
     return failAllocation ? nullptr : allocation.data();
 }
 static void APS5_VABI Free(void* pointer) { Require(pointer == allocation.data()); ++frees; }
+static void* APS5_VABI Align(std::size_t alignment, std::size_t size) {
+    requestedAlignment = alignment;
+    return Allocate(size);
+}
 static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
 #ifdef _WIN32
     __builtin_sysv_va_list args;
@@ -63,6 +69,7 @@ static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
 int main() {
     std::array<void*, 10> api{};
     api.fill(reinterpret_cast<void*>(UnexpectedHeapCall));
+    api[4] = reinterpret_cast<void*>(Align);
     api[0] = reinterpret_cast<void*>(Allocate);
     api[1] = reinterpret_cast<void*>(Free);
     ApplicationHeapRegister_nid_no_patch(api.data());
@@ -101,6 +108,26 @@ int main() {
     Require(asprintf_nid_postfix(&formatted, "%s", "failure") == -1 && formatted == nullptr);
     Require(*__error_nid_postfix() == 12 && frees == 7);
     Require(asprintf_nid_postfix(nullptr, "") == -1 && *__error_nid_postfix() == 14);
+    failAllocation = false;
+    for (std::size_t alignment : {1u, 2u, 4u, 8u, 16u, 32u, 64u}) {
+        auto* pointer = aligned_alloc_nid_postfix(alignment, alignment * 2);
+        Require(pointer == allocation.data() && requestedAlignment == alignment && allocationSize == alignment * 2);
+        Require(reinterpret_cast<std::uintptr_t>(pointer) % alignment == 0);
+        std::memset(pointer, 0x5a, alignment * 2);
+        Require(allocation[alignment * 2] == '!');
+        free_nid_postfix(pointer);
+    }
+    const auto previousAlignment = requestedAlignment;
+    Require(aligned_alloc_nid_postfix(0, 64) == nullptr && *__error_nid_postfix() == 22);
+    Require(aligned_alloc_nid_postfix(3, 6) == nullptr && *__error_nid_postfix() == 22);
+    Require(aligned_alloc_nid_postfix(64, 65) == nullptr && *__error_nid_postfix() == 22);
+    Require(requestedAlignment == previousAlignment);
+    auto* empty = aligned_alloc_nid_postfix(64, 0);
+    Require(empty == allocation.data() && allocationSize == 0);
+    free_nid_postfix(empty);
+    failAllocation = true;
+    Require(aligned_alloc_nid_postfix(64, 128) == nullptr && *__error_nid_postfix() == 12);
+    Require(frees == 15);
     Require(std::strcmp(basename_nid_postfix(nullptr), ".") == 0);
     Require(std::strcmp(basename_nid_postfix(""), ".") == 0);
     Require(std::strcmp(basename_nid_postfix("////"), "/") == 0);
