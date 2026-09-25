@@ -27,10 +27,7 @@ static_assert(offsetof(GuestFilePrefix, descriptor) == 18);
 static_assert(offsetof(GuestFilePrefix, buffer) == 24);
 static_assert(offsetof(GuestFilePrefix, lineBufferSize) == 40);
 
-static constexpr const char* FOPEN_EXT_VERT = ".vert";
 static constexpr const char* FOPEN_MSG_NULL_ARG = "null argument";
-static constexpr const char* FOPEN_MSG_NOT_FOUND = "file not found";
-static constexpr const char* FOPEN_MSG_OPEN_FAILED = "open failed";
 
 class FileStream {
     // Only the macro-accessed FreeBSD prefix is exposed. The remaining guest

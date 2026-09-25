@@ -34,6 +34,7 @@ int APS5_VABI chdir_nid_postfix(const char*);
 int APS5_VABI mkstemp_nid_postfix(char*);
 int APS5_VABI unlink_nid_postfix(const char*);
 int APS5_VABI remove_nid_postfix(const char*);
+FileStream* APS5_VABI fopen_nid_postfix(const char*, const char*);
 int APS5_VABI rename_nid_postfix(const char*, const char*);
 int* APS5_VABI __error_nid_postfix();
 }
@@ -215,6 +216,32 @@ int main() {
     Require(remove_nid_postfix(file.string().c_str()) == 0);
     Require(!std::filesystem::exists(file));
     Require(remove_nid_postfix(file.string().c_str()) == -1 && *__error_nid_postfix() == 2);
+    const auto packs = root / "baseq2";
+    Require(std::filesystem::create_directory(packs));
+    const auto present = packs / "pak0.pak";
+    { std::ofstream stream(present, std::ios::binary); stream << "PACK"; }
+    *__error_nid_postfix() = 13;
+    auto* opened = fopen_nid_postfix(present.string().c_str(), "rb");
+    Require(opened != nullptr && *__error_nid_postfix() == 13);
+    Require(fclose_nid_postfix(opened) == 0);
+    const auto created = packs / "notes.txt";
+    auto* writer = fopen_nid_postfix(created.string().c_str(), "w+b");
+    Require(writer != nullptr && *__error_nid_postfix() == 13);
+    Require(std::fwrite("note", 1, 4, writer->GetHandle()) == 4);
+    Require(fclose_nid_postfix(writer) == 0);
+    Require(std::filesystem::file_size(created) == 4);
+    Require(fopen_nid_postfix((packs / "pak1.pak").string().c_str(), "rb") == nullptr);
+    Require(*__error_nid_postfix() == 2);
+    Require(fopen_nid_postfix(present.string().c_str(), "nope") == nullptr && *__error_nid_postfix() == 22);
+    Require(std::filesystem::file_size(present) == 4);
+    Require(fopen_nid_postfix("", "rb") == nullptr && *__error_nid_postfix() == 2);
+    Require(fopen_nid_postfix(present.string().c_str(), "") == nullptr && *__error_nid_postfix() == 22);
+    Require(fopen_nid_postfix((packs / "missing" / "pak1.pak").string().c_str(), "wb") == nullptr);
+    Require(*__error_nid_postfix() == 2);
+    Require(!std::filesystem::exists(packs / "missing"));
+    Require(remove_nid_postfix(created.string().c_str()) == 0);
+    Require(remove_nid_postfix(present.string().c_str()) == 0);
+    Require(remove_nid_postfix(packs.string().c_str()) == 0);
     Require(remove_nid_postfix(root.string().c_str()) == 0);
     Require(!std::filesystem::exists(root));
 }
