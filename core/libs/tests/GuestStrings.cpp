@@ -8,9 +8,14 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <clocale>
+#include <source_location>
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+std::size_t APS5_VABI mbrtowc_nid_postfix(std::uint16_t*, const char*, std::size_t, void*);
+std::size_t APS5_VABI wcrtomb_nid_postfix(char*, std::uint16_t, void*);
+int APS5_VABI mbsinit_nid_postfix(const void*);
 std::size_t APS5_VABI wcstombs_nid_postfix(char*, const std::uint16_t*, std::size_t);
 int APS5_VABI swprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, ...);
 int APS5_VABI vswprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, const void*);
@@ -48,9 +53,9 @@ char* APS5_VABI strtok_nid_postfix(char*, const char*);
 char* APS5_VABI strcasestr_nid_postfix(const char*, const char*);
 }
 
-static void Require(bool condition) {
+static void Require(bool condition, const std::source_location location = std::source_location::current()) {
     if (!condition) {
-        std::fputs("Guest string check failed\n", stderr);
+        std::fprintf(stderr, "Guest string check failed at line %u\n", location.line());
         std::abort();
     }
 }
@@ -142,7 +147,45 @@ static void CheckWideFormatting() {
     Require(*__error_nid_postfix() == 86);
 }
 
+static void CheckMultibyteConversions() {
+    struct alignas(8) State { std::array<unsigned char, 128> bytes{}; std::uint64_t guard = UINT64_MAX; } state;
+    struct Wide { std::uint16_t value = 0xbeef; std::uint16_t guard = 0xcafe; } wide;
+    Require(mbsinit_nid_postfix(&state) != 0 && mbsinit_nid_postfix(nullptr) != 0);
+    Require(mbrtowc_nid_postfix(&wide.value, "A", 0, &state) == SIZE_MAX - 1 && wide.value == 0xbeef);
+    Require(mbrtowc_nid_postfix(&wide.value, "A", 1, &state) == 1 && wide.value == 'A');
+    Require(mbrtowc_nid_postfix(&wide.value, "", 1, &state) == 0 && wide.value == 0);
+    wide.value = 0xbeef;
+    Require(mbrtowc_nid_postfix(&wide.value, nullptr, 0, &state) == 0 && wide.value == 0xbeef);
+    Require(mbrtowc_nid_postfix(nullptr, "A", 1, nullptr) == 1);
+    std::array<char, 8> bytes;
+    bytes.fill('!');
+    Require(wcrtomb_nid_postfix(bytes.data(), 'A', &state) == 1 && bytes[0] == 'A' && bytes[1] == '!');
+    Require(wcrtomb_nid_postfix(bytes.data(), 0, nullptr) == 1 && bytes[0] == 0);
+    Require(wcrtomb_nid_postfix(nullptr, 0xd800, &state) == 1);
+#ifdef _WIN32
+    Require(std::setlocale(LC_CTYPE, ".UTF8") != nullptr);
+#else
+    Require(std::setlocale(LC_CTYPE, "C.UTF-8") != nullptr);
+#endif
+    state.bytes.fill(0);
+    Require(mbrtowc_nid_postfix(&wide.value, "\xe2", 1, &state) == SIZE_MAX - 1 && wide.value == 0xbeef);
+    Require(mbsinit_nid_postfix(&state) == 0);
+    Require(mbrtowc_nid_postfix(&wide.value, "\x82\xac", 2, &state) == 2 && wide.value == 0x20ac);
+    Require(mbsinit_nid_postfix(&state) != 0);
+    bytes.fill('!');
+    Require(wcrtomb_nid_postfix(bytes.data(), 0x20ac, &state) == 3);
+    Require(std::memcmp(bytes.data(), "\xe2\x82\xac", 3) == 0 && bytes[3] == '!');
+    wide.value = 0xbeef;
+    Require(mbrtowc_nid_postfix(&wide.value, "\xff", 1, &state) == SIZE_MAX);
+    Require(*__error_nid_postfix() == 86 && wide.value == 0xbeef);
+    state.bytes.fill(0);
+    Require(wcrtomb_nid_postfix(bytes.data(), 0xd800, &state) == SIZE_MAX && *__error_nid_postfix() == 86);
+    Require(state.guard == UINT64_MAX && wide.guard == 0xcafe);
+    Require(std::setlocale(LC_CTYPE, "C") != nullptr);
+}
+
 int main() {
+    CheckMultibyteConversions();
     CheckWideFormatting();
     const std::uint16_t conversionText[] = {'a', 'b', 'c', 0};
     std::array<char, 6> converted;
