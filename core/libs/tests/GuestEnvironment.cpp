@@ -1,7 +1,10 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 extern "C" {
+const char* APS5_VABI getprogname_nid_postfix();
+void APS5_VABI setprogname_nid_postfix(const char*);
 char* APS5_VABI getenv_nid_postfix(const char*);
 int APS5_VABI setenv_nid_postfix(const char*, const char*, int);
 int APS5_VABI unsetenv_nid_postfix(const char*);
@@ -9,7 +12,24 @@ int APS5_VABI putenv_nid_postfix(char*);
 int* APS5_VABI __error_nid_postfix();
 }
 static void Require(bool value) { if (!value) std::abort(); }
-int main() {
+int main(int argc, char** argv) {
+    Require(argc > 0 && argv[0]);
+    const auto* initial = getprogname_nid_postfix();
+    Require(initial && initial == getprogname_nid_postfix());
+    Require(std::filesystem::path(argv[0]).filename().string() == initial);
+    static const char path[] = "/app0/guest-game";
+    setprogname_nid_postfix(path);
+    Require(getprogname_nid_postfix() == path + 6);
+    static const char plain[] = "renamed";
+    setprogname_nid_postfix(plain);
+    Require(getprogname_nid_postfix() == plain);
+    static const char trailing[] = "/app0/";
+    setprogname_nid_postfix(trailing);
+    Require(getprogname_nid_postfix() == trailing + 6 && *getprogname_nid_postfix() == '\0');
+    static const char empty[] = "";
+    setprogname_nid_postfix(empty);
+    Require(getprogname_nid_postfix() == empty);
+    setprogname_nid_postfix(initial);
     const char* key = "ANYPS5_GUEST_ENV_TEST_4C27";
 #ifdef _WIN32
     Require(_putenv_s(key, "inherited") == 0);
