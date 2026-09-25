@@ -42,11 +42,12 @@ struct PthreadCondPrivate {
 
 struct PthreadAttrPrivate {
     void* stackAddress = nullptr;
-    std::size_t _stacksize;
-    int _detachstate;
-    int _schedpriority;
-    int _schedpolicy;
-    int _inheritsched;
+    std::size_t _stacksize = 0;
+    std::size_t _guardsize = 0;
+    int _detachstate = 0;
+    int _schedpriority = 0;
+    int _schedpolicy = 0;
+    int _inheritsched = 0;
 };
 
 struct PthreadPrivate {
@@ -63,6 +64,7 @@ struct PthreadPrivate {
 #endif
     void* stackAddress = nullptr;
     std::size_t stackSize = 0;
+    std::size_t guardSize = 0;
     std::atomic<bool> _finished;
     void* _retval;
     bool _detached;

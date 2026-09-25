@@ -51,6 +51,22 @@ int APS5_VABI sem_post_nid_postfix(void*);
 int APS5_VABI sem_getvalue_nid_postfix(void*, int*);
 int APS5_VABI sem_timedwait_nid_postfix(void*, const KernelTimespec*);
 int APS5_VABI scePthreadSemInit(void*, int, unsigned, const char*);
+int APS5_VABI pthread_attr_init_nid_postfix(PthreadAttr*);
+int APS5_VABI pthread_attr_destroy_nid_postfix(PthreadAttr*);
+int APS5_VABI pthread_attr_getdetachstate_nid_postfix(const PthreadAttr*, int*);
+int APS5_VABI pthread_attr_getguardsize_nid_postfix(const PthreadAttr*, std::size_t*);
+int APS5_VABI pthread_attr_getinheritsched_nid_postfix(const PthreadAttr*, int*);
+int APS5_VABI pthread_attr_getschedparam_nid_postfix(const PthreadAttr*, KernelSchedParam*);
+int APS5_VABI pthread_attr_getschedpolicy_nid_postfix(const PthreadAttr*, int*);
+int APS5_VABI pthread_attr_getstack_nid_postfix(const PthreadAttr*, void**, std::size_t*);
+int APS5_VABI pthread_attr_getstacksize_nid_postfix(const PthreadAttr*, std::size_t*);
+int APS5_VABI pthread_attr_get_np_nid_postfix(Pthread, PthreadAttr*);
+int APS5_VABI pthread_attr_setdetachstate_nid_postfix(PthreadAttr*, int);
+int APS5_VABI pthread_attr_setguardsize_nid_postfix(PthreadAttr*, std::size_t);
+int APS5_VABI pthread_attr_setinheritsched_nid_postfix(PthreadAttr*, int);
+int APS5_VABI pthread_attr_setschedparam_nid_postfix(PthreadAttr*, const KernelSchedParam*);
+int APS5_VABI pthread_attr_setschedpolicy_nid_postfix(PthreadAttr*, int);
+int APS5_VABI pthread_attr_setstacksize_nid_postfix(PthreadAttr*, std::size_t);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
@@ -58,7 +74,13 @@ int APS5_VABI sched_yield_nid_postfix();
 Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 }
-static void Require(bool value) { if (!value) std::abort(); }
+static void RequireAt(bool value, int line) {
+    if (!value) {
+        std::fprintf(stderr, "thread check failed at line %d\n", line);
+        std::abort();
+    }
+}
+#define Require(value) RequireAt((value), __LINE__)
 static void* APS5_VABI CheckCancellationDefaults(void*) {
     int previous = -1;
     Require(pthread_setcancelstate_nid_postfix(1, &previous) == 0 && previous == 0);
@@ -315,6 +337,128 @@ static void CheckThreadKeys() {
         Require(pthread_key_delete_nid_postfix(keys[index]) == 0);
     Require(*__error_nid_postfix() == 13);
 }
+static std::atomic<int> attributeEntries{0};
+static void* APS5_VABI CountAttributeThread(void*) {
+    attributeEntries.fetch_add(1, std::memory_order_release);
+    return nullptr;
+}
+static void* APS5_VABI HoldAttributeThread(void* arg) {
+    auto* flag = static_cast<std::atomic<int>*>(arg);
+    while (flag->load(std::memory_order_acquire) == 0) pthread_yield_nid_postfix();
+    flag->store(2, std::memory_order_release);
+    return nullptr;
+}
+static void ExerciseAttributes() {
+    for (int index = 0; index < 32; ++index) {
+        PthreadAttr attr = nullptr;
+        if (pthread_attr_init_nid_postfix(&attr) != 0 || !attr) std::abort();
+        if (pthread_attr_setdetachstate_nid_postfix(&attr, 0) != 0) std::abort();
+        if (pthread_attr_setstacksize_nid_postfix(&attr, 1u << 20) != 0) std::abort();
+        if (pthread_attr_destroy_nid_postfix(&attr) != 0 || attr) std::abort();
+    }
+}
+static void CheckAttributes() {
+    *__error_nid_postfix() = 13;
+    PthreadAttr attr = nullptr;
+    Require(pthread_attr_init_nid_postfix(nullptr) == 22 && *__error_nid_postfix() == 13);
+    Require(pthread_attr_init_nid_postfix(&attr) == 0 && attr && *__error_nid_postfix() == 13);
+    int state = -1;
+    std::size_t stack = 0;
+    std::size_t guard = 1;
+    int policy = -1;
+    int inherit = -1;
+    void* address = reinterpret_cast<void*>(1);
+    KernelSchedParam param{-1};
+    Require(pthread_attr_getdetachstate_nid_postfix(&attr, &state) == 0 && state == 0);
+    Require(pthread_attr_getstacksize_nid_postfix(&attr, &stack) == 0 && stack == (1u << 20));
+    Require(pthread_attr_getguardsize_nid_postfix(&attr, &guard) == 0 && guard == 0);
+    Require(pthread_attr_getschedpolicy_nid_postfix(&attr, &policy) == 0 && policy == 1);
+    Require(pthread_attr_getinheritsched_nid_postfix(&attr, &inherit) == 0 && inherit == 4);
+    Require(pthread_attr_getschedparam_nid_postfix(&attr, &param) == 0 && param.sched_priority == 700);
+    Require(pthread_attr_getstack_nid_postfix(&attr, &address, &stack) == 0 && address == nullptr && stack == (1u << 20));
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 2) == 22);
+    Require(pthread_attr_getdetachstate_nid_postfix(&attr, &state) == 0 && state == 0);
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 1) == 0);
+    Require(pthread_attr_getdetachstate_nid_postfix(&attr, &state) == 0 && state == 1);
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 0) == 0);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 2047) == 22);
+    Require(pthread_attr_getstacksize_nid_postfix(&attr, &stack) == 0 && stack == (1u << 20));
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 2048) == 0);
+    Require(pthread_attr_getstacksize_nid_postfix(&attr, &stack) == 0 && stack == 2048);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 8u << 20) == 0);
+    Require(pthread_attr_setschedpolicy_nid_postfix(&attr, 4) == 22);
+    Require(pthread_attr_getschedpolicy_nid_postfix(&attr, &policy) == 0 && policy == 1);
+    Require(pthread_attr_setschedpolicy_nid_postfix(&attr, 3) == 0);
+    Require(pthread_attr_getschedpolicy_nid_postfix(&attr, &policy) == 0 && policy == 3);
+    Require(pthread_attr_setinheritsched_nid_postfix(&attr, 1) == 22);
+    Require(pthread_attr_getinheritsched_nid_postfix(&attr, &inherit) == 0 && inherit == 4);
+    Require(pthread_attr_setinheritsched_nid_postfix(&attr, 0) == 0);
+    Require(pthread_attr_getinheritsched_nid_postfix(&attr, &inherit) == 0 && inherit == 0);
+    Require(pthread_attr_setguardsize_nid_postfix(&attr, 0x4000) == 45);
+    Require(pthread_attr_getguardsize_nid_postfix(&attr, &guard) == 0 && guard == 0);
+    Require(pthread_attr_setguardsize_nid_postfix(&attr, 0) == 0);
+    Require(pthread_attr_setschedparam_nid_postfix(&attr, nullptr) == 22);
+    KernelSchedParam custom{123};
+    Require(pthread_attr_setschedparam_nid_postfix(&attr, &custom) == 0);
+    Require(pthread_attr_getschedparam_nid_postfix(&attr, &param) == 0 && param.sched_priority == 123);
+    Require(pthread_attr_getdetachstate_nid_postfix(&attr, nullptr) == 22 && state == 1);
+    Require(pthread_attr_getstack_nid_postfix(&attr, nullptr, &stack) == 22);
+    Require(pthread_attr_destroy_nid_postfix(nullptr) == 22);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 0 && !attr);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 22);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 1u << 20) == 22);
+    Require(*__error_nid_postfix() == 13);
+
+    Require(pthread_attr_init_nid_postfix(&attr) == 0);
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 0) == 0);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 2048) == 0);
+    Pthread thread = nullptr;
+    const auto before = attributeEntries.load();
+    Require(pthread_create_nid_postfix(&thread, &attr, CountAttributeThread, nullptr) == 0);
+    PthreadAttr queried = nullptr;
+    Require(pthread_attr_init_nid_postfix(&queried) == 0);
+    Require(pthread_attr_get_np_nid_postfix(nullptr, &queried) == 22);
+    Require(pthread_attr_get_np_nid_postfix(thread, nullptr) == 22);
+    Require(pthread_attr_get_np_nid_postfix(thread, &queried) == 0);
+    Require(pthread_attr_getstacksize_nid_postfix(&queried, &stack) == 0 && stack == 2048);
+    Require(pthread_attr_getdetachstate_nid_postfix(&queried, &state) == 0 && state == 0);
+    Require(pthread_attr_getguardsize_nid_postfix(&queried, &guard) == 0 && guard == 0);
+    Require(pthread_join_nid_postfix(thread, nullptr) == 0);
+    Require(attributeEntries.load() == before + 1);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 0);
+    Require(pthread_attr_destroy_nid_postfix(&queried) == 0);
+
+    std::atomic<int> hold{0};
+    Require(pthread_attr_init_nid_postfix(&attr) == 0);
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 1) == 0);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 8u << 20) == 0);
+    Require(pthread_create_nid_postfix(&thread, &attr, HoldAttributeThread, &hold) == 0);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 0);
+    Require(pthread_attr_init_nid_postfix(&queried) == 0);
+    Require(pthread_attr_get_np_nid_postfix(thread, &queried) == 0);
+    Require(pthread_attr_getdetachstate_nid_postfix(&queried, &state) == 0 && state == 1);
+    Require(pthread_attr_getstacksize_nid_postfix(&queried, &stack) == 0 && stack == (8u << 20));
+    Require(pthread_join_nid_postfix(thread, nullptr) == 22);
+    hold.store(1, std::memory_order_release);
+    while (hold.load(std::memory_order_acquire) != 2) pthread_yield_nid_postfix();
+    Require(pthread_attr_destroy_nid_postfix(&queried) == 0);
+
+    Require(pthread_attr_init_nid_postfix(&attr) == 0);
+    Require(pthread_attr_setdetachstate_nid_postfix(&attr, 0) == 0);
+    Pthread first = nullptr;
+    Pthread second = nullptr;
+    Require(pthread_create_nid_postfix(&first, &attr, CountAttributeThread, nullptr) == 0);
+    Require(pthread_create_nid_postfix(&second, &attr, CountAttributeThread, nullptr) == 0);
+    Require(pthread_join_nid_postfix(first, nullptr) == 0);
+    Require(pthread_join_nid_postfix(second, nullptr) == 0);
+    Require(attributeEntries.load() == before + 3);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 0);
+    std::thread left(ExerciseAttributes);
+    std::thread right(ExerciseAttributes);
+    left.join();
+    right.join();
+    Require(*__error_nid_postfix() == 13);
+}
 int main() {
     CheckCancellationSettings();
     const auto mainThread = pthread_self_nid_postfix();
@@ -374,4 +518,5 @@ int main() {
     CheckThreadKeys();
     CheckMutexes();
     CheckSemaphores();
+    CheckAttributes();
 }
