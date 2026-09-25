@@ -1,10 +1,13 @@
 #include "prx/libkernel/Time/include/Time.hpp"
+#include "include/ThreadClock.hpp"
 
 #include "prx/libc/include/General.hpp"
 #include <cerrno>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+extern "C" Pthread APS5_VABI scePthreadSelf();
+extern "C" int APS5_VABI pthread_getcpuclockid_nid_postfix(Pthread, int*);
 
 #ifdef _WIN32
 #include <windows.h>
@@ -96,7 +99,14 @@ int APS5_VABI clock_gettime_nid_postfix(int clockId, KernelTimespec* tp) {
     if (tp == nullptr) {
         APS5_INVALID_ARG_EX;
     }
+    if (clockId < 0) return GuestThreadClocks::Read(clockId, tp);
 #ifdef _WIN32
+    if (clockId == 14) {
+        int id = 0;
+        const int result = pthread_getcpuclockid_nid_postfix(scePthreadSelf(), &id);
+        if (result) { errno = result; return -1; }
+        return GuestThreadClocks::Read(id, tp);
+    }
     if (clockId == 0 || clockId == 9 || clockId == 10) {
         FILETIME ft{};
         GetSystemTimePreciseAsFileTime(&ft);
@@ -178,6 +188,15 @@ int APS5_VABI gettimeofday_nid_postfix(KernelTimeval* tv, KernelTimezone* tz) {
 }
 
 int APS5_VABI clock_getres_nid_postfix(int clockId, KernelTimespec* res) {
+    if (clockId < 0) return GuestThreadClocks::Resolution(clockId, res);
+#ifdef _WIN32
+    if (clockId == 14) {
+        int id = 0;
+        const int result = pthread_getcpuclockid_nid_postfix(scePthreadSelf(), &id);
+        if (result) { errno = result; return -1; }
+        return GuestThreadClocks::Resolution(id, res);
+    }
+#endif
     if (res == nullptr) {
         APS5_INVALID_ARG_EX;
     }
