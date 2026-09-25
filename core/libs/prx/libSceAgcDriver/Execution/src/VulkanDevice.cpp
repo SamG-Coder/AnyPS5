@@ -482,8 +482,32 @@ VulkanDevice::~VulkanDevice() = default;
 void VulkanDevice::WaitIdle() {
     PerformanceTimer timing("Vulkan.WaitIdle");
     state->drawQueue->Wait();
+    timing.Mark("draw_wait");
     state->renderCache->Flush();
+    timing.Mark("render_cache_flush");
     check(state->DeviceFunction<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(state->device), "vkDeviceWaitIdle");
+    timing.Mark("device_wait");
+}
+
+void VulkanDevice::WaitDraws() {
+    PerformanceTimer timing("Vulkan.WaitDraws");
+    state->drawQueue->Wait();
+}
+
+void VulkanDevice::AcquireGpuMemory() {
+    PerformanceTimer timing("Vulkan.AcquireGpuMemory");
+    state->drawQueue->Wait();
+    timing.Mark("draw_wait");
+    const auto context = graphicsContext();
+    Graphics::CommandBatch batch(context);
+    VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(batch.Handle(), VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+    batch.SubmitAndWait();
+    timing.Mark("gpu_barrier");
+    state->renderCache->InvalidateClean();
+    timing.Mark("invalidate_clean");
 }
 
 void* VulkanDevice::Window() const {

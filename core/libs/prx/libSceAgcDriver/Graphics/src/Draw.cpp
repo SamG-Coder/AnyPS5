@@ -107,7 +107,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     storage->pipeline = context.graphicsPipelines->Get(state, storage->color, *resources, shaders);
     auto& pipeline = *storage->pipeline;
     timing.Mark("pipeline_cache");
-    auto batch = std::make_unique<CommandBatch>(context);
+    auto batch = context.drawQueue->Begin(context);
     const auto commands = batch->Handle();
     VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;

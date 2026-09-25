@@ -172,6 +172,16 @@ void CommandBatch::SubmitAndWait() {
     Wait();
 }
 
+void CommandBatch::Reset() {
+    Require(submitted && !pending, "command batch must complete before reuse");
+    Check(context.Function<PFN_vkResetFences>("vkResetFences")(context.device, 1, &fence), "vkResetFences graphics");
+    Check(context.Function<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(commands, 0), "vkResetCommandBuffer graphics");
+    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    Check(context.Function<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(commands, &begin), "vkBeginCommandBuffer graphics");
+    submitted = false;
+}
+
 void CommandBatch::Submit() {
     PerformanceTimer timing("Graphics.Submit");
     Require(!submitted, "command batch has already been submitted");

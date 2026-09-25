@@ -227,8 +227,8 @@ public:
                 if (presenting->Presentable()) {
                     if (buffer != nullptr) {
                         require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
-                        presenting->WaitIdle();
-                        timing.Mark("device_idle_wait");
+                        presenting->WaitDraws();
+                        timing.Mark("draw_wait");
                         presenting->PresentDisplayBuffer(*buffer);
                         timing.Mark("present_display_buffer");
                     } else {
@@ -564,8 +564,20 @@ private:
                 if (opcode == 0x37 || opcode == 0x40 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
                     std::lock_guard gpuLock(gpuMutex);
                     timing.Mark("gpu_mutex_wait");
-                    if (device != nullptr) device->WaitIdle();
-                    timing.Mark("device_idle_wait");
+                    const auto eventType = opcode == 0x46 ? packet[1] & 0x3fu : 0u;
+                    const auto memoryTransfer = opcode == 0x37 || opcode == 0x40 || opcode == 0x50;
+                    const auto waitDraws = memoryTransfer || opcode == 0x42 || (opcode == 0x46 && (eventType == 0x07 || eventType == 0x0f || eventType == 0x10));
+                    const auto gpuCacheBarrier = opcode == 0x58 && Pm4::UsesGpuCacheBarrier(packet);
+                    if (device != nullptr) {
+                        if (gpuCacheBarrier) device->AcquireGpuMemory();
+                        else if (waitDraws) device->WaitDraws();
+                        else {
+                            const auto scope = header == FlipPacketHeader ? "Driver.FlipWait" : opcode == 0x58 ? "Driver.AcquireMemoryWait" : "Driver.CacheEventWait";
+                            PerformanceTimer waitTiming(scope);
+                            device->WaitIdle();
+                        }
+                    }
+                    timing.Mark(gpuCacheBarrier ? "gpu_cache_barrier" : waitDraws ? "draw_wait" : "device_idle_wait");
                 }
                 if (header == FlipPacketHeader) {
                     CheckFailure();

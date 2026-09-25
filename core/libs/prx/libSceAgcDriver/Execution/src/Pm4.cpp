@@ -266,6 +266,12 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
     }
 }
 
+bool UsesGpuCacheBarrier(std::span<const std::uint32_t> packet) {
+    require(!packet.empty() && ((packet[0] >> 8u) & 0xffu) == 0x58, "cache barrier requires ACQUIRE_MEM");
+    Validate(packet, 0);
+    return packet.size() == 8 && (packet[7] & 0xfc00u) == 0;
+}
+
 bool AccessesMemory(std::uint32_t header) {
     switch ((header >> 8u) & 0xffu) {
         case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;

@@ -9,6 +9,14 @@ DrawQueue::~DrawQueue() {
     for (auto& entry : pending) entry.commands.reset();
 }
 
+std::unique_ptr<CommandBatch> DrawQueue::Begin(const Context& context) {
+    if (available.empty()) return std::make_unique<CommandBatch>(context);
+    auto commands = std::move(available.back());
+    available.pop_back();
+    commands->Reset();
+    return commands;
+}
+
 void DrawQueue::Submit(std::unique_ptr<CommandBatch> commands, std::shared_ptr<ShaderResources> resources, std::shared_ptr<void> storage) {
     if (pending.size() >= 64) Wait();
     pending.push_back({std::move(storage), std::move(resources), std::move(commands)});
@@ -33,6 +41,7 @@ void DrawQueue::Wait() {
         timing.Mark("fence_wait");
         entry.resources->WriteBack();
         timing.Mark("resources_writeback");
+        available.push_back(std::move(entry.commands));
     }
     pending.clear();
 }

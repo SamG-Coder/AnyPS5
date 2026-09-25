@@ -25,6 +25,7 @@ std::string_view UnsupportedReason(std::uint32_t header);
 void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue);
 void Execute(std::span<const std::uint32_t> packet, QueueState& queue);
 bool AccessesMemory(std::uint32_t header);
+bool UsesGpuCacheBarrier(std::span<const std::uint32_t> packet);
 std::array<std::uint32_t, 5> ResolveDispatch(std::span<const std::uint32_t> packet, const QueueState& queue);
 DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue);
 

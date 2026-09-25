@@ -59,6 +59,7 @@ public:
     void SubmitAndWait();
     void Submit();
     void Wait();
+    void Reset();
 
 private:
     void release() noexcept;

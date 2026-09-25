@@ -1,7 +1,9 @@
 #include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <type_traits>
 #include <algorithm>
+#include <iterator>
 
 namespace AgcDriver::Graphics {
 namespace {
@@ -15,6 +17,7 @@ void append(std::vector<std::byte>& key, const TValue& value) {
 
 std::vector<std::byte> makeKey(const Context& context, const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
     std::vector<std::byte> key;
+    key.reserve(512);
     append(key, target ? target->Target().View() : VK_NULL_HANDLE);
     append(key, state.hasColorTarget);
     append(key, state.rectList);
@@ -94,18 +97,32 @@ std::vector<std::byte> makeKey(const Context& context, const State& state, const
 }
 
 std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
+    PerformanceTimer timing("Graphics.PipelineCache");
     auto key = makeKey(context, state, target, resources, shaders);
-    for (auto it = entries.begin(); it != entries.end(); ++it) {
-        if (it->key != key) continue;
+    timing.Mark("key");
+    const auto found = lookup.find(key);
+    if (found != lookup.end()) {
+        const auto it = found->second;
         auto pipeline = it->pipeline;
         entries.splice(entries.end(), entries, it);
+        timing.Mark("hit");
         return pipeline;
     }
+    timing.Mark("miss");
     auto pipeline = std::make_shared<Pipeline>(context, state, target ? &target->Target() : nullptr, resources, shaders);
+    timing.Mark("create");
     entries.push_back({std::move(key), target, pipeline});
+    try {
+        const auto it = std::prev(entries.end());
+        Require(lookup.emplace(it->key, it).second, "duplicate graphics pipeline cache key");
+    } catch (...) {
+        entries.pop_back();
+        throw;
+    }
     while (entries.size() > 128) {
         const auto it = std::find_if(entries.begin(), entries.end(), [](const auto& entry) { return entry.pipeline.use_count() == 1; });
         if (it == entries.end()) break;
+        lookup.erase(it->key);
         entries.erase(it);
     }
     return pipeline;

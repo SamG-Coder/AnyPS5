@@ -39,6 +39,7 @@ public:
     std::shared_ptr<ResidentColor> Find(std::uint64_t address) const;
     void Resolve(std::uint64_t address, std::size_t bytes, bool writable);
     void Flush();
+    void InvalidateClean();
 
 private:
     Context context;

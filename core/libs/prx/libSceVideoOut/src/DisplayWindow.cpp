@@ -98,7 +98,7 @@ void DisplayWindow::UpdateTitle() {
         fpsFrames = 0;
     }
     char text[160];
-    std::snprintf(text, sizeof(text), "%s | %llu", title.value, static_cast<unsigned long long>(frameNum));
+    std::snprintf(text, sizeof(text), "%s | FPS: %.2f (%llu)", title.value, currentFps, static_cast<unsigned long long>(frameNum));
     SDL_SetWindowTitle(window, text);
 }
 

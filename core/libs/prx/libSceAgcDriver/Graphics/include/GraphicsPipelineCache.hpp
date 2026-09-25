@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/RenderCache.hpp"
 #include <list>
+#include <map>
 
 namespace AgcDriver::Graphics {
 
@@ -20,6 +21,7 @@ private:
     };
     Context context;
     std::list<Entry> entries;
+    std::map<std::vector<std::byte>, std::list<Entry>::iterator> lookup;
 };
 
 }

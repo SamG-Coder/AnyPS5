@@ -131,4 +131,10 @@ void RenderCache::Flush() {
     Resolve(0, std::numeric_limits<std::size_t>::max(), true);
 }
 
+void RenderCache::InvalidateClean() {
+    for (const auto& [address, entry] : entries) {
+        if (!entry->Dirty()) entry->Invalidate();
+    }
+}
+
 }
