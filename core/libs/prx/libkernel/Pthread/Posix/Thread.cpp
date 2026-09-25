@@ -103,4 +103,9 @@ void APS5_VABI pthread_yield_nid_postfix(void) {
     scePthreadYield();
 }
 
+int APS5_VABI sched_yield_nid_postfix() {
+    scePthreadYield();
+    return 0;
+}
+
 }

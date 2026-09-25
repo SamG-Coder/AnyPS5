@@ -8,6 +8,7 @@ int APS5_VABI pthread_join_nid_postfix(Pthread, void**);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
+int APS5_VABI sched_yield_nid_postfix();
 Pthread APS5_VABI scePthreadSelf();
 int APS5_VABI scePthreadEqual(Pthread, Pthread);
 }
@@ -21,7 +22,10 @@ struct State {
 };
 static void* APS5_VABI Entry(void* argument) {
     auto& state = *static_cast<State*>(argument);
-    while (!state.ready.load(std::memory_order_acquire)) pthread_yield_nid_postfix();
+    while (!state.ready.load(std::memory_order_acquire)) {
+        pthread_yield_nid_postfix();
+        Require(sched_yield_nid_postfix() == 0);
+    }
     state.observed = pthread_self_nid_postfix();
     Require(state.observed && state.observed == scePthreadSelf());
     Require(pthread_equal_nid_postfix(state.observed, state.created));
