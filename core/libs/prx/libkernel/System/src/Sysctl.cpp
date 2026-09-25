@@ -73,3 +73,14 @@ extern "C" int APS5_VABI sysctl_nid_postfix(const int* name, unsigned count,
     }
     return Fail(2);
 }
+
+extern "C" int APS5_VABI sysctlbyname_nid_postfix(const char* name,
+    void* output, std::size_t* length, const void* replacement, std::size_t replacementSize) {
+    if (!name) return Fail(14);
+    int identifier;
+    if (std::strcmp(name, "hw.ncpu") == 0) identifier = 3;
+    else if (std::strcmp(name, "hw.pagesize") == 0) identifier = 7;
+    else return Fail(2);
+    const int mib[] = {6, identifier};
+    return sysctl_nid_postfix(mib, 2, output, length, replacement, replacementSize);
+}

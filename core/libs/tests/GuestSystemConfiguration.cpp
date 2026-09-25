@@ -34,6 +34,7 @@ std::int64_t APS5_VABI sysconf_nid_postfix(int);
 int APS5_VABI getpagesize_nid_postfix();
 int* APS5_VABI __error_nid_postfix();
 int APS5_VABI sysctl_nid_postfix(const int*, unsigned, void*, std::size_t*, const void*, std::size_t);
+int APS5_VABI sysctlbyname_nid_postfix(const char*, void*, std::size_t*, const void*, std::size_t);
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
@@ -125,6 +126,22 @@ int main() {
         Require(value == sysconf_nid_postfix(identifier == 3 ? 58 : 47));
         Require(*__error_nid_postfix() == 13);
         std::array<unsigned char, 4> small{0xff, 0xff, 0xff, 0xff};
+        const char* textualName = identifier == 3 ? "hw.ncpu" : "hw.pagesize";
+        size = 0;
+        Require(sysctlbyname_nid_postfix(textualName, nullptr, &size, nullptr, 0) == 0 && size == sizeof(value));
+        std::array<std::int32_t, 2> named{0, -1};
+        size = sizeof(named);
+        Require(sysctlbyname_nid_postfix(textualName, named.data(), &size, nullptr, 0) == 0);
+        Require(named[0] == value && named[1] == -1 && size == sizeof(value));
+        Require(*__error_nid_postfix() == 13);
+        size = 2;
+        Require(sysctlbyname_nid_postfix(textualName, small.data(), &size, nullptr, 0) == -1);
+        Require(*__error_nid_postfix() == 12 && size == 2);
+        Require(std::memcmp(small.data(), &value, 2) == 0 && small[2] == 0xff && small[3] == 0xff);
+        Require(sysctlbyname_nid_postfix(textualName, &value, nullptr, nullptr, 0) == -1 && *__error_nid_postfix() == 14);
+        Require(sysctlbyname_nid_postfix(textualName, nullptr, nullptr, &value, sizeof(value)) == -1 && *__error_nid_postfix() == 1);
+        Require(sysctlbyname_nid_postfix(textualName, nullptr, nullptr, nullptr, 1) == -1 && *__error_nid_postfix() == 22);
+        small.fill(0xff);
         size = 2;
         Require(sysctl_nid_postfix(name, 2, small.data(), &size, nullptr, 0) == -1);
         Require(*__error_nid_postfix() == 12 && size == 2);
@@ -134,6 +151,12 @@ int main() {
     }
     const int unknown[] = {6, 0x7fffffff};
     std::size_t unchanged = 77;
+    for (const auto* invalid : {"", "HW.NCPU", "hw.ncpu.extra", "hw."}) {
+        Require(sysctlbyname_nid_postfix(invalid, nullptr, &unchanged, nullptr, 0) == -1);
+        Require(*__error_nid_postfix() == 2 && unchanged == 77);
+    }
+    Require(sysctlbyname_nid_postfix(nullptr, nullptr, &unchanged, nullptr, 0) == -1);
+    Require(*__error_nid_postfix() == 14 && unchanged == 77);
     Require(sysctl_nid_postfix(unknown, 2, nullptr, &unchanged, nullptr, 0) == -1);
     Require(*__error_nid_postfix() == 2 && unchanged == 77);
     Require(sysctl_nid_postfix(nullptr, 2, nullptr, nullptr, nullptr, 0) == -1 && *__error_nid_postfix() == 14);
