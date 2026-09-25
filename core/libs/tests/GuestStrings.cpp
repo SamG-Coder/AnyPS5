@@ -4,9 +4,13 @@
 #include <cstdlib>
 #include <string>
 #include <array>
+#include <cstdarg>
+#include <cstdint>
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+int APS5_VABI asprintf_nid_postfix(char**, const char*, ...);
+int APS5_VABI vasprintf_nid_postfix(char**, const char*, void*);
 char* APS5_VABI strndup_nid_postfix(const char*, std::size_t);
 void APS5_VABI free_nid_postfix(void*);
 char* APS5_VABI basename_nid_postfix(const char*);
@@ -28,7 +32,7 @@ static void Require(bool condition) {
     }
 }
 
-static std::array<char, 64> allocation;
+static std::array<char, 4096> allocation;
 static std::size_t allocationSize = 0;
 static unsigned frees = 0;
 static bool failAllocation = false;
@@ -40,6 +44,22 @@ static void* APS5_VABI Allocate(std::size_t size) {
     return failAllocation ? nullptr : allocation.data();
 }
 static void APS5_VABI Free(void* pointer) { Require(pointer == allocation.data()); ++frees; }
+static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vasprintf_nid_postfix(output, format, args);
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
 int main() {
     std::array<void*, 10> api{};
     api.fill(reinterpret_cast<void*>(UnexpectedHeapCall));
@@ -61,6 +81,26 @@ int main() {
     failAllocation = true;
     Require(strndup_nid_postfix("failure", 3) == nullptr && *__error_nid_postfix() == 12);
     Require(strndup_nid_postfix(nullptr, 0) == nullptr && *__error_nid_postfix() == 14);
+    failAllocation = false;
+    char* formatted = nullptr;
+    const char expected[] = "guest:4294967297:  2.50:1,2,3,4,5,6,7";
+    Require(asprintf_nid_postfix(&formatted, "%s:%ld:%*.*f:%d,%d,%d,%d,%d,%d,%d",
+        "guest", INT64_C(4294967297), 6, 2, 2.5, 1, 2, 3, 4, 5, 6, 7) == sizeof(expected) - 1);
+    Require(formatted == allocation.data() && allocationSize == sizeof(expected));
+    Require(std::strcmp(formatted, expected) == 0);
+    free_nid_postfix(formatted);
+    Require(FormatAllocated(&formatted, "%02000d", 7) == 2000 && allocationSize == 2001);
+    Require(formatted[1999] == '7' && formatted[2000] == '\0' && allocation[2001] == '!');
+    free_nid_postfix(formatted);
+    Require(asprintf_nid_postfix(&formatted, "a%cb", 0) == 3);
+    Require(allocationSize == 4 && std::memcmp(formatted, "a\0b", 4) == 0);
+    free_nid_postfix(formatted);
+    Require(asprintf_nid_postfix(&formatted, "") == 0 && formatted && allocationSize == 1 && *formatted == '\0');
+    free_nid_postfix(formatted);
+    failAllocation = true;
+    Require(asprintf_nid_postfix(&formatted, "%s", "failure") == -1 && formatted == nullptr);
+    Require(*__error_nid_postfix() == 12 && frees == 7);
+    Require(asprintf_nid_postfix(nullptr, "") == -1 && *__error_nid_postfix() == 14);
     Require(std::strcmp(basename_nid_postfix(nullptr), ".") == 0);
     Require(std::strcmp(basename_nid_postfix(""), ".") == 0);
     Require(std::strcmp(basename_nid_postfix("////"), "/") == 0);
