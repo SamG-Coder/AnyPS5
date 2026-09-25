@@ -29,6 +29,8 @@ struct ThreadArgs {
     PthreadPrivate* self;
 };
 
+static thread_local PthreadPrivate* currentThread = nullptr;
+
 static void FinishThread(PthreadPrivate* self, void* retval) {
     {
         std::unique_lock<std::mutex> lk(self->_join_mtx);
@@ -44,12 +46,12 @@ static void RunThread(std::unique_ptr<ThreadArgs> args) {
     void* arg = args->arg;
     PthreadPrivate* self = args->self;
     args.reset();
+    currentThread = self;
     FinishThread(self, entry(arg));
+    currentThread = nullptr;
 }
 
 #ifdef _WIN32
-static thread_local PthreadPrivate* currentThread = nullptr;
-
 static void ReleaseThread(PthreadPrivate* thread) {
     if (thread->references.fetch_sub(1, std::memory_order_acq_rel) != 1)
         return;
@@ -198,11 +200,12 @@ void APS5_VABI scePthreadExit(void* retval) {
 }
 
 Pthread APS5_VABI scePthreadSelf() {
-#ifdef _WIN32
-    return currentThread;
-#else
-    return nullptr;
-#endif
+    if (currentThread) return currentThread;
+    struct ExternalThread : PthreadPrivate {
+        ExternalThread() { _detached = true; }
+    };
+    static thread_local ExternalThread externalThread;
+    return &externalThread;
 }
 
 void APS5_VABI scePthreadYield() {
@@ -216,10 +219,7 @@ int APS5_VABI scePthreadCancel(Pthread thread) {
 }
 
 int APS5_VABI scePthreadEqual(Pthread thread1, Pthread thread2) {
- (void)thread1;
- (void)thread2;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    return thread1 == thread2;
 }
 
 int APS5_VABI scePthreadGetaffinity(Pthread thread, KernelCpumask* mask) {
