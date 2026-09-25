@@ -2,6 +2,12 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdarg>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <new>
+#include "prx/libc/include/ApplicationHeap.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/VarArgsAbi.hpp"
 #include "prx/libc/include/FileStream.hpp"
@@ -11,6 +17,46 @@
 #endif
 
 extern "C" {
+
+int APS5_VABI vasprintf_nid_postfix(char** output, const char* format, VaList* args) {
+    if (!output) { errno = 14; return -1; }
+    *output = nullptr;
+    if (!format || !args) { errno = 22; return -1; }
+    try {
+#ifdef _WIN32
+        std::string buffer;
+        const int count = LibcDetail::FormatWindows(nullptr, 0, format, args, &buffer);
+        const char* text = buffer.c_str();
+#else
+        char* native = nullptr;
+        const int count = ::vasprintf(&native, format, *reinterpret_cast<std::va_list*>(args));
+        if (count < 0) return -1;
+        const std::unique_ptr<char, decltype(&std::free)> buffer(native, std::free);
+        const char* text = buffer.get();
+#endif
+        auto* result = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(static_cast<std::size_t>(count) + 1));
+        std::memcpy(result, text, static_cast<std::size_t>(count) + 1);
+        *output = result;
+        return count;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+}
+
+int APS5_VABI asprintf_nid_postfix(char** output, const char* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vasprintf_nid_postfix(output, format, reinterpret_cast<VaList*>(args));
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
 
 int APS5_VABI vfprintf_nid_postfix(FileStream* stream, const char* format, VaList* args) {
     auto* native = GetNativeStream(stream);
