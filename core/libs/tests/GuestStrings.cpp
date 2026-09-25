@@ -10,9 +10,11 @@
 #include <limits>
 #include <clocale>
 #include <source_location>
+#include <stdexcept>
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+std::size_t APS5_VABI malloc_usable_size_nid_postfix(const void*);
 std::size_t APS5_VABI mbrtowc_nid_postfix(std::uint16_t*, const char*, std::size_t, void*);
 std::size_t APS5_VABI wcrtomb_nid_postfix(char*, std::uint16_t, void*);
 int APS5_VABI mbsinit_nid_postfix(const void*);
@@ -65,6 +67,14 @@ static std::size_t requestedAlignment = 0;
 static std::size_t allocationSize = 0;
 static unsigned frees = 0;
 static bool failAllocation = false;
+static bool recurseSize = false;
+static unsigned sizeQueries = 0;
+static std::size_t APS5_VABI UsableSize(const void* pointer) {
+    Require(pointer == allocation.data());
+    ++sizeQueries;
+    if (recurseSize) return malloc_usable_size_nid_postfix(pointer);
+    return allocation.size();
+}
 static void APS5_VABI UnexpectedHeapCall() { std::abort(); }
 static void* APS5_VABI Allocate(std::size_t size) {
     Require(size <= allocation.size());
@@ -285,15 +295,30 @@ int main() {
     Require(wmemcmp_nid_postfix(copied.data() + 1, wide, 5) == 0);
     Require(copied.front() == 0xbeef && copied.back() == 0xbeef);
     std::array<void*, 10> api{};
+    Require(malloc_usable_size_nid_postfix(nullptr) == 0 && sizeQueries == 0);
+    bool missingSize = false;
+    try { malloc_usable_size_nid_postfix(allocation.data()); }
+    catch (const std::runtime_error&) { missingSize = true; }
+    Require(missingSize);
     api.fill(reinterpret_cast<void*>(UnexpectedHeapCall));
     api[4] = reinterpret_cast<void*>(Align);
     api[0] = reinterpret_cast<void*>(Allocate);
     api[1] = reinterpret_cast<void*>(Free);
+    api[9] = reinterpret_cast<void*>(UsableSize);
     ApplicationHeapRegister_nid_no_patch(api.data());
     const char source[] = {'a', 'b', 'c'};
     auto* copy = strndup_nid_postfix(source, sizeof(source));
     Require(copy == allocation.data() && allocationSize == 4 && std::strcmp(copy, "abc") == 0);
     Require(allocation[4] == '!' && source[2] == 'c');
+    Require(malloc_usable_size_nid_postfix(copy) == allocation.size() && sizeQueries == 1);
+    Require(malloc_usable_size_nid_postfix(nullptr) == 0 && sizeQueries == 1);
+    recurseSize = true;
+    bool recursiveSize = false;
+    try { malloc_usable_size_nid_postfix(copy); }
+    catch (const std::runtime_error&) { recursiveSize = true; }
+    Require(recursiveSize && sizeQueries == 2);
+    recurseSize = false;
+    Require(malloc_usable_size_nid_postfix(copy) == allocation.size() && sizeQueries == 3);
     free_nid_postfix(copy);
     copy = strndup_nid_postfix("short", 99);
     Require(allocationSize == 6 && std::strcmp(copy, "short") == 0);
