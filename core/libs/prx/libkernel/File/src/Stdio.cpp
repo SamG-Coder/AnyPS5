@@ -21,6 +21,7 @@ _set_thread_local_invalid_parameter_handler(_invalid_parameter_handler);
 #endif
 
 extern "C" {
+int MakeDirectory_nid_no_patch(const char*, std::uint16_t);
 
 int APS5_VABI isatty_nid_postfix(int descriptor) {
     if (descriptor >= GuestSockets::FirstDescriptor) {
@@ -90,10 +91,7 @@ int64_t APS5_VABI lseek_nid_postfix(int d, int64_t offset, int whence) {
 }
 
 int APS5_VABI mkdir_nid_postfix(const char* path, uint16_t mode) {
- (void)path;
- (void)mode;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    return MakeDirectory_nid_no_patch(path, mode);
 }
 
 int APS5_VABI open_nid_postfix(const char* path, int flags, int mode) {
@@ -182,10 +180,11 @@ int APS5_VABI sceKernelGetdirentries(int fd, char* buf, int nbytes, int64_t* bas
 }
 
 int APS5_VABI sceKernelMkdir(const char* path, uint16_t mode) {
- (void)path;
- (void)mode;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    const int previous = errno;
+    const int result = MakeDirectory_nid_no_patch(path, mode);
+    const int error = errno;
+    errno = previous;
+    return result == 0 ? 0 : static_cast<int>(0x80020000u | static_cast<unsigned>(error));
 }
 
 int64_t APS5_VABI sceKernelPread(int d, void* buf, size_t nbytes, int64_t offset) {

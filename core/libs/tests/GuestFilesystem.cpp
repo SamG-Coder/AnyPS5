@@ -21,6 +21,8 @@
 #include <sys/stat.h>
 #endif
 extern "C" {
+int APS5_VABI mkdir_nid_postfix(const char*, std::uint16_t);
+int APS5_VABI sceKernelMkdir(const char*, std::uint16_t);
 FileStream* APS5_VABI fdopen_nid_postfix(int, const char*);
 int APS5_VABI fclose_nid_postfix(FileStream*);
 int APS5_VABI fileno_nid_postfix(FileStream*);
@@ -43,6 +45,21 @@ int main() {
     const auto root = std::filesystem::path("anyps5-filesystem-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
+    const auto directory = (root / "created").string();
+    *__error_nid_postfix() = 13;
+    Require(mkdir_nid_postfix(directory.c_str(), 0700) == 0);
+    Require(std::filesystem::is_directory(directory) && *__error_nid_postfix() == 13);
+    Require(mkdir_nid_postfix(directory.c_str(), 0700) == -1 && *__error_nid_postfix() == 17);
+    Require(sceKernelMkdir(directory.c_str(), 0700) == static_cast<int>(0x80020011u));
+    Require(*__error_nid_postfix() == 17);
+    Require(mkdir_nid_postfix((root / "missing" / "child").string().c_str(), 0700) == -1 && *__error_nid_postfix() == 2);
+    Require(!std::filesystem::exists(root / "missing"));
+    Require(mkdir_nid_postfix(nullptr, 0700) == -1 && *__error_nid_postfix() == 14);
+    Require(mkdir_nid_postfix("", 0700) == -1 && *__error_nid_postfix() == 2);
+    const auto nested = (root / "created" / "nested").string();
+    Require(sceKernelMkdir(nested.c_str(), 0700) == 0 && std::filesystem::is_directory(nested));
+    Require(remove_nid_postfix(nested.c_str()) == 0);
+    Require(remove_nid_postfix(directory.c_str()) == 0);
     Require(fdopen_nid_postfix(-1, "r") == nullptr && *__error_nid_postfix() == 9);
     Require(fdopen_nid_postfix(0, "invalid") == nullptr && *__error_nid_postfix() == 22);
     auto fdPattern = (root / "fdopen-XXXXXX").string();
