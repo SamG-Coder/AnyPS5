@@ -29,6 +29,7 @@ private:
     VkDeviceSize allocationBytes = 0;
     VkBufferUsageFlags usage;
     VkMemoryPropertyFlags properties;
+    bool reusable = false;
     std::shared_ptr<BufferPool> cache;
 };
 

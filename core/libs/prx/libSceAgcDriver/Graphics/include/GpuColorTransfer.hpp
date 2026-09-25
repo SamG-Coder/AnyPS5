@@ -33,6 +33,7 @@ private:
     std::unique_ptr<Buffer> tiled;
     std::unique_ptr<Buffer> linear;
     std::unique_ptr<Buffer> readback;
+    std::unique_ptr<Buffer> upload;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
     ColorTileMode mode = ColorTileMode::Linear;

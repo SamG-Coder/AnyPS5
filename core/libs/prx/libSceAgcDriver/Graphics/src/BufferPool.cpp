@@ -11,7 +11,7 @@ BufferPool::~BufferPool() {
 }
 
 void BufferPool::destroy(const BufferAllocation& allocation) noexcept {
-    unmap(device, allocation.memory);
+    if (allocation.mapping != nullptr) unmap(device, allocation.memory);
     destroyBuffer(device, allocation.buffer, nullptr);
     freeMemory(device, allocation.memory, nullptr);
 }
