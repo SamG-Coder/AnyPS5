@@ -52,6 +52,7 @@ extern "C" {
 
 int APS5_VABI sem_init_nid_postfix(void* sem, int pshared, unsigned int value) {
     if (!sem || (pshared != 0 && pshared != 1) || value > SemValueMax) { errno = 22; return -1; }
+    if (pshared != 0) { errno = 45; return -1; }
     auto* guest = static_cast<GuestSem*>(sem);
     if (guest->magic == SemMagic) { errno = 22; return -1; }
     auto* state = new (std::nothrow) State;

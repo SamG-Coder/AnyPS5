@@ -92,7 +92,7 @@ int APS5_VABI scePthreadMutexTrylock(PthreadMutex* mutex) {
         return SCE_OK;
     }
     if (m->_owner.load(std::memory_order_acquire) == tid)
-        return m->_type == MutexType::ErrorCheck ? SCE_KERNEL_ERROR_EDEADLK : SCE_KERNEL_ERROR_EBUSY;
+        return SCE_KERNEL_ERROR_EBUSY;
     if (!m->_mtx.try_lock()) return SCE_KERNEL_ERROR_EBUSY;
     m->_owner.store(tid, std::memory_order_relaxed);
     return SCE_OK;
