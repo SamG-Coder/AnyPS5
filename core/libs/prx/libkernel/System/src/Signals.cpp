@@ -3,18 +3,28 @@
 #include <csignal>
 #include <cstdint>
 #include <mutex>
+#include <memory>
+#include <vector>
 #include <stdexcept>
-#include "../include/SignalMask.hpp"
+#include "../include/SignalAction.hpp"
 #ifndef _WIN32
 #include <pthread.h>
 #endif
 
 extern "C" int* APS5_VABI __error_nid_postfix();
+extern "C" int APS5_VABI pthread_sigmask_nid_postfix(int, const std::uint32_t*, std::uint32_t*);
 namespace {
-using GuestHandler = void (APS5_VABI *)(int);
-std::atomic<GuestHandler> handlers[32]{};
-static_assert(std::atomic<GuestHandler>::is_always_lock_free);
+using GuestHandler = GuestSignals::Handler;
+using Action = GuestSignals::Action;
+const Action defaultAction{};
+std::atomic<const Action*> actions[32]{};
+static_assert(std::atomic<const Action*>::is_always_lock_free);
+std::vector<std::unique_ptr<const Action>> retainedActions;
 std::mutex registration;
+const Action* CurrentAction(int guest) {
+    const auto* action = actions[guest].load();
+    return action ? action : &defaultAction;
+}
 #ifdef _WIN32
 thread_local GuestSignals::Mask blocked{};
 thread_local std::atomic<std::uint32_t> blockedDelivery{0};
@@ -45,12 +55,25 @@ void Dispatch(int native) {
         return;
     }
 #endif
+    const auto* action = CurrentAction(guest);
+    if (action->flags & 4) {
+        const auto* expected = action;
+        actions[guest].compare_exchange_strong(expected, &defaultAction);
+    }
 #ifdef _WIN32
-    // Preserve the guest's persistent registration across CRT delivery.
-    std::signal(native, Dispatch);
+    std::signal(native, (action->flags & 4) ? SIG_DFL : Dispatch);
+    const auto saved = blocked;
+    auto effective = saved;
+    for (unsigned index = 0; index < 4; ++index) effective[index] |= action->mask[index];
+    if (!(action->flags & 16)) effective[0] |= std::uint32_t{1} << (guest - 1);
+    effective[0] &= ~((std::uint32_t{1} << 8) | (std::uint32_t{1} << 16));
+    blocked = effective;
+    blockedDelivery.store(effective[0]);
 #endif
-    const auto callback = handlers[guest].load();
-    if (reinterpret_cast<std::uintptr_t>(callback) > 1) callback(guest);
+    if (reinterpret_cast<std::uintptr_t>(action->handler) > 1) action->handler(guest);
+#ifdef _WIN32
+    pthread_sigmask_nid_postfix(3, saved.data(), nullptr);
+#endif
 }
 }
 GuestSignals::Mask GuestSignals::CaptureMask() {
@@ -149,20 +172,76 @@ int APS5_VABI sigismember_nid_postfix(const std::uint32_t* set, int signal) {
     const auto index = static_cast<unsigned>(signal - 1);
     return (set[index / 32] >> (index % 32)) & 1u;
 }
-GuestHandler APS5_VABI signal_nid_postfix(int guest, GuestHandler handler) {
-    const auto invalid = reinterpret_cast<GuestHandler>(static_cast<std::uintptr_t>(-1));
+int APS5_VABI sigaction_nid_postfix(int guest, const Action* requested, Action* previous) {
     const int native = NativeSignal(guest);
-    if (!native || handler == invalid) { *__error_nid_postfix() = 22; return invalid; }
-    std::lock_guard lock(registration);
-    const auto previous = handlers[guest].exchange(handler);
-    const auto address = reinterpret_cast<std::uintptr_t>(handler);
-    auto hostHandler = address == 0 ? SIG_DFL : address == 1 ? SIG_IGN : Dispatch;
-    if (std::signal(native, hostHandler) == SIG_ERR) {
-        handlers[guest].store(previous);
+    if (!native || (requested && reinterpret_cast<std::uintptr_t>(requested->handler) == UINTPTR_MAX)) {
         *__error_nid_postfix() = 22;
-        return invalid;
+        return -1;
     }
-    return previous;
+    if (!requested) { if (previous) *previous = *CurrentAction(guest); return 0; }
+    const Action next = *requested;
+    if (next.flags & ~(2 | 4 | 16)) throw std::runtime_error("sigaction: unsupported action flags");
+#ifdef _WIN32
+    if (next.flags & 2) throw std::runtime_error("sigaction: Windows syscall restart is unsupported");
+#endif
+    std::lock_guard lock(registration);
+    const Action* retained = nullptr;
+    for (const auto& candidate : retainedActions) {
+        if (candidate->handler == next.handler && candidate->flags == next.flags && candidate->mask == next.mask) {
+            retained = candidate.get();
+            break;
+        }
+    }
+    if (!retained) {
+        retainedActions.push_back(std::make_unique<const Action>(next));
+        retained = retainedActions.back().get();
+    }
+    const auto* original = CurrentAction(guest);
+    const auto address = reinterpret_cast<std::uintptr_t>(next.handler);
+    auto hostHandler = address == 0 ? SIG_DFL : address == 1 ? SIG_IGN : Dispatch;
+#ifdef _WIN32
+    actions[guest].store(retained);
+    const bool failed = std::signal(native, hostHandler) == SIG_ERR;
+#else
+    struct sigaction host{};
+    host.sa_handler = hostHandler;
+    sigemptyset(&host.sa_mask);
+    for (int signal = 1; signal <= 128; ++signal) {
+        if (!(next.mask[(signal - 1) / 32] & (std::uint32_t{1} << ((signal - 1) % 32)))) continue;
+        if (signal == 9 || signal == 17) continue;
+        const int mapped = NativeSignal(signal);
+        if (!mapped) {
+            throw std::runtime_error("sigaction: unsupported Linux mask mapping");
+        }
+        sigaddset(&host.sa_mask, mapped);
+    }
+    if (next.flags & 2) host.sa_flags |= SA_RESTART;
+    if (next.flags & 4) host.sa_flags |= SA_RESETHAND;
+    if (next.flags & 16) host.sa_flags |= SA_NODEFER;
+    actions[guest].store(retained);
+    const bool failed = ::sigaction(native, &host, nullptr) != 0;
+#endif
+    if (failed) {
+        actions[guest].store(original);
+        *__error_nid_postfix() = 22;
+        return -1;
+    }
+    if (previous) *previous = *original;
+#ifdef _WIN32
+    if (address == 1) pending.fetch_and(~(std::uint32_t{1} << (guest - 1)));
+#endif
+    return 0;
+}
+GuestHandler APS5_VABI signal_nid_postfix(int guest, GuestHandler handler) {
+#ifdef _WIN32
+    const Action next{handler, 0, {}};
+#else
+    const Action next{handler, 2, {}};
+#endif
+    Action previous{};
+    if (sigaction_nid_postfix(guest, &next, &previous) != 0)
+        return reinterpret_cast<GuestHandler>(UINTPTR_MAX);
+    return previous.handler;
 }
 int APS5_VABI raise_nid_postfix(int guest) {
     const int native = NativeSignal(guest);
@@ -170,7 +249,7 @@ int APS5_VABI raise_nid_postfix(int guest) {
 #ifdef _WIN32
     const auto bit = std::uint32_t{1} << (guest - 1);
     if (blocked[0] & bit) {
-        if (reinterpret_cast<std::uintptr_t>(handlers[guest].load()) != 1) pending.fetch_or(bit);
+        if (reinterpret_cast<std::uintptr_t>(CurrentAction(guest)->handler) != 1) pending.fetch_or(bit);
         return 0;
     }
 #endif
