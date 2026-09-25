@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <thread>
 #include <system_error>
+#include "prx/libkernel/System/include/SignalMask.hpp"
 
 #ifndef _WIN32
 #include <pthread.h>
@@ -27,6 +28,7 @@ struct ThreadArgs {
     PthreadEntry entry;
     void* arg;
     PthreadPrivate* self;
+    GuestSignals::Mask signalMask = GuestSignals::CaptureMask();
 };
 
 static thread_local PthreadPrivate* currentThread = nullptr;
@@ -45,6 +47,7 @@ static void RunThread(std::unique_ptr<ThreadArgs> args) {
     const auto entry = args->entry;
     void* arg = args->arg;
     PthreadPrivate* self = args->self;
+    GuestSignals::InheritMask(args->signalMask);
     args.reset();
     currentThread = self;
     FinishThread(self, entry(arg));
