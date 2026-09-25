@@ -33,6 +33,8 @@ struct ThreadArgs {
 
 static thread_local PthreadPrivate* currentThread = nullptr;
 
+extern "C" void RunGuestThreadKeys_nid_no_patch();
+
 static void FinishThread(PthreadPrivate* self, void* retval) {
     {
         std::unique_lock<std::mutex> lk(self->_join_mtx);
@@ -50,7 +52,17 @@ static void RunThread(std::unique_ptr<ThreadArgs> args) {
     GuestSignals::InheritMask(args->signalMask);
     args.reset();
     currentThread = self;
-    FinishThread(self, entry(arg));
+    void* result = nullptr;
+    try {
+        result = entry(arg);
+    } catch (...) {
+        RunGuestThreadKeys_nid_no_patch();
+        FinishThread(self, nullptr);
+        currentThread = nullptr;
+        throw;
+    }
+    RunGuestThreadKeys_nid_no_patch();
+    FinishThread(self, result);
     currentThread = nullptr;
 }
 
@@ -188,6 +200,7 @@ int APS5_VABI scePthreadDetach(Pthread thread) {
 }
 
 void APS5_VABI scePthreadExit(void* retval) {
+    RunGuestThreadKeys_nid_no_patch();
 #ifdef _WIN32
     if (!currentThread)
         throw std::runtime_error("scePthreadExit: current thread is not registered");

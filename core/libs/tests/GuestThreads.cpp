@@ -24,6 +24,12 @@ void APS5_VABI pthread_set_name_np_nid_postfix(Pthread, const char*);
 int APS5_VABI pthread_rename_np_nid_postfix(Pthread, const char*);
 int APS5_VABI pthread_create_nid_postfix(Pthread*, const PthreadAttr*, PthreadEntry, void*);
 int APS5_VABI pthread_join_nid_postfix(Pthread, void**);
+int APS5_VABI pthread_key_create_nid_postfix(PthreadKey*, pthread_key_destructor_func_t);
+int APS5_VABI pthread_key_delete_nid_postfix(PthreadKey);
+void* APS5_VABI pthread_getspecific_nid_postfix(PthreadKey);
+int APS5_VABI pthread_setspecific_nid_postfix(PthreadKey, void*);
+int APS5_VABI scePthreadKeyCreate(PthreadKey*, pthread_key_destructor_func_t);
+int APS5_VABI scePthreadKeyDelete(PthreadKey);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
@@ -101,6 +107,74 @@ static void* APS5_VABI Entry(void* argument) {
     state.result = 42;
     return &state.result;
 }
+static PthreadKey rearmKey = -1;
+static int rearmCount = 0;
+static void APS5_VABI Rearm(void* value) {
+    ++rearmCount;
+    if (rearmCount == 1) Require(pthread_setspecific_nid_postfix(rearmKey, value) == 0);
+}
+static int spinCount = 0;
+static void APS5_VABI Spin(void* value) {
+    ++spinCount;
+    Require(pthread_setspecific_nid_postfix(rearmKey, value) == 0);
+}
+static void* APS5_VABI StoreKey(void* arg) {
+    const auto key = *static_cast<PthreadKey*>(arg);
+    Require(pthread_getspecific_nid_postfix(key) == nullptr);
+    Require(pthread_setspecific_nid_postfix(key, arg) == 0);
+    Require(pthread_getspecific_nid_postfix(key) == arg);
+    return arg;
+}
+static void CheckThreadKeys() {
+    *__error_nid_postfix() = 13;
+    PthreadKey missing = 7;
+    Require(pthread_key_create_nid_postfix(nullptr, nullptr) == 22 && *__error_nid_postfix() == 13);
+    Require(scePthreadKeyCreate(nullptr, nullptr) == static_cast<int>(0x80020016u));
+    Require(pthread_getspecific_nid_postfix(-1) == nullptr);
+    Require(pthread_setspecific_nid_postfix(-1, &missing) == 22);
+    PthreadKey key = -1;
+    Require(pthread_key_create_nid_postfix(&key, nullptr) == 0 && key >= 0);
+    Require(pthread_getspecific_nid_postfix(key) == nullptr);
+    int marker = 0;
+    Require(pthread_setspecific_nid_postfix(key, &marker) == 0);
+    Require(pthread_getspecific_nid_postfix(key) == &marker);
+    Pthread worker = nullptr;
+    Require(pthread_create_nid_postfix(&worker, nullptr, StoreKey, &key) == 0);
+    void* workerValue = nullptr;
+    Require(pthread_join_nid_postfix(worker, &workerValue) == 0 && workerValue == &key);
+    Require(pthread_getspecific_nid_postfix(key) == &marker);
+    Require(pthread_setspecific_nid_postfix(key, nullptr) == 0);
+    Require(pthread_key_delete_nid_postfix(key) == 0);
+    Require(pthread_getspecific_nid_postfix(key) == nullptr);
+    Require(pthread_setspecific_nid_postfix(key, &marker) == 22);
+    Require(pthread_key_delete_nid_postfix(key) == 22);
+    Require(scePthreadKeyDelete(key) == static_cast<int>(0x80020016u));
+    PthreadKey reused = -1;
+    Require(pthread_key_create_nid_postfix(&reused, nullptr) == 0);
+    Require(pthread_getspecific_nid_postfix(reused) == nullptr);
+    Require(pthread_key_delete_nid_postfix(reused) == 0);
+    rearmCount = 0;
+    Require(pthread_key_create_nid_postfix(&rearmKey, reinterpret_cast<pthread_key_destructor_func_t>(Rearm)) == 0);
+    Require(pthread_create_nid_postfix(&worker, nullptr, StoreKey, &rearmKey) == 0);
+    Require(pthread_join_nid_postfix(worker, nullptr) == 0 && rearmCount == 2);
+    spinCount = 0;
+    Require(pthread_key_delete_nid_postfix(rearmKey) == 0);
+    Require(pthread_key_create_nid_postfix(&rearmKey, reinterpret_cast<pthread_key_destructor_func_t>(Spin)) == 0);
+    Require(pthread_create_nid_postfix(&worker, nullptr, StoreKey, &rearmKey) == 0);
+    Require(pthread_join_nid_postfix(worker, nullptr) == 0 && spinCount == 4);
+    Require(pthread_key_delete_nid_postfix(rearmKey) == 0);
+    std::array<PthreadKey, 256> keys{};
+    for (auto& created : keys) Require(pthread_key_create_nid_postfix(&created, nullptr) == 0);
+    PthreadKey overflow = -1;
+    Require(pthread_key_create_nid_postfix(&overflow, nullptr) == 35 && overflow == -1);
+    Require(pthread_key_delete_nid_postfix(keys[0]) == 0);
+    Require(pthread_key_create_nid_postfix(&overflow, nullptr) == 0);
+    Require(pthread_getspecific_nid_postfix(overflow) == nullptr);
+    Require(pthread_key_delete_nid_postfix(overflow) == 0);
+    for (std::size_t index = 1; index < keys.size(); ++index)
+        Require(pthread_key_delete_nid_postfix(keys[index]) == 0);
+    Require(*__error_nid_postfix() == 13);
+}
 int main() {
     CheckCancellationSettings();
     const auto mainThread = pthread_self_nid_postfix();
@@ -157,4 +231,5 @@ int main() {
         Require(result == &state.result && state.result == 42);
         Require(clock_gettime_nid_postfix(state.clockId, &after) == -1 && *__error_nid_postfix() == 22);
     }
+    CheckThreadKeys();
 }

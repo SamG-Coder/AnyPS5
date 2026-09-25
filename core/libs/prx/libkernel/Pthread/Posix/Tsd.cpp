@@ -1,34 +1,29 @@
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"
-#include "prx/libc/include/General.hpp"
 
 extern "C" {
+int APS5_VABI scePthreadKeyCreate(PthreadKey*, pthread_key_destructor_func_t);
+int APS5_VABI scePthreadKeyDelete(PthreadKey);
+void* APS5_VABI scePthreadGetspecific(PthreadKey);
+int APS5_VABI scePthreadSetspecific(PthreadKey, void*);
+
+static int GuestKeyResult(int result) { return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff; }
 
 void* APS5_VABI pthread_getspecific_nid_postfix(PthreadKey key) {
- (void)key;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+    return scePthreadGetspecific(key);
 }
 
 int APS5_VABI pthread_setspecific_nid_postfix(PthreadKey key, void* value) {
- (void)key;
- (void)value;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    return GuestKeyResult(scePthreadSetspecific(key, value));
 }
 
 int APS5_VABI pthread_key_create_nid_postfix(PthreadKey* key, pthread_key_destructor_func_t destructor) {
- (void)key;
- (void)destructor;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    return GuestKeyResult(scePthreadKeyCreate(key, destructor));
 }
 
 int APS5_VABI pthread_key_delete_nid_postfix(PthreadKey key) {
- (void)key;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    return GuestKeyResult(scePthreadKeyDelete(key));
 }
 
 }
