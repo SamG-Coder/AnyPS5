@@ -9,6 +9,14 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+std::size_t APS5_VABI wcslen_nid_postfix(const std::uint16_t*);
+int APS5_VABI wcscmp_nid_postfix(const std::uint16_t*, const std::uint16_t*);
+int APS5_VABI wcsncmp_nid_postfix(const std::uint16_t*, const std::uint16_t*, std::size_t);
+const std::uint16_t* APS5_VABI wcsstr_nid_postfix(const std::uint16_t*, const std::uint16_t*);
+const std::uint16_t* APS5_VABI wmemchr_nid_postfix(const std::uint16_t*, std::uint16_t, std::size_t);
+int APS5_VABI wmemcmp_nid_postfix(const std::uint16_t*, const std::uint16_t*, std::size_t);
+std::uint16_t* APS5_VABI wmemcpy_nid_postfix(std::uint16_t*, const std::uint16_t*, std::size_t);
+std::uint16_t* APS5_VABI wmemmove_nid_postfix(std::uint16_t*, const std::uint16_t*, std::size_t);
 void* APS5_VABI aligned_alloc_nid_postfix(std::size_t, std::size_t);
 int APS5_VABI asprintf_nid_postfix(char**, const char*, ...);
 int APS5_VABI vasprintf_nid_postfix(char**, const char*, void*);
@@ -67,6 +75,31 @@ static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
     return result;
 }
 int main() {
+    const std::uint16_t wide[] = {'A', 0x1234, 0xd83d, 0xde00, 'Z', 0};
+    const std::uint16_t emptyWide[] = {0};
+    const std::uint16_t pattern[] = {0xd83d, 0xde00, 0};
+    const std::uint16_t absent[] = {'Z', 'X', 0};
+    Require(wcslen_nid_postfix(wide) == 5 && wcslen_nid_postfix(emptyWide) == 0);
+    Require(wcscmp_nid_postfix(wide, wide) == 0);
+    Require(wcscmp_nid_postfix(wide, emptyWide) > 0);
+    Require(wcsncmp_nid_postfix(wide, pattern, 0) == 0);
+    Require(wcsstr_nid_postfix(wide, pattern) == wide + 2);
+    Require(wcsstr_nid_postfix(wide, emptyWide) == wide);
+    Require(wcsstr_nid_postfix(wide, absent) == nullptr);
+    Require(wmemchr_nid_postfix(wide, 0xde00, 3) == nullptr);
+    Require(wmemchr_nid_postfix(wide, 0xde00, 4) == wide + 3);
+    const std::uint16_t high[] = {0xffff, 0}, low[] = {0x7fff, 0};
+    Require(wmemcmp_nid_postfix(high, low, 1) > 0 && wcscmp_nid_postfix(high, low) > 0);
+    std::array<std::uint16_t, 8> copied{};
+    copied.fill(0xbeef);
+    Require(wmemcpy_nid_postfix(copied.data() + 1, wide, 6) == copied.data() + 1);
+    Require(copied.front() == 0xbeef && copied.back() == 0xbeef);
+    Require(wmemcmp_nid_postfix(copied.data() + 1, wide, 6) == 0);
+    Require(wmemmove_nid_postfix(copied.data() + 2, copied.data() + 1, 5) == copied.data() + 2);
+    Require(wmemcmp_nid_postfix(copied.data() + 2, wide, 5) == 0);
+    Require(wmemmove_nid_postfix(copied.data() + 1, copied.data() + 2, 5) == copied.data() + 1);
+    Require(wmemcmp_nid_postfix(copied.data() + 1, wide, 5) == 0);
+    Require(copied.front() == 0xbeef && copied.back() == 0xbeef);
     std::array<void*, 10> api{};
     api.fill(reinterpret_cast<void*>(UnexpectedHeapCall));
     api[4] = reinterpret_cast<void*>(Align);
