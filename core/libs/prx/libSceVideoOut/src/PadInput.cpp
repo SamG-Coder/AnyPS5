@@ -1,4 +1,5 @@
 #include "prx/libSceVideoOut/include/PadInput.hpp"
+#include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include "SDL.h"
 #include <algorithm>
@@ -16,7 +17,7 @@ void PadInput::setMouseMode(bool enabled) {
     nextMousePoll = std::chrono::steady_clock::now() + std::chrono::milliseconds(Pad::MousePollIntervalMs);
 }
 
-void PadInput::HandleEvent(const SDL_Event& event) {
+void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     if (event.type == SDL_WINDOWEVENT && (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST || event.window.event == SDL_WINDOWEVENT_CLOSE)) {
         pressed.fill(false);
         wheelReleaseTimes.fill({});
@@ -47,6 +48,9 @@ void PadInput::HandleEvent(const SDL_Event& event) {
         const auto& binding = Pad::InputMapping[index];
         const bool matches = keyboard ? binding.key != SDL_SCANCODE_UNKNOWN && binding.key == event.key.keysym.scancode : binding.mouseButton != 0 && binding.mouseButton == event.button.button;
         if (!matches) continue;
+        if (binding.control == Pad::InputControl::ToggleFullscreen) {
+            if (keyboard && down && !pressed[index] && window.Handle() != nullptr && event.key.windowID == SDL_GetWindowID(window.Handle())) window.ToggleFullscreen();
+        }
         if (binding.control == Pad::InputControl::ToggleMouse && down && !pressed[index]) setMouseMode(!mouseEnabled);
         pressed[index] = down;
     }
@@ -106,6 +110,7 @@ void PadInput::publish() {
             case Pad::InputControl::TouchLeft: state.touchLeft = true; break;
             case Pad::InputControl::TouchRight: state.touchRight = true; break;
             case Pad::InputControl::ToggleMouse: break;
+            case Pad::InputControl::ToggleFullscreen: break;
         }
     }
     for (std::size_t axis = 0; axis < state.sticks.size(); ++axis) {

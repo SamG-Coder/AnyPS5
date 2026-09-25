@@ -67,6 +67,12 @@ SDL_Window* DisplayWindow::Handle() const {
     return window;
 }
 
+void DisplayWindow::ToggleFullscreen() {
+    require(window != nullptr, "window must exist before toggling fullscreen");
+    const auto flags = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0 ? 0u : static_cast<Uint32>(SDL_WINDOW_FULLSCREEN_DESKTOP);
+    require(SDL_SetWindowFullscreen(window, flags) == 0, SDL_GetError());
+}
+
 void DisplayWindow::DrawableSize(std::uint32_t& width, std::uint32_t& height) const {
     if (window == nullptr) {
         width = 0;

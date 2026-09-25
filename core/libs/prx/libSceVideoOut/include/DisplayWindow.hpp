@@ -20,6 +20,7 @@ public:
     SDL_Window* Handle() const;
     void DrawableSize(std::uint32_t& width, std::uint32_t& height) const;
     void UpdateTitle();
+    void ToggleFullscreen();
 
 private:
     void create(std::uint32_t sourceWidth, std::uint32_t sourceHeight);

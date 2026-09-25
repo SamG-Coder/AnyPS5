@@ -19,7 +19,8 @@ enum class InputControl {
     RightStickDown,
     TouchLeft,
     TouchRight,
-    ToggleMouse
+    ToggleMouse,
+    ToggleFullscreen
 };
 
 struct InputBinding {
@@ -31,6 +32,7 @@ struct InputBinding {
 };
 
 inline constexpr std::array InputMapping{
+    InputBinding{SDL_SCANCODE_F11, 0, InputControl::ToggleFullscreen},
     InputBinding{SDL_SCANCODE_RETURN, 0, InputControl::Button, 0x4000},
     InputBinding{SDL_SCANCODE_ESCAPE, 0, InputControl::Button, 0x8},
     InputBinding{SDL_SCANCODE_I, 0, InputControl::Button, 0x1000},

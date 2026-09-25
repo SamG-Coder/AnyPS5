@@ -409,7 +409,7 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 require(event.type != SDL_QUIT, "window was closed");
-                padInput.HandleEvent(event);
+                padInput.HandleEvent(event, window);
             }
             padInput.Update();
             {
