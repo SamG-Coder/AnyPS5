@@ -3,6 +3,9 @@
 #include <cstring>
 #include <cerrno>
 #include <string_view>
+#include <limits>
+#include <new>
+#include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
 
@@ -24,6 +27,18 @@ std::size_t APS5_VABI strnlen_nid_postfix(const char* text, std::size_t limit) {
     std::size_t length = 0;
     while (length < limit && text[length] != '\0') ++length;
     return length;
+}
+
+char* APS5_VABI strndup_nid_postfix(const char* text, std::size_t limit) {
+    if (!text) { errno = 14; return nullptr; }
+    const auto length = strnlen_nid_postfix(text, limit);
+    if (length == std::numeric_limits<std::size_t>::max()) { errno = 12; return nullptr; }
+    try {
+        auto* copy = static_cast<char*>(ApplicationHeapAllocate_nid_no_patch(length + 1));
+        std::memcpy(copy, text, length);
+        copy[length] = '\0';
+        return copy;
+    } catch (const std::bad_alloc&) { errno = 12; return nullptr; }
 }
 
 char* APS5_VABI strncat_nid_postfix(char* destination, const char* source, std::size_t limit) {
