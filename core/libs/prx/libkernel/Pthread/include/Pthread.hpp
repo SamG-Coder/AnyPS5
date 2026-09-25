@@ -50,6 +50,8 @@ struct PthreadAttrPrivate {
 };
 
 struct PthreadPrivate {
+    int cancellationState = 0;
+    int cancellationType = 0;
     int cpuClockId = 0;
     ~PthreadPrivate() { GuestThreadClocks::Release(cpuClockId); }
 #ifdef _WIN32

@@ -284,17 +284,21 @@ int APS5_VABI scePthreadSetaffinity(Pthread thread, KernelCpumask mask) {
 }
 
 int APS5_VABI scePthreadSetcancelstate(int state, int* old_state) {
- (void)state;
- (void)old_state;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (state != 0 && state != 1) return SCE_KERNEL_ERROR_EINVAL;
+    auto* self = scePthreadSelf();
+    const int previous = self->cancellationState;
+    self->cancellationState = state;
+    if (old_state) *old_state = previous;
+    return 0;
 }
 
 int APS5_VABI scePthreadSetcanceltype(int type, int* old_type) {
- (void)type;
- (void)old_type;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (type != 0 && type != 2) return SCE_KERNEL_ERROR_EINVAL;
+    auto* self = scePthreadSelf();
+    const int previous = self->cancellationType;
+    self->cancellationType = type;
+    if (old_type) *old_type = previous;
+    return 0;
 }
 
 int APS5_VABI scePthreadSetprio(Pthread thread, int prio) {
