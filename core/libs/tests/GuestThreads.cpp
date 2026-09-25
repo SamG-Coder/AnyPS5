@@ -1,7 +1,9 @@
 #include "SceTypes.hpp"
 #include <array>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
+#include <utility>
 #include <cstring>
 #include <cwchar>
 #include <chrono>
@@ -30,6 +32,17 @@ void* APS5_VABI pthread_getspecific_nid_postfix(PthreadKey);
 int APS5_VABI pthread_setspecific_nid_postfix(PthreadKey, void*);
 int APS5_VABI scePthreadKeyCreate(PthreadKey*, pthread_key_destructor_func_t);
 int APS5_VABI scePthreadKeyDelete(PthreadKey);
+int APS5_VABI pthread_mutex_init_nid_postfix(PthreadMutex*, const PthreadMutexattr*);
+int APS5_VABI pthread_mutex_destroy_nid_postfix(PthreadMutex*);
+int APS5_VABI pthread_mutex_lock_nid_postfix(PthreadMutex*);
+int APS5_VABI pthread_mutex_trylock_nid_postfix(PthreadMutex*);
+int APS5_VABI pthread_mutex_timedlock_nid_postfix(PthreadMutex*, const KernelTimespec*);
+int APS5_VABI pthread_mutex_unlock_nid_postfix(PthreadMutex*);
+int APS5_VABI pthread_mutexattr_init_nid_postfix(PthreadMutexattr*);
+int APS5_VABI pthread_mutexattr_destroy_nid_postfix(PthreadMutexattr*);
+int APS5_VABI pthread_mutexattr_settype_nid_postfix(PthreadMutexattr*, int);
+int APS5_VABI pthread_mutexattr_setprotocol_nid_postfix(PthreadMutexattr*, int);
+int APS5_VABI clock_gettime_nid_postfix(int, KernelTimespec*);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
@@ -106,6 +119,64 @@ static void* APS5_VABI Entry(void* argument) {
     Require(pthread_join_nid_postfix(state.observed, nullptr) == 11);
     state.result = 42;
     return &state.result;
+}
+static void* APS5_VABI TryHeldMutex(void* arg) {
+    return reinterpret_cast<void*>(static_cast<std::intptr_t>(
+        pthread_mutex_trylock_nid_postfix(static_cast<PthreadMutex*>(arg))));
+}
+static void* APS5_VABI TimeHeldMutex(void* arg) {
+    auto* state = static_cast<std::pair<PthreadMutex*, KernelTimespec>*>(arg);
+    return reinterpret_cast<void*>(static_cast<std::intptr_t>(
+        pthread_mutex_timedlock_nid_postfix(state->first, &state->second)));
+}
+static void CheckMutexes() {
+    *__error_nid_postfix() = 13;
+    PthreadMutexattr attr = nullptr;
+    Require(pthread_mutexattr_init_nid_postfix(nullptr) == 22);
+    Require(pthread_mutexattr_init_nid_postfix(&attr) == 0 && attr);
+    Require(pthread_mutexattr_settype_nid_postfix(&attr, 4) == 22);
+    Require(pthread_mutexattr_settype_nid_postfix(&attr, 2) == 0);
+    Require(pthread_mutexattr_setprotocol_nid_postfix(&attr, 0) == 0);
+    Require(pthread_mutexattr_setprotocol_nid_postfix(&attr, 1) == 45);
+    Require(pthread_mutexattr_setprotocol_nid_postfix(&attr, 9) == 22);
+    PthreadMutex mutex = nullptr;
+    Require(pthread_mutex_init_nid_postfix(nullptr, nullptr) == 22);
+    Require(pthread_mutex_init_nid_postfix(&mutex, &attr) == 0 && mutex);
+    Require(pthread_mutex_lock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_lock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_unlock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_unlock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_unlock_nid_postfix(&mutex) == 1);
+    Require(pthread_mutex_destroy_nid_postfix(&mutex) == 0 && !mutex);
+    Require(pthread_mutexattr_destroy_nid_postfix(&attr) == 0 && !attr);
+    Require(pthread_mutex_init_nid_postfix(&mutex, nullptr) == 0);
+    Require(pthread_mutex_lock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_trylock_nid_postfix(&mutex) == 11);
+    Pthread worker = nullptr;
+    Require(pthread_create_nid_postfix(&worker, nullptr, TryHeldMutex, &mutex) == 0);
+    void* busy = nullptr;
+    Require(pthread_join_nid_postfix(worker, &busy) == 0 && busy == reinterpret_cast<void*>(16));
+    KernelTimespec past{};
+    Require(clock_gettime_nid_postfix(0, &past) == 0 && past.tv_sec > 0);
+    past.tv_sec -= 1;
+    std::pair<PthreadMutex*, KernelTimespec> held{&mutex, past};
+    Require(pthread_create_nid_postfix(&worker, nullptr, TimeHeldMutex, &held) == 0);
+    void* timed = nullptr;
+    Require(pthread_join_nid_postfix(worker, &timed) == 0 && timed == reinterpret_cast<void*>(60));
+    Require(pthread_mutex_unlock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_timedlock_nid_postfix(&mutex, &past) == 0);
+    Require(pthread_mutex_unlock_nid_postfix(&mutex) == 0);
+    Require(pthread_mutex_timedlock_nid_postfix(&mutex, nullptr) == 22);
+    past.tv_nsec = 1000000000;
+    Require(pthread_mutex_timedlock_nid_postfix(&mutex, &past) == 22);
+    Require(pthread_mutex_destroy_nid_postfix(&mutex) == 0 && !mutex);
+    PthreadMutex staticMutex = nullptr;
+    Require(pthread_mutex_lock_nid_postfix(&staticMutex) == 0 && staticMutex);
+    Require(pthread_mutex_trylock_nid_postfix(&staticMutex) == 11);
+    Require(pthread_mutex_unlock_nid_postfix(&staticMutex) == 0);
+    Require(pthread_mutex_destroy_nid_postfix(&staticMutex) == 0 && !staticMutex);
+    Require(pthread_mutex_lock_nid_postfix(nullptr) == 22);
+    Require(*__error_nid_postfix() == 13);
 }
 static PthreadKey rearmKey = -1;
 static int rearmCount = 0;
@@ -232,4 +303,5 @@ int main() {
         Require(clock_gettime_nid_postfix(state.clockId, &after) == -1 && *__error_nid_postfix() == 22);
     }
     CheckThreadKeys();
+    CheckMutexes();
 }
