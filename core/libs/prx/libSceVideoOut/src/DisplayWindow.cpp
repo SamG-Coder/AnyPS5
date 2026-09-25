@@ -38,15 +38,14 @@ void DisplayWindow::Ensure(std::uint32_t sourceWidth, std::uint32_t sourceHeight
 void DisplayWindow::create(std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
     SDL_Rect usable{};
     require(SDL_GetDisplayUsableBounds(0, &usable) == 0, SDL_GetError());
-    std::uint32_t initialWidth = sourceWidth;
-    std::uint32_t initialHeight = sourceHeight;
-    if (usable.w > 0 && usable.h > 0 && (sourceWidth > static_cast<std::uint32_t>(usable.w) || sourceHeight > static_cast<std::uint32_t>(usable.h))) {
-        const auto fitted = AgcDriver::ComputeContainSize_nid_postfix(sourceWidth, sourceHeight, static_cast<std::uint32_t>(usable.w), static_cast<std::uint32_t>(usable.h), false);
-        initialWidth = fitted.width;
-        initialHeight = fitted.height;
-    }
+    require(DisplayWindowInitialSizePercent > 0 && DisplayWindowInitialSizePercent <= 100, "initial window size percent must be between 1 and 100");
+    require(usable.w > 0 && usable.h > 0, "usable display extent must be positive");
+    const auto boundsWidth = static_cast<std::uint32_t>(static_cast<std::uint64_t>(usable.w) * DisplayWindowInitialSizePercent / 100);
+    const auto boundsHeight = static_cast<std::uint32_t>(static_cast<std::uint64_t>(usable.h) * DisplayWindowInitialSizePercent / 100);
+    const auto initialSize = AgcDriver::ComputeContainSize_nid_postfix(sourceWidth, sourceHeight, boundsWidth, boundsHeight, true);
+    require(initialSize.width >= DisplayWindowMinimumWidth && initialSize.height >= DisplayWindowMinimumHeight, "initial window extent is smaller than the minimum");
     const auto title = GetAppTitle_nid_postfix();
-    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialWidth), static_cast<int>(initialHeight), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+    window = SDL_CreateWindow(title.value, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, static_cast<int>(initialSize.width), static_cast<int>(initialSize.height), SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     require(window != nullptr, SDL_GetError());
     SDL_SetWindowMinimumSize(window, static_cast<int>(DisplayWindowMinimumWidth), static_cast<int>(DisplayWindowMinimumHeight));
     installSubclass();
