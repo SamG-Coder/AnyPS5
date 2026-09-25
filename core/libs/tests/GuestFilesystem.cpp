@@ -1,5 +1,6 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libc/include/FileStream.hpp"
+#include "SceTypes.hpp"
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -21,6 +22,8 @@
 #include <sys/stat.h>
 #endif
 extern "C" {
+int APS5_VABI stat_nid_postfix(const char*, FileStat*);
+int APS5_VABI sceKernelStat(const char*, FileStat*);
 int APS5_VABI mkdir_nid_postfix(const char*, std::uint16_t);
 int APS5_VABI sceKernelMkdir(const char*, std::uint16_t);
 FileStream* APS5_VABI fdopen_nid_postfix(int, const char*);
@@ -45,6 +48,28 @@ int main() {
     const auto root = std::filesystem::path("anyps5-filesystem-test-" +
         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     Require(std::filesystem::create_directory(root));
+    static_assert(sizeof(FileStat) == 120 && offsetof(FileStat, st_size) == 72);
+    struct GuardedStat { FileStat value; std::uint64_t guard = UINT64_MAX; } metadata{};
+    *__error_nid_postfix() = 13;
+    Require(stat_nid_postfix(root.string().c_str(), &metadata.value) == 0);
+    Require((metadata.value.st_mode & 0170000) == 0040000 && metadata.guard == UINT64_MAX);
+    Require(*__error_nid_postfix() == 13);
+    const auto statFile = root / "metadata.bin";
+    { std::ofstream stream(statFile, std::ios::binary); stream << "1234567"; }
+    Require(stat_nid_postfix(statFile.string().c_str(), &metadata.value) == 0);
+    Require((metadata.value.st_mode & 0170000) == 0100000 && metadata.value.st_size == 7);
+    Require(metadata.value.st_nlink >= 1 && metadata.value.st_blksize > 0 && metadata.value.st_mtim.tv_sec > 0);
+    const auto savedMetadata = metadata.value;
+    Require(stat_nid_postfix((root / "absent").string().c_str(), &metadata.value) == -1 && *__error_nid_postfix() == 2);
+    Require(std::memcmp(&savedMetadata, &metadata.value, sizeof(FileStat)) == 0 && metadata.guard == UINT64_MAX);
+    Require(stat_nid_postfix(nullptr, &metadata.value) == -1 && *__error_nid_postfix() == 14);
+    Require(stat_nid_postfix("", &metadata.value) == -1 && *__error_nid_postfix() == 2);
+    Require(stat_nid_postfix(statFile.string().c_str(), nullptr) == -1 && *__error_nid_postfix() == 14);
+    Require(sceKernelStat((root / "absent").string().c_str(), &metadata.value) == static_cast<int>(0x80020002u));
+    Require(*__error_nid_postfix() == 14);
+    Require(sceKernelStat(statFile.string().c_str(), &metadata.value) == 0 && metadata.value.st_size == 7);
+    Require(*__error_nid_postfix() == 14);
+    Require(remove_nid_postfix(statFile.string().c_str()) == 0);
     const auto directory = (root / "created").string();
     *__error_nid_postfix() = 13;
     Require(mkdir_nid_postfix(directory.c_str(), 0700) == 0);

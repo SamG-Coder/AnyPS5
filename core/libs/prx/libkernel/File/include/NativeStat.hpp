@@ -6,7 +6,7 @@
 
 namespace File {
 
-void FillFileStat(const std::filesystem::path& nativePath, FileStat* sb);
+int FillFileStat(const std::filesystem::path& nativePath, FileStat* sb);
 
 }
 
