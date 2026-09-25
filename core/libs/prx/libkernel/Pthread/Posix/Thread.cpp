@@ -2,17 +2,28 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include <new>
+#include <system_error>
 
 
 extern "C" {
+int APS5_VABI scePthreadCreate(Pthread*, const PthreadAttr*, PthreadEntry, void*, const char*);
+int APS5_VABI scePthreadJoin(Pthread, void**);
+Pthread APS5_VABI scePthreadSelf();
+int APS5_VABI scePthreadEqual(Pthread, Pthread);
+void APS5_VABI scePthreadYield();
 
 int APS5_VABI pthread_create_nid_postfix(Pthread* thread, const PthreadAttr* attr, pthread_entry_func_t entry, void* arg) {
- (void)thread;
- (void)attr;
- (void)entry;
- (void)arg;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!thread || !entry || (attr && !*attr)) return 22;
+    try {
+        const auto result = scePthreadCreate(thread, attr, entry, arg, nullptr);
+        return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff;
+    } catch (const std::bad_alloc&) { return 12; }
+      catch (const std::system_error& error) {
+        if (error.code() == std::errc::resource_unavailable_try_again) return 35;
+        if (error.code() == std::errc::not_enough_memory) return 12;
+        throw;
+    }
 }
 
 int APS5_VABI pthread_create_name_np_nid_postfix(Pthread* thread, const PthreadAttr* attr, pthread_entry_func_t entry, void* arg, const char* name) {
@@ -45,10 +56,10 @@ int APS5_VABI pthread_getschedparam_nid_postfix(Pthread thread, int* policy, Ker
 }
 
 int APS5_VABI pthread_join_nid_postfix(Pthread thread, void** value) {
- (void)thread;
- (void)value;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!thread) return 22;
+    if (thread == scePthreadSelf()) return 11;
+    const auto result = scePthreadJoin(thread, value);
+    return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff;
 }
 
 int APS5_VABI pthread_rename_np_nid_postfix(Pthread thread, const char* name) {
@@ -59,8 +70,11 @@ int APS5_VABI pthread_rename_np_nid_postfix(Pthread thread, const char* name) {
 }
 
 Pthread APS5_VABI pthread_self_nid_postfix(void) {
- NotImplemented_nid_no_patch(__func__);
- return {};
+    return scePthreadSelf();
+}
+
+int APS5_VABI pthread_equal_nid_postfix(Pthread first, Pthread second) {
+    return scePthreadEqual(first, second);
 }
 
 int APS5_VABI pthread_setcancelstate_nid_postfix(int state, int* old_state) {
@@ -86,7 +100,7 @@ int APS5_VABI pthread_setschedparam_nid_postfix(Pthread thread, int policy, cons
 }
 
 void APS5_VABI pthread_yield_nid_postfix(void) {
- NotImplemented_nid_no_patch(__func__);
+    scePthreadYield();
 }
 
 }
