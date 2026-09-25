@@ -12,6 +12,7 @@
 #endif
 extern "C" {
 int APS5_VABI mkstemp_nid_postfix(char*);
+int APS5_VABI unlink_nid_postfix(const char*);
 int APS5_VABI remove_nid_postfix(const char*);
 int APS5_VABI rename_nid_postfix(const char*, const char*);
 int* APS5_VABI __error_nid_postfix();
@@ -59,7 +60,21 @@ int main() {
         Require(std::memcmp(result, expected, sizeof(result)) == 0);
     }
     for (auto* stream : streams) Require(std::fclose(stream) == 0);
-    for (const auto& path : temporaryPaths) Require(remove_nid_postfix(path.c_str()) == 0);
+    for (const auto& path : temporaryPaths) Require(unlink_nid_postfix(path.c_str()) == 0);
+    Require(unlink_nid_postfix(nullptr) == -1 && *__error_nid_postfix() == 14);
+    Require(unlink_nid_postfix("") == -1 && *__error_nid_postfix() == 2);
+    Require(unlink_nid_postfix(root.string().c_str()) == -1);
+    Require(std::filesystem::is_directory(root));
+    const auto original = root / "original";
+    const auto alias = root / "alias";
+    { std::ofstream stream(original); stream << "preserved hard link"; }
+    std::filesystem::create_hard_link(original, alias);
+    Require(unlink_nid_postfix(original.string().c_str()) == 0);
+    Require(!std::filesystem::exists(original));
+    { std::ifstream stream(alias); std::string contents; std::getline(stream, contents);
+      Require(contents == "preserved hard link"); }
+    Require(unlink_nid_postfix(alias.string().c_str()) == 0);
+    Require(unlink_nid_postfix(alias.string().c_str()) == -1 && *__error_nid_postfix() == 2);
     const auto file = root / "file.txt";
     { std::ofstream stream(file); stream << "retained until removal"; }
     Require(remove_nid_postfix(root.string().c_str()) == -1);
