@@ -92,6 +92,55 @@ extern "C" int APS5_VABI rename_nid_postfix(const char* from, const char* to) {
     }
 }
 
+extern "C" int APS5_VABI unlink_nid_postfix(const char* path) {
+    if (!path) { errno = 14; return -1; }
+    if (!*path) { errno = 2; return -1; }
+    try {
+        const auto resolved = ResolvePath_nid_no_patch(path);
+#ifdef _WIN32
+        const auto handle = CreateFileW(resolved.c_str(), DELETE | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) {
+            errno = FilesystemError(std::error_code(GetLastError(), std::system_category()));
+            return -1;
+        }
+        BY_HANDLE_FILE_INFORMATION information{};
+        if (!GetFileInformationByHandle(handle, &information)) {
+            const auto error = GetLastError();
+            CloseHandle(handle);
+            errno = FilesystemError(std::error_code(error, std::system_category()));
+            return -1;
+        }
+        if ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            !(information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+            CloseHandle(handle);
+            errno = 1;
+            return -1;
+        }
+        FILE_DISPOSITION_INFO disposition{TRUE};
+        const bool removed = SetFileInformationByHandle(handle, FileDispositionInfo,
+            &disposition, sizeof(disposition)) != 0;
+        const auto error = removed ? ERROR_SUCCESS : GetLastError();
+        CloseHandle(handle);
+        if (!removed) {
+            errno = FilesystemError(std::error_code(error, std::system_category()));
+            return -1;
+        }
+#else
+        if (::unlink(resolved.c_str()) != 0) {
+            errno = FilesystemError(std::error_code(errno, std::generic_category()));
+            return -1;
+        }
+#endif
+        return 0;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+      catch (const std::filesystem::filesystem_error& error) {
+        errno = FilesystemError(error.code());
+        return -1;
+    }
+}
+
 extern "C" int APS5_VABI remove_nid_postfix(const char* path) {
     if (!path) { errno = 14; return -1; }
     if (!*path) { errno = 2; return -1; }
