@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include "prx/libkernel/Time/include/ThreadClock.hpp"
 
 enum class MutexType : std::uint32_t {
     ErrorCheck = 1,
@@ -49,6 +50,8 @@ struct PthreadAttrPrivate {
 };
 
 struct PthreadPrivate {
+    int cpuClockId = 0;
+    ~PthreadPrivate() { GuestThreadClocks::Release(cpuClockId); }
 #ifdef _WIN32
     void* nativeHandle = nullptr;
     std::thread::id threadId;
