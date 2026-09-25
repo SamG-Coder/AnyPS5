@@ -69,6 +69,10 @@ int APS5_VABI sceUserServiceGetInitialUser(int* user_id) {
  return USER_SERVICE_OK;
 }
 
+int APS5_VABI sceUserServiceGetForegroundUser(int* userId) {
+ return sceUserServiceGetInitialUser(userId);
+}
+
 int APS5_VABI sceUserServiceGetLoginUserIdList(UserServiceLoginUserIdList* user_id_list) {
  if (user_id_list == nullptr) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
