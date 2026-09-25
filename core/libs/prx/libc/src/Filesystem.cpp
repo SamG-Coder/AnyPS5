@@ -38,6 +38,25 @@ int FilesystemError(const std::error_code& error) {
 }
 }
 
+extern "C" int MakeDirectory_nid_no_patch(const char* path, std::uint16_t mode) {
+    if (!path) { errno = 14; return -1; }
+    if (!*path) { errno = 2; return -1; }
+    try {
+        const auto resolved = ResolvePath_nid_no_patch(path);
+#ifdef _WIN32
+        (void)mode;
+        std::error_code error;
+        if (std::filesystem::create_directory(resolved, error)) return 0;
+        errno = error ? FilesystemError(error) : 17;
+#else
+        if (::mkdir(resolved.c_str(), mode) == 0) return 0;
+        errno = FilesystemError(std::error_code(errno, std::generic_category()));
+#endif
+        return -1;
+    } catch (const std::bad_alloc&) { errno = 12; return -1; }
+      catch (const std::filesystem::filesystem_error& error) { errno = FilesystemError(error.code()); return -1; }
+}
+
 extern "C" int APS5_VABI access_nid_postfix(const char* path, int mode) {
     if (!path) { errno = 14; return -1; }
     if (mode < 0 || (mode & ~7)) { errno = 22; return -1; }
