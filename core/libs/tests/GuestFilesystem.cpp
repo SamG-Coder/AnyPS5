@@ -7,10 +7,17 @@
 #include <cstring>
 #include <set>
 #include <vector>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <aclapi.h>
+#endif
 #ifndef _WIN32
 #include <sys/stat.h>
 #endif
 extern "C" {
+int APS5_VABI access_nid_postfix(const char*, int);
+int APS5_VABI chdir_nid_postfix(const char*);
 int APS5_VABI mkstemp_nid_postfix(char*);
 int APS5_VABI unlink_nid_postfix(const char*);
 int APS5_VABI remove_nid_postfix(const char*);
@@ -77,6 +84,41 @@ int main() {
     Require(unlink_nid_postfix(alias.string().c_str()) == -1 && *__error_nid_postfix() == 2);
     const auto file = root / "file.txt";
     { std::ofstream stream(file); stream << "retained until removal"; }
+    Require(access_nid_postfix(nullptr, 0) == -1 && *__error_nid_postfix() == 14);
+    Require(access_nid_postfix("", 0) == -1 && *__error_nid_postfix() == 2);
+    Require(access_nid_postfix(file.string().c_str(), 8) == -1 && *__error_nid_postfix() == 22);
+    Require(access_nid_postfix((root / "missing").string().c_str(), 0) == -1 && *__error_nid_postfix() == 2);
+    Require(access_nid_postfix(file.string().c_str(), 0) == 0);
+    Require(access_nid_postfix(file.string().c_str(), 6) == 0);
+    Require(access_nid_postfix(root.string().c_str(), 1) == 0);
+    Require(chdir_nid_postfix(root.string().c_str()) == 0);
+    Require(access_nid_postfix("file.txt", 4) == 0);
+    Require(access_nid_postfix(("/" + file.generic_string()).c_str(), 4) == 0);
+    Require(chdir_nid_postfix("/") == 0);
+#ifdef _WIN32
+    const auto nativeFile = std::filesystem::absolute(file).wstring();
+    Require(SetFileAttributesW(nativeFile.c_str(), FILE_ATTRIBUTE_READONLY));
+    Require(access_nid_postfix(file.string().c_str(), 4) == 0);
+    Require(access_nid_postfix(file.string().c_str(), 2) == -1 && *__error_nid_postfix() == 13);
+    Require(SetFileAttributesW(nativeFile.c_str(), FILE_ATTRIBUTE_NORMAL));
+    PSECURITY_DESCRIPTOR security = nullptr;
+    PACL originalAcl = nullptr;
+    Require(GetNamedSecurityInfoW(nativeFile.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, &originalAcl, nullptr, &security) == ERROR_SUCCESS);
+    ACL denied{};
+    Require(InitializeAcl(&denied, sizeof(denied), ACL_REVISION));
+    Require(SetNamedSecurityInfoW(const_cast<wchar_t*>(nativeFile.c_str()), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, &denied, nullptr) == ERROR_SUCCESS);
+    Require(access_nid_postfix(file.string().c_str(), 0) == 0);
+    for (int mode : {1, 2, 4, 7})
+        Require(access_nid_postfix(file.string().c_str(), mode) == -1 && *__error_nid_postfix() == 13);
+    Require(SetNamedSecurityInfoW(const_cast<wchar_t*>(nativeFile.c_str()), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, originalAcl, nullptr) == ERROR_SUCCESS);
+    LocalFree(security);
+    Require(access_nid_postfix(file.string().c_str(), 6) == 0);
+#endif
     Require(remove_nid_postfix(root.string().c_str()) == -1);
     Require(*__error_nid_postfix() == 66);
     Require(std::filesystem::is_regular_file(file));
