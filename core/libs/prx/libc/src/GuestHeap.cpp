@@ -45,7 +45,11 @@ void GuestHeapFree_nid_postfix(void* pointer) {
 }
 
 void* GuestHeapReallocate_nid_postfix(void* pointer, std::size_t bytes) {
-    if (pointer == nullptr) return GuestHeapAllocate_nid_postfix(bytes);
+    return GuestHeapReallocateAligned_nid_postfix(pointer, bytes, alignof(std::max_align_t));
+}
+
+void* GuestHeapReallocateAligned_nid_postfix(void* pointer, std::size_t bytes, std::size_t alignment) {
+    if (pointer == nullptr) return GuestHeapAlign_nid_postfix(alignment, bytes);
     GuestAllocations::Mutation mutation;
     const auto range = mutation.Find(pointer);
     mutation.RequireUnpinned(pointer, range.bytes);
@@ -53,10 +57,16 @@ void* GuestHeapReallocate_nid_postfix(void* pointer, std::size_t bytes) {
         free(mutation, pointer);
         return nullptr;
     }
-    void* result = allocate(mutation, alignof(std::max_align_t), bytes);
+    void* result = allocate(mutation, alignment, bytes);
     std::memcpy(result, pointer, std::min(bytes, range.bytes));
     free(mutation, pointer);
     return result;
+}
+
+std::size_t GuestHeapUsableSize_nid_postfix(const void* pointer) {
+    if (!pointer) return 0;
+    GuestAllocations::Mutation mutation;
+    return mutation.Find(pointer).bytes;
 }
 
 void* GuestHeapAlign_nid_postfix(std::size_t alignment, std::size_t bytes) {
