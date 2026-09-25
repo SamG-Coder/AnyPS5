@@ -20,7 +20,6 @@ int APS5_VABI clock_gettime_nid_postfix(int, KernelTimespec*);
 static int MutexResult(int result) { return result == 0 ? 0 : static_cast<unsigned>(result) & 0xffff; }
 
 static int EnsureMutex(PthreadMutex* mutex) {
-    if (*mutex) return 0;
     static auto* gate = new std::mutex;
     std::lock_guard lock(*gate);
     if (*mutex) return 0;

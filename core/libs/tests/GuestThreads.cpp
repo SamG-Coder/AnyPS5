@@ -136,6 +136,13 @@ static void CheckSemaphores() {
     alignas(8) unsigned char storage[16]{};
     Require(sem_init_nid_postfix(nullptr, 0, 0) == -1 && *__error_nid_postfix() == 22);
     Require(sem_init_nid_postfix(storage, 2, 0) == -1 && *__error_nid_postfix() == 22);
+    const std::array<unsigned char, 16> untouched{};
+    Require(sem_init_nid_postfix(storage, 1, 0) == -1 && *__error_nid_postfix() == 45);
+    Require(std::memcmp(storage, untouched.data(), sizeof(storage)) == 0);
+    *__error_nid_postfix() = 13;
+    Require(scePthreadSemInit(storage, 1, 0, "shared") == static_cast<int>(0x8002002du));
+    Require(*__error_nid_postfix() == 13);
+    Require(std::memcmp(storage, untouched.data(), sizeof(storage)) == 0);
     Require(sem_init_nid_postfix(storage, 0, 1u << 31) == -1 && *__error_nid_postfix() == 22);
     Require(sem_init_nid_postfix(storage, 0, 0) == 0 && *__error_nid_postfix() == 22);
     int value = -1;
@@ -192,7 +199,7 @@ static void CheckMutexes() {
     Require(pthread_mutexattr_destroy_nid_postfix(&attr) == 0 && !attr);
     Require(pthread_mutex_init_nid_postfix(&mutex, nullptr) == 0);
     Require(pthread_mutex_lock_nid_postfix(&mutex) == 0);
-    Require(pthread_mutex_trylock_nid_postfix(&mutex) == 11);
+    Require(pthread_mutex_trylock_nid_postfix(&mutex) == 16);
     Pthread worker = nullptr;
     Require(pthread_create_nid_postfix(&worker, nullptr, TryHeldMutex, &mutex) == 0);
     void* busy = nullptr;
@@ -213,9 +220,30 @@ static void CheckMutexes() {
     Require(pthread_mutex_destroy_nid_postfix(&mutex) == 0 && !mutex);
     PthreadMutex staticMutex = nullptr;
     Require(pthread_mutex_lock_nid_postfix(&staticMutex) == 0 && staticMutex);
-    Require(pthread_mutex_trylock_nid_postfix(&staticMutex) == 11);
+    Require(pthread_mutex_trylock_nid_postfix(&staticMutex) == 16);
     Require(pthread_mutex_unlock_nid_postfix(&staticMutex) == 0);
     Require(pthread_mutex_destroy_nid_postfix(&staticMutex) == 0 && !staticMutex);
+    for (int round = 0; round < 20; ++round) {
+        PthreadMutex shared = nullptr;
+        std::atomic<int> ready = 0;
+        std::atomic<bool> start = false;
+        int counter = 0;
+        std::array<std::thread, 8> workers;
+        for (auto& worker : workers) worker = std::thread([&] {
+            ready.fetch_add(1);
+            while (!start.load()) std::this_thread::yield();
+            for (int iteration = 0; iteration < 100; ++iteration) {
+                Require(pthread_mutex_lock_nid_postfix(&shared) == 0);
+                ++counter;
+                Require(pthread_mutex_unlock_nid_postfix(&shared) == 0);
+            }
+        });
+        while (ready.load() != 8) std::this_thread::yield();
+        start.store(true);
+        for (auto& worker : workers) worker.join();
+        Require(counter == 800);
+        Require(pthread_mutex_destroy_nid_postfix(&shared) == 0 && !shared);
+    }
     Require(pthread_mutex_lock_nid_postfix(nullptr) == 22);
     Require(*__error_nid_postfix() == 13);
 }
