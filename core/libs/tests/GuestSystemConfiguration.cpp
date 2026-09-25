@@ -4,6 +4,14 @@
 #include <array>
 #include <cstring>
 #include <vector>
+#include <cstdio>
+#include <climits>
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#else
+#include <unistd.h>
+#endif
 #include "prx/libc/include/General.hpp"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -12,6 +20,9 @@
 #endif
 struct GuestResourceLimit { std::uint64_t current; std::uint64_t maximum; };
 extern "C" {
+int APS5_VABI isatty_nid_postfix(int);
+int APS5_VABI socket_nid_postfix(int, int, int);
+int APS5_VABI close_nid_postfix(int);
 int APS5_VABI getrlimit_nid_postfix(int, GuestResourceLimit*);
 std::int64_t APS5_VABI sysconf_nid_postfix(int);
 int APS5_VABI getpagesize_nid_postfix();
@@ -20,6 +31,35 @@ int APS5_VABI sysctl_nid_postfix(const int*, unsigned, void*, std::size_t*, cons
 }
 static void Require(bool value) { if (!value) std::abort(); }
 int main() {
+    Require(isatty_nid_postfix(-1) == 0 && *__error_nid_postfix() == 9);
+    Require(isatty_nid_postfix(INT_MAX) == 0 && *__error_nid_postfix() == 9);
+    auto* file = std::tmpfile();
+    Require(file != nullptr);
+#ifdef _WIN32
+    const int descriptor = _fileno(file);
+#else
+    const int descriptor = fileno(file);
+#endif
+    Require(isatty_nid_postfix(descriptor) == 0 && *__error_nid_postfix() == 25);
+    Require(std::fclose(file) == 0);
+    Require(isatty_nid_postfix(descriptor) == 0 && *__error_nid_postfix() == 9);
+#ifdef _WIN32
+    const int nullDevice = _open("NUL", _O_RDWR);
+    Require(nullDevice >= 0);
+    Require(isatty_nid_postfix(nullDevice) == 0 && *__error_nid_postfix() == 25);
+    Require(_close(nullDevice) == 0);
+    int pipe[2]{};
+    Require(_pipe(pipe, 256, _O_BINARY) == 0);
+    for (const int end : pipe) {
+        Require(isatty_nid_postfix(end) == 0 && *__error_nid_postfix() == 25);
+        Require(_close(end) == 0);
+    }
+#endif
+    const int socket = socket_nid_postfix(2, 2, 0);
+    Require(socket >= 0);
+    Require(isatty_nid_postfix(socket) == 0 && *__error_nid_postfix() == 25);
+    Require(close_nid_postfix(socket) == 0);
+    Require(isatty_nid_postfix(socket) == 0 && *__error_nid_postfix() == 9);
     struct GuardedLimit { GuestResourceLimit value; std::uint64_t guard; } limit{{0, 0}, UINT64_MAX};
     *__error_nid_postfix() = 13;
     Require(getrlimit_nid_postfix(8, &limit.value) == 0);
