@@ -57,6 +57,11 @@ extern "C" void LibcRunShutdown_nid_postfix() {
 
 extern "C" {
 
+int APS5_VABI system_nid_postfix(const char* command) {
+    if (!command) return 0;
+    throw std::runtime_error("system: guest command execution is not supported");
+}
+
 [[noreturn]] void APS5_VABI _Exit_nid_postfix(int code) {
     std::_Exit(code);
 }
