@@ -349,6 +349,11 @@ void VideoOutDriver::processFlip(FlipRequest& req) {
         if (!SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(context), instance, &surface)) throw std::runtime_error(std::string("SDL_Vulkan_CreateSurface failed: ") + SDL_GetError());
         return surface;
     }, [](void* context, std::uint32_t* width, std::uint32_t* height) {
+        if ((SDL_GetWindowFlags(static_cast<SDL_Window*>(context)) & SDL_WINDOW_MINIMIZED) != 0) {
+            *width = 0;
+            *height = 0;
+            return;
+        }
         int drawableWidth = 0;
         int drawableHeight = 0;
         SDL_Vulkan_GetDrawableSize(static_cast<SDL_Window*>(context), &drawableWidth, &drawableHeight);
@@ -401,6 +406,12 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
     PadInput padInput;
     try {
         while (!token.stop_requested()) {
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                require(event.type != SDL_QUIT, "window was closed");
+                padInput.HandleEvent(event);
+            }
+            padInput.Update();
             {
                 std::unique_lock lock(flipQueue->mutex);
                 flipQueue->changed.wait_for(lock, std::chrono::milliseconds(10), [&] { return token.stop_requested() || flipQueue->failure || !flipQueue->requests.empty(); });
@@ -427,12 +438,6 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
                 current->timing->Print(current->outputHandle, current->index, current->flipArg, finished, interval);
             }
             current.reset();
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-                require(event.type != SDL_QUIT, "window was closed");
-                padInput.HandleEvent(event);
-            }
-            padInput.Update();
         }
         std::list<std::shared_ptr<FlipRequest>> cancelled;
         {
