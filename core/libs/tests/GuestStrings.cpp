@@ -11,6 +11,7 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+std::size_t APS5_VABI wcstombs_nid_postfix(char*, const std::uint16_t*, std::size_t);
 int APS5_VABI swprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, ...);
 int APS5_VABI vswprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, const void*);
 float APS5_VABI wcstof_nid_postfix(const std::uint16_t*, std::uint16_t**);
@@ -143,6 +144,22 @@ static void CheckWideFormatting() {
 
 int main() {
     CheckWideFormatting();
+    const std::uint16_t conversionText[] = {'a', 'b', 'c', 0};
+    std::array<char, 6> converted;
+    converted.fill('!');
+    Require(wcstombs_nid_postfix(nullptr, conversionText, 0) == 3);
+    Require(wcstombs_nid_postfix(nullptr, conversionText, 1) == 3);
+    Require(wcstombs_nid_postfix(converted.data() + 1, conversionText, 4) == 3);
+    Require(converted[0] == '!' && converted[5] == '!' && std::strcmp(converted.data() + 1, "abc") == 0);
+    converted.fill('!');
+    Require(wcstombs_nid_postfix(converted.data(), conversionText, 2) == 2);
+    Require(converted[0] == 'a' && converted[1] == 'b' && converted[2] == '!');
+    Require(wcstombs_nid_postfix(converted.data(), conversionText, 0) == 0 && converted[0] == 'a');
+    const std::uint16_t invalidConversion[] = {'A', 0xd800, 0};
+    Require(wcstombs_nid_postfix(converted.data(), invalidConversion, 1) == 1 && converted[0] == 'A');
+    Require(wcstombs_nid_postfix(converted.data(), invalidConversion, converted.size()) == SIZE_MAX);
+    Require(*__error_nid_postfix() == 86);
+    Require(wcstombs_nid_postfix(nullptr, invalidConversion, 0) == SIZE_MAX && *__error_nid_postfix() == 86);
     const auto wideNumber = [](const char* text) {
         std::basic_string<std::uint16_t> result;
         while (*text) result += static_cast<unsigned char>(*text++);
