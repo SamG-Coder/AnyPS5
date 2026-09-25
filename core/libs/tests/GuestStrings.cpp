@@ -11,6 +11,8 @@
 #include "prx/libc/include/ApplicationHeap.hpp"
 
 extern "C" {
+int APS5_VABI swprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, ...);
+int APS5_VABI vswprintf_nid_postfix(std::uint16_t*, std::size_t, const std::uint16_t*, const void*);
 float APS5_VABI wcstof_nid_postfix(const std::uint16_t*, std::uint16_t**);
 double APS5_VABI wcstod_nid_postfix(const std::uint16_t*, std::uint16_t**);
 long double APS5_VABI wcstold_nid_postfix(const std::uint16_t*, std::uint16_t**);
@@ -85,7 +87,62 @@ static int APS5_VABI FormatAllocated(char** output, const char* format, ...) {
 #endif
     return result;
 }
+static int APS5_VABI FormatWide(std::uint16_t* output, std::size_t size, const std::uint16_t* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vswprintf_nid_postfix(output, size, format, args);
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
+
+static void CheckWideFormatting() {
+    using WideString = std::basic_string<std::uint16_t>;
+    const auto wide = [](const char16_t* text) { return WideString(text, text + std::char_traits<char16_t>::length(text)); };
+    std::array<std::uint16_t, 256> output{};
+    auto format = wide(u"%ld|%llu|%#x|%*.*f|%.3Lf");
+    const auto expected = wide(u"4294967297|18446744073709551615|0x2a|    1.25|1.125");
+    Require(swprintf_nid_postfix(output.data(), output.size(), format.c_str(), 4294967297LL,
+        18446744073709551615ULL, 42U, 8, 2, 1.25, 1.125L) == static_cast<int>(expected.size()));
+    Require(WideString(output.data()) == expected);
+    format = wide(u"%d%d%d%d%d%d%d%d%d|%.1f%.1f%.1f%.1f%.1f%.1f%.1f%.1f%.1f");
+    Require(FormatWide(output.data(), output.size(), format.c_str(), 1, 2, 3, 4, 5, 6, 7, 8, 9,
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0) == 37);
+    Require(WideString(output.data()) == wide(u"123456789|1.02.03.04.05.06.07.08.09.0"));
+    const auto unicode = wide(u"A\u1234\U0001f600Z");
+    format = wide(u"[%*.*ls]%lc|%s|%%");
+    Require(FormatWide(output.data(), output.size(), format.c_str(), -6, 4, unicode.c_str(),
+        0xffffU, "text") == 16);
+    Require(WideString(output.data()) == wide(u"[A\u1234\U0001f600  ]\uffff|text|%"));
+    std::int64_t count = -1;
+    format = wide(u"%lc%lnX");
+    Require(swprintf_nid_postfix(output.data(), output.size(), format.c_str(), 0U, &count) == 2);
+    Require(count == 1 && output[0] == 0 && output[1] == 'X' && output[2] == 0);
+    format = wide(u"abc");
+    output.fill(0xbeef);
+    Require(swprintf_nid_postfix(output.data() + 1, 4, format.c_str()) == 3);
+    Require(output[0] == 0xbeef && output[5] == 0xbeef && output[4] == 0);
+    output.fill(0xbeef);
+    Require(swprintf_nid_postfix(output.data() + 1, 3, format.c_str()) < 0);
+    Require(output[0] == 0xbeef && output[4] == 0xbeef);
+    Require(swprintf_nid_postfix(nullptr, 0, format.c_str()) < 0);
+    format = wide(u"");
+    Require(swprintf_nid_postfix(output.data(), 1, format.c_str()) == 0 && output[0] == 0);
+    format = wide(u"%s");
+    Require(swprintf_nid_postfix(output.data(), output.size(), format.c_str(), "\xff") < 0);
+    Require(*__error_nid_postfix() == 86);
+}
+
 int main() {
+    CheckWideFormatting();
     const auto wideNumber = [](const char* text) {
         std::basic_string<std::uint16_t> result;
         while (*text) result += static_cast<unsigned char>(*text++);
