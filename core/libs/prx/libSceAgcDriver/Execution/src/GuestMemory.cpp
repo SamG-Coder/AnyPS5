@@ -47,12 +47,15 @@ void require(bool condition, const char* reason) {
 }
 
 void CheckRange(const void* pointer, std::size_t bytes, std::size_t alignment, bool writable) {
+    PerformanceTimer timing("GuestMemory.CheckRange");
     require(alignment != 0, "zero guest memory alignment");
     const auto address = reinterpret_cast<std::uintptr_t>(pointer);
     require(address != 0 && address % alignment == 0, "null or misaligned address");
     require(bytes <= std::numeric_limits<std::uintptr_t>::max() - address, "address range overflow");
     MemoryAccessScope::Resolve(address, bytes, writable);
+    timing.Mark("device_resolve");
     GuestMemoryTracking::GuestMemoryTrackingResolve_nid_postfix(address, bytes, writable);
+    timing.Mark("tracking_resolve");
     auto cursor = address;
     const auto end = address + bytes;
 #ifdef _WIN32
@@ -85,6 +88,7 @@ void CheckRange(const void* pointer, std::size_t bytes, std::size_t alignment, b
     }
     require(cursor == end, "guest address range is not mapped");
 #endif
+    timing.Mark("mapping_query");
 }
 
 void Read(std::uint64_t address, std::span<std::byte> destination, std::size_t alignment) {
