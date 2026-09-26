@@ -23,6 +23,10 @@ Args ParseArgs(int argc, char* argv[]) {
             unusedFilterSpecified = true;
         } else if (arg == "--registry") {
             args.writeRegistry = true;
+        } else if (arg == "--native-functions") {
+            if (!args.nativeFunctionsPath.empty() || i + 1 >= argc)
+                throw std::runtime_error("--native-functions requires one manifest path");
+            args.nativeFunctionsPath = argv[++i];
         } else if (arg == "--rpath") {
             if (i + 1 >= argc)
                 throw std::runtime_error("--rpath requires a value");
@@ -46,12 +50,15 @@ Args ParseArgs(int argc, char* argv[]) {
         }
     }
 
+    if (args.toIntel && !args.nativeFunctionsPath.empty())
+        throw std::runtime_error("--native-functions cannot be combined with --to-intel");
+
     if (args.windowsDiagnostics && !args.toWindows)
         throw std::runtime_error("--windows-diagnostics requires --windows");
 
     if (args.inputPath.empty() || args.outputPath.empty())
         throw std::runtime_error(
-            "Usage: relinker [--windows] [--windows-diagnostics] [--skip-syscall-check] [--to-intel] [unused-filter=0|1|2] [--registry] [--rpath <path>] [--lazy-binding] [--autorun] <input.elf> <output.elf>\n"
+            "Usage: relinker [--windows] [--windows-diagnostics] [--skip-syscall-check] [--to-intel] [unused-filter=0|1|2] [--registry] [--native-functions <manifest>] [--rpath <path>] [--lazy-binding] [--autorun] <input.elf> <output.elf>\n"
             "Example: relinker input.elf output.elf"
         );
 

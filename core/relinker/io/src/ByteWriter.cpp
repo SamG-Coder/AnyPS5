@@ -1,21 +1,33 @@
 #include <io/ByteWriter.hpp>
 #include <cstring>
+#include <stdexcept>
 
 namespace Io {
+namespace {
+void CheckWrite(const std::vector<std::uint8_t>& bytes, std::size_t offset, std::size_t count) {
+    if (offset > bytes.size() || count > bytes.size() - offset)
+        throw std::out_of_range("ByteWriter write exceeds destination buffer");
+}
+}
+
 
 void ByteWriter::WriteU8(std::vector<std::uint8_t>& buf, std::size_t offset, std::uint8_t v) const {
+    CheckWrite(buf, offset, 1);
     buf[offset] = v;
 }
 
 void ByteWriter::WriteU16(std::vector<std::uint8_t>& buf, std::size_t offset, std::uint16_t v) const {
+    CheckWrite(buf, offset, 2);
     std::memcpy(buf.data() + offset, &v, 2);
 }
 
 void ByteWriter::WriteU32(std::vector<std::uint8_t>& buf, std::size_t offset, std::uint32_t v) const {
+    CheckWrite(buf, offset, 4);
     std::memcpy(buf.data() + offset, &v, 4);
 }
 
 void ByteWriter::WriteU64(std::vector<std::uint8_t>& buf, std::size_t offset, std::uint64_t v) const {
+    CheckWrite(buf, offset, 8);
     std::memcpy(buf.data() + offset, &v, 8);
 }
 

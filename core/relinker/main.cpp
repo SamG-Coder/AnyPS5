@@ -17,6 +17,7 @@
 #include <relinker/output/SysVDynamicSectionBuilder.hpp>
 #include <relinker/output/CallRegistryWriter.hpp>
 #include <relinker/pipeline/RelinkerPipeline.hpp>
+#include <relinker/lowering/NativeFunctions.hpp>
 #include <codegen/IAmd64OnlyConverter.hpp>
 #include <filesystem>
 #include <iostream>
@@ -70,6 +71,12 @@ int main(const int argc, char* argv[]) {
             if (patch.Offset > sourceBytes.size() || patch.Bytes.size() > sourceBytes.size() - patch.Offset)
                 throw Domain::RelinkerException("Relinker patch exceeds source image", patch.Offset);
             for (std::size_t index = 0; index < patch.Bytes.size(); ++index) sourceBytes[patch.Offset + index] = patch.Bytes[index];
+        }
+
+        if (!args.nativeFunctionsPath.empty()) {
+            const auto bindings = Relinker::ReadNativeFunctionBindings(args.nativeFunctionsPath);
+            Relinker::LowerNativeFunctions(sourceBytes, result, bindings);
+            std::cout << "Native function entries rebound: " << bindings.size() << '\n';
         }
 
         if (args.writeRegistry) {

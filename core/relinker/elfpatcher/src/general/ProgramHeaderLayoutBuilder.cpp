@@ -3,6 +3,8 @@
 #include <domain/Types.hpp>
 #include <cstdint>
 #include <string>
+#include <limits>
+#include <algorithm>
 
 namespace Elfpatcher {
 
@@ -130,79 +132,81 @@ std::uint16_t ProgramHeaderLayoutBuilder::WriteLayout(
     std::vector<std::uint8_t>& buf,
     const ProgramHeaderLayoutRequest& request
 ) const {
-    std::uint16_t keptCount = 0;
+    std::uint32_t keptCount = 0;
     for (const auto& ph : request.OriginalHeaders) {
-        if (_segmentFilter->ShouldSkip(ph))
+        if (_segmentFilter->ShouldSkip(ph) || ph.Type == PT_PHDR || ph.Type == PT_INTERP)
             continue;
         keptCount++;
     }
 
-    const std::uint16_t neededPh = keptCount + kSyntheticProgramHeaderCount;
-    if (neededPh > request.PhNum)
-        throw Domain::RelinkerException(
-            "Not enough program header slots: need " + std::to_string(neededPh) +
-            ", available " + std::to_string(request.PhNum));
+    const auto count = keptCount + kSyntheticProgramHeaderCount;
+    if (count > std::numeric_limits<std::uint16_t>::max() || request.PhEntSize != 56)
+        throw Domain::RelinkerException("Unsupported native program header count or size");
+    const auto neededPh = static_cast<std::uint16_t>(count);
+    if (request.ExtraBlockOffset > buf.size() || request.ExtraBlockSize != buf.size() - request.ExtraBlockOffset)
+        throw Domain::RelinkerException("Extra block must end at the current native image boundary");
+    // New native imports/segments need not fit the source ELF's header capacity.
+    // Append the output table instead of overwriting source program bytes.
+    if (buf.size() > std::numeric_limits<std::size_t>::max() - 7u - static_cast<std::size_t>(neededPh) * 56u)
+        throw Domain::RelinkerException("Native program header table size overflow");
+    const auto nativePhOff = (buf.size() + 7u) & ~std::size_t{7u};
+    buf.resize(nativePhOff + static_cast<std::size_t>(neededPh) * 56u, 0);
+    auto nativeRequest = request;
+    nativeRequest.PhOff = nativePhOff;
+    nativeRequest.PhNum = neededPh;
+    nativeRequest.ExtraBlockSize = buf.size() - request.ExtraBlockOffset;
+    _byteWriter->WriteU64(buf, kEhdrPhOffOffset, nativePhOff);
 
-    const std::uint64_t headerBlockSize = request.PhOff + static_cast<std::uint64_t>(neededPh) * request.PhEntSize;
-    const std::uint64_t headerBlockAlign = kDefaultLoadAlignment;
-    const std::uint64_t headerBlockVaddr =
-        (request.ExtraBlockVaddr + request.ExtraBlockSize + headerBlockAlign - 1) & ~(headerBlockAlign - 1);
-
-    if (request.DynamicSegmentOffset < request.ExtraBlockOffset)
+    if (nativeRequest.DynamicSegmentOffset < nativeRequest.ExtraBlockOffset)
         throw Domain::RelinkerException("Dynamic segment offset lies before the extra block");
-    if (request.DynamicSegmentOffset + request.DynamicSegmentSize > request.ExtraBlockOffset + request.ExtraBlockSize)
+    if (nativeRequest.DynamicSegmentOffset + nativeRequest.DynamicSegmentSize > nativeRequest.ExtraBlockOffset + nativeRequest.ExtraBlockSize)
         throw Domain::RelinkerException("Dynamic segment does not fit within the extra block");
-    if (request.InterpOffset < request.ExtraBlockOffset)
+    if (nativeRequest.InterpOffset < nativeRequest.ExtraBlockOffset)
         throw Domain::RelinkerException("Interp offset lies before the extra block");
-    if (request.InterpOffset + request.InterpSize > request.ExtraBlockOffset + request.ExtraBlockSize)
+    if (nativeRequest.InterpOffset + nativeRequest.InterpSize > nativeRequest.ExtraBlockOffset + nativeRequest.ExtraBlockSize)
         throw Domain::RelinkerException("Interp data does not fit within the extra block");
 
-    const std::uint64_t dynamicSegmentVaddr = request.ExtraBlockVaddr + (request.DynamicSegmentOffset - request.ExtraBlockOffset);
-    const std::uint64_t interpVaddr = request.ExtraBlockVaddr + (request.InterpOffset - request.ExtraBlockOffset);
+    const std::uint64_t dynamicSegmentVaddr = nativeRequest.ExtraBlockVaddr + (nativeRequest.DynamicSegmentOffset - nativeRequest.ExtraBlockOffset);
+    const std::uint64_t interpVaddr = nativeRequest.ExtraBlockVaddr + (nativeRequest.InterpOffset - nativeRequest.ExtraBlockOffset);
 
-    std::uint16_t writtenPh = 0;
-
-    const std::size_t phdrEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
-    _writeProgramHeader(buf, phdrEntOff, _makePhdrHeader(request.PhOff, headerBlockVaddr + request.PhOff, static_cast<std::uint64_t>(neededPh) * request.PhEntSize));
-    writtenPh++;
-
-    const std::size_t headerLoadEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
-    _writeProgramHeader(buf, headerLoadEntOff, _makeHeaderBlockLoad(headerBlockVaddr, headerBlockSize, headerBlockAlign));
-    writtenPh++;
-
-    for (const auto& ph : request.OriginalHeaders) {
-        if (_segmentFilter->ShouldSkip(ph))
+    // The output table is mapped by the extra PT_LOAD itself. An additional
+    // high-address alias of file offset zero is unnecessary and confuses load
+    // bias calculation when it precedes the application's lower-address loads.
+    const auto phdrVaddr = nativeRequest.ExtraBlockVaddr +
+        (nativeRequest.PhOff - nativeRequest.ExtraBlockOffset);
+    std::vector<Domain::ProgramHeader> headers;
+    headers.reserve(neededPh);
+    headers.push_back(_makePhdrHeader(nativeRequest.PhOff, phdrVaddr,
+        static_cast<std::uint64_t>(neededPh) * nativeRequest.PhEntSize));
+    headers.push_back(_makeInterpHeader(nativeRequest.InterpOffset, interpVaddr, nativeRequest.InterpSize));
+    std::vector<Domain::ProgramHeader> loads;
+    std::vector<Domain::ProgramHeader> other;
+    for (const auto& ph : nativeRequest.OriginalHeaders) {
+        if (_segmentFilter->ShouldSkip(ph) || ph.Type == PT_PHDR || ph.Type == PT_INTERP)
             continue;
-        const std::size_t phEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
         if (ph.Type == PT_LOAD) {
-            Domain::ProgramHeader fixed = ph;
+            auto fixed = ph;
             fixed.Flags = _fixLoadFlags(ph.Flags);
-            _writeProgramHeader(buf, phEntOff, fixed);
+            loads.push_back(fixed);
         } else {
-            _writeProgramHeader(buf, phEntOff, ph);
+            other.push_back(ph);
         }
-        writtenPh++;
     }
-
-    {
-        const std::size_t phEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
-        _writeProgramHeader(buf, phEntOff, _makeLoadHeader(request.ExtraBlockOffset, request.ExtraBlockVaddr, request.ExtraBlockSize));
-        writtenPh++;
-    }
-
-    {
-        const std::size_t phEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
-        _writeProgramHeader(buf, phEntOff, _makeDynamicHeader(request.DynamicSegmentOffset, dynamicSegmentVaddr, request.DynamicSegmentSize));
-        writtenPh++;
-    }
-
-    {
-        const std::size_t phEntOff = static_cast<std::size_t>(request.PhOff) + writtenPh * request.PhEntSize;
-        _writeProgramHeader(buf, phEntOff, _makeInterpHeader(request.InterpOffset, interpVaddr, request.InterpSize));
-        writtenPh++;
-    }
-
-    return writtenPh;
+    loads.push_back(_makeLoadHeader(nativeRequest.ExtraBlockOffset,
+        nativeRequest.ExtraBlockVaddr, nativeRequest.ExtraBlockSize));
+    std::stable_sort(loads.begin(), loads.end(), [](const auto& a, const auto& b) {
+        return a.MappedAddress < b.MappedAddress;
+    });
+    headers.insert(headers.end(), loads.begin(), loads.end());
+    headers.insert(headers.end(), other.begin(), other.end());
+    headers.push_back(_makeDynamicHeader(nativeRequest.DynamicSegmentOffset,
+        dynamicSegmentVaddr, nativeRequest.DynamicSegmentSize));
+    if (headers.size() != neededPh)
+        throw Domain::RelinkerException("Native program header count disagrees with allocated table");
+    for (std::size_t i = 0; i < headers.size(); ++i)
+        _writeProgramHeader(buf, static_cast<std::size_t>(nativeRequest.PhOff) +
+            i * nativeRequest.PhEntSize, headers[i]);
+    return neededPh;
 }
 
 }
