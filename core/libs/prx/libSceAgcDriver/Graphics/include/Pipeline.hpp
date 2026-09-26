@@ -2,22 +2,25 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_PIPELINE_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 
 namespace AgcDriver::Graphics {
 
 class Pipeline {
 public:
-    Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders);
+    Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders, std::shared_ptr<DepthSurface> depth = nullptr);
     ~Pipeline();
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
     VkPipelineLayout Layout() const;
+    std::shared_ptr<DepthSurface> Depth() const { return depth; }
     void Begin(VkCommandBuffer commands, VkExtent2D extent) const;
     void PushConstants(VkCommandBuffer commands, std::span<const CompiledShader> shaders) const;
 
 private:
     void release() noexcept;
     Context context;
+    std::shared_ptr<DepthSurface> depth;
     std::vector<VkShaderModule> _modules;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;

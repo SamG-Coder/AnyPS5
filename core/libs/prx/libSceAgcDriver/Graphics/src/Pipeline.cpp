@@ -6,10 +6,12 @@
 
 namespace AgcDriver::Graphics {
 
-Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders) : context(context), _modules(shaders.size()) {
+Pipeline::Pipeline(const Context& context, const State& state, const RenderTarget* target, const ShaderResources& resources, std::span<const CompiledShader> shaders, std::shared_ptr<DepthSurface> depth) : context(context), depth(std::move(depth)), _modules(shaders.size()) {
+    Require(static_cast<bool>(this->depth) == state.depth.has_value(), "depth target does not match decoded depth state");
+    if (this->depth) Require(this->depth->Extent().width >= state.renderExtent.width && this->depth->Extent().height >= state.renderExtent.height, "depth target is smaller than the framebuffer");
     Require((target != nullptr) == state.hasColorTarget, "render target does not match decoded color state");
     Require(state.renderExtent.width != 0 && state.renderExtent.height != 0 && state.renderExtent.width <= context.limits.maxFramebufferWidth && state.renderExtent.height <= context.limits.maxFramebufferHeight, "framebuffer extent exceeds device limits");
-    Require(state.hasColorTarget || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
+    Require(state.hasColorTarget || state.depth || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
     ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     Require(!state.negativeOneToOne || context.depthClipControl, "negative-one-to-one depth clipping requires VK_EXT_depth_clip_control with depthClipControl enabled");
     Require(!state.provokingVertexLast || context.provokingVertexLast, "last provoking vertex requires VK_EXT_provoking_vertex with provokingVertexLast enabled");
@@ -65,21 +67,35 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         color.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         color.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         VkAttachmentReference reference{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        std::vector<VkAttachmentDescription> attachments;
+        std::vector<VkImageView> views;
+        if (state.hasColorTarget) {
+            attachments.push_back(color);
+            views.push_back(target->View());
+        }
+        const VkAttachmentReference depthReference{static_cast<std::uint32_t>(attachments.size()), VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+        if (state.depth) {
+            auto attachment = color;
+            attachment.format = VK_FORMAT_D32_SFLOAT;
+            attachment.initialLayout = attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            attachments.push_back(attachment);
+            views.push_back(this->depth->View());
+        }
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = state.hasColorTarget ? 1 : 0;
         subpass.pColorAttachments = state.hasColorTarget ? &reference : nullptr;
+        subpass.pDepthStencilAttachment = state.depth ? &depthReference : nullptr;
         VkRenderPassCreateInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        passInfo.attachmentCount = state.hasColorTarget ? 1 : 0;
-        passInfo.pAttachments = state.hasColorTarget ? &color : nullptr;
+        passInfo.attachmentCount = static_cast<std::uint32_t>(attachments.size());
+        passInfo.pAttachments = attachments.data();
         passInfo.subpassCount = 1;
         passInfo.pSubpasses = &subpass;
         Check(context.Function<PFN_vkCreateRenderPass>("vkCreateRenderPass")(context.device, &passInfo, nullptr, &renderPass), "vkCreateRenderPass");
-        const auto view = target ? target->View() : VK_NULL_HANDLE;
         VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
         framebufferInfo.renderPass = renderPass;
-        framebufferInfo.attachmentCount = state.hasColorTarget ? 1 : 0;
-        framebufferInfo.pAttachments = state.hasColorTarget ? &view : nullptr;
+        framebufferInfo.attachmentCount = static_cast<std::uint32_t>(views.size());
+        framebufferInfo.pAttachments = views.data();
         framebufferInfo.width = state.renderExtent.width;
         framebufferInfo.height = state.renderExtent.height;
         framebufferInfo.layers = 1;
@@ -127,6 +143,13 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         pipelineInfo.pViewportState = &viewports;
         pipelineInfo.pRasterizationState = &raster;
         pipelineInfo.pMultisampleState = &samples;
+        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        if (state.depth) {
+            depthStencil.depthTestEnable = VK_TRUE;
+            depthStencil.depthWriteEnable = state.depth->writeEnabled;
+            depthStencil.depthCompareOp = state.depth->compare;
+        }
+        pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &blend;
         pipelineInfo.layout = layout;
         pipelineInfo.renderPass = renderPass;

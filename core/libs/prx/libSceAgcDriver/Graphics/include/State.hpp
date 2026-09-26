@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_STATE_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
 #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include <array>
@@ -40,6 +41,7 @@ struct State {
     ShaderStages stages;
     ColorTarget color;
     bool hasColorTarget;
+    std::optional<DepthState> depth;
     bool rectList = false;
     VkExtent2D renderExtent;
     VkPrimitiveTopology topology;

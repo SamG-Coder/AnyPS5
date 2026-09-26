@@ -20,6 +20,11 @@ std::string makeKey(const Context& context, const State& state, const std::share
     key.reserve(512);
     append(key, target ? target->Target().View() : VK_NULL_HANDLE);
     append(key, state.hasColorTarget);
+    append(key, state.depth.has_value());
+    if (state.depth) {
+        append(key, state.depth->compare);
+        append(key, state.depth->writeEnabled);
+    }
     append(key, state.rectList);
     append(key, state.renderExtent.width);
     append(key, state.renderExtent.height);
@@ -107,6 +112,12 @@ std::string makeKey(const Context& context, const State& state, const std::share
 std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders) {
     PerformanceTimer timing("Graphics.PipelineCache");
     auto key = makeKey(context, state, target, resources, shaders);
+    if (state.depth) {
+        const auto extent = state.depth->extent;
+        if (!depthSurface || depthSurface->Extent().width != extent.width || depthSurface->Extent().height != extent.height)
+            depthSurface = std::make_shared<DepthSurface>(context, *state.depth);
+        append(key, depthSurface->View());
+    }
     timing.Mark("key");
     const auto found = lookup.find(key);
     if (found != lookup.end()) {
@@ -117,7 +128,7 @@ std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const s
         return pipeline;
     }
     timing.Mark("miss");
-    auto pipeline = std::make_shared<Pipeline>(context, state, target ? &target->Target() : nullptr, resources, shaders);
+    auto pipeline = std::make_shared<Pipeline>(context, state, target ? &target->Target() : nullptr, resources, shaders, state.depth ? depthSurface : nullptr);
     timing.Mark("create");
     entries.push_back({std::move(key), target, pipeline});
     try {

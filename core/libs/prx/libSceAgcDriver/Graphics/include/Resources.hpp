@@ -36,6 +36,7 @@ private:
 class RenderTarget {
 public:
     RenderTarget(const Context& context, const ColorTarget& target, bool blending);
+    RenderTarget(const Context& context, const DepthState& target);
     ~RenderTarget();
     RenderTarget(const RenderTarget&) = delete;
     RenderTarget& operator=(const RenderTarget&) = delete;
@@ -43,6 +44,7 @@ public:
     VkImageView View() const;
 
 private:
+    RenderTarget(const Context& context, const ColorTarget& target, bool blending, bool depth);
     void release() noexcept;
     Context context;
     VkImage image = VK_NULL_HANDLE;

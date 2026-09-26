@@ -156,7 +156,8 @@ State DecodeState(const QueueState& queue) {
     }
     zero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)", "user-config");
     zero(cx, 0x207, ~0u, "clip distances, layer, viewport or auxiliary vertex exports");
-    Require(!DecodeDepthState(cx), "depth attachment rendering is not implemented");
+    result.depth = DecodeDepthState(cx);
+    if (result.depth) GuestMemory::CheckGpuRange(reinterpret_cast<const void*>(result.depth->address), result.depth->bytes, 65536, result.depth->writeEnabled);
     zero(cx, 0x203, ~0x00009870u, "depth export, shader coverage or ordered fragment execution");
     zero(cx, 0x2dc, ~0x0001ff00u, "alpha-to-coverage");
     zero(cx, 0x2f8, ~0u, "multisampling or coverage conversion");
@@ -193,10 +194,11 @@ State DecodeState(const QueueState& queue) {
     }
     result.hasColorTarget = targetMask != 0;
     Require(!result.hasColorTarget || shaderMask == 0xfu, "partial shader color exports are unsupported");
-    Require((read(cx, 0x202) & ~1u) == 0xcc0010u, "only normal color rendering with copy ROP is supported");
+    const auto colorControl = read(cx, 0x202) & ~1u;
+    Require(colorControl == 0xcc0010u || (!result.hasColorTarget && colorControl == 0xcc0000u), "only normal or disabled color rendering with copy ROP is supported");
     zero(cx, 0x1c4, ~0u, "depth or sample-mask export");
     const auto exportFormat = read(cx, 0x1c5);
-    Require(exportFormat == 4 || exportFormat == 9, "only FP16_ABGR or 32_ABGR color export is supported");
+    Require((!result.hasColorTarget && exportFormat == 0) || exportFormat == 4 || exportFormat == 9, "only FP16_ABGR or 32_ABGR color export is supported");
     Require(read(cx, 0x1c3) == 4, "additional position exports are unsupported");
     if (result.hasColorTarget) {
         const auto info = read(cx, 0x31c);
@@ -221,12 +223,15 @@ State DecodeState(const QueueState& queue) {
         result.color.format = swap == 0 ? (number == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB) : (number == 0 ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_B8G8R8A8_SRGB);
         result.color.componentMapping = 0xe4u;
         result.renderExtent = result.color.extent;
+    } else if (result.depth) {
+        result.renderExtent = result.depth->extent;
     } else {
         const auto screenBottomRight = read(cx, 0xd);
         result.renderExtent = {screenBottomRight & 0xffffu, screenBottomRight >> 16u};
         Require(result.renderExtent.width != 0 && result.renderExtent.height != 0, "empty framebuffer extent for a draw without color writes");
     }
     const auto xs = readFloat(cx, 0x10f);
+    if (result.depth) Require(result.renderExtent.width <= result.depth->extent.width && result.renderExtent.height <= result.depth->extent.height, "depth surface is smaller than the framebuffer");
     const auto xo = readFloat(cx, 0x110);
     const auto ys = readFloat(cx, 0x111);
     const auto yo = readFloat(cx, 0x112);
