@@ -13,7 +13,7 @@ void require(bool condition, const char* reason) {
     if (!condition) throw std::runtime_error(reason);
 }
 
-std::uint32_t evaluate(const IrValue& value, std::array<std::uint32_t, 2> inputs, bool active) {
+std::uint32_t evaluate(const IrValue& value, const std::array<std::uint32_t, 32>& inputs, bool active) {
     if (value.HasImmediate()) return value.Type() == IrType::F32 ? std::bit_cast<std::uint32_t>(value.ImmediateF32()) : value.ImmediateU32();
     const auto arg = [&](std::size_t index) { return evaluate(*value.Argument(index), inputs, active); };
     switch (value.Opcode()) {
@@ -22,11 +22,18 @@ std::uint32_t evaluate(const IrValue& value, std::array<std::uint32_t, 2> inputs
         case IrOpcode::Identity: return arg(0);
         case IrOpcode::BitCastU32F32:
         case IrOpcode::BitCastF32U32: return arg(0);
+        case IrOpcode::FPNeg32: return arg(0) ^ 0x80000000u;
+        case IrOpcode::FPAbs32: return arg(0) & 0x7fffffffu;
         case IrOpcode::FPCmpClass32: {
             const auto bits = arg(0);
-            require((bits & 0x7f800000u) != 0 && (bits & 0x7f800000u) != 0x7f800000u,
-                    "inline float constant is not normal");
-            return (arg(1) & ((bits & 0x80000000u) != 0 ? 8u : 256u)) != 0;
+            const auto magnitude = bits & 0x7fffffffu;
+            const bool negative = (bits & 0x80000000u) != 0;
+            std::uint32_t classification = negative ? 8u : 256u;
+            if (magnitude > 0x7f800000u) classification = (bits & 0x400000u) != 0 ? 2u : 1u;
+            else if (magnitude == 0x7f800000u) classification = negative ? 4u : 512u;
+            else if (magnitude == 0) classification = negative ? 32u : 64u;
+            else if (magnitude < 0x800000u) classification = negative ? 16u : 128u;
+            return (arg(1) & classification) != 0;
         }
         case IrOpcode::BitFieldUExtract: return (arg(0) >> arg(1)) & ((1u << arg(2)) - 1u);
         case IrOpcode::BitwiseAnd32: return arg(0) & arg(1);
@@ -78,10 +85,51 @@ void testClassification(RdnaInstruction instruction, bool absolute, bool negate)
     }
 }
 
+void testClassModifiers() {
+    const std::array captured{0xd498007eu, 0x22022881u, 0xbf810000u};
+    const auto instruction = RdnaInstructionDecoder{}.Decode(captured).instructions.at(0);
+    require(instruction.op == RdnaOpcode::VCmpxClassF32 && instruction.source0.negate &&
+            !instruction.source1.negate && instruction.source1.reg == 20,
+            "captured class comparison lost its source negation");
+    IrProgram program;
+    auto& block = program.CreateBlock();
+    TranslationContext context(program, block, 256);
+    context.TranslateInstruction(instruction);
+    bool checked = false;
+    for (const auto* value : block.Instructions()) {
+        if (value->Opcode() != IrOpcode::SetExec) continue;
+        std::array<std::uint32_t, 32> inputs{};
+        inputs[20] = 16u;
+        require(evaluate(*value->Argument(0), inputs, true) == 1, "negated subnormal class was lost");
+        inputs[20] = 128u;
+        require(evaluate(*value->Argument(0), inputs, true) == 0, "source negation was ignored");
+        checked = true;
+    }
+    require(checked, "captured class comparison did not update EXEC");
+    for (const auto modifier : {0x40000000u, 0x80000000u, 0x08000000u}) {
+        bool rejected = false;
+        try {
+            const std::array invalid{captured[0], captured[1] | modifier, captured[2]};
+            (void)RdnaInstructionDecoder{}.Decode(invalid);
+        } catch (const std::invalid_argument&) { rejected = true; }
+        require(rejected, "class comparison accepted a modifier on its mask or result");
+    }
+    for (const auto abs : {0u, 1u, 2u, 3u}) {
+        for (const auto neg : {0u, 1u, 2u, 3u}) {
+            const std::array code{0xd404006au | (abs << 8u), 0x00020300u | (neg << 29u), 0xbf810000u};
+            const auto compare = RdnaInstructionDecoder{}.Decode(code).instructions.at(0);
+            require(compare.op == RdnaOpcode::VCmpGtF32 && compare.source0.absolute == ((abs & 1u) != 0) &&
+                    compare.source1.absolute == ((abs & 2u) != 0) && compare.source0.negate == ((neg & 1u) != 0) &&
+                    compare.source1.negate == ((neg & 2u) != 0), "floating comparison source modifiers changed");
+        }
+    }
+}
+
 }
 
 int main() {
     try {
+        testClassModifiers();
         const std::array code{0x7d3e0300u, 0xbf810000u};
         const auto decoded = RdnaInstructionDecoder{}.Decode(code);
         const auto instruction = decoded.instructions.at(0);

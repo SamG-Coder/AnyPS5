@@ -1397,6 +1397,15 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         }
         return;
     }
+    if (isVopcFloatCompareOpcode(opcode)) {
+        const bool classCompare = opcode == RdnaOpcode::VCmpClassF32 || opcode == RdnaOpcode::VCmpxClassF32 ||
+                                  opcode == RdnaOpcode::VCmpxClassF16;
+        const std::uint32_t sourceMask = classCompare ? 1u : 3u;
+        if ((abs & ~sourceMask) != 0u || (neg & ~sourceMask) != 0u || opSel != 0u || clamp != 0u || omod != 0u) {
+            throw std::invalid_argument("VOP3 comparison modifiers are not implemented");
+        }
+        return;
+    }
     if (carryInOut || scalarDst) {
         if (clamp != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
@@ -1611,7 +1620,12 @@ RdnaInstruction DecodeRdnaVop3(std::uint32_t programCounter, std::span<const std
     const bool nativeSourceModifiers = supportsNativeVop3SourceModifiers(instruction.op);
     const bool nativeResultModifiers = supportsNativeVop3ResultModifiers(instruction.op);
 
-    checkNativeVop3Modifiers(instruction.op, permlane, vop3bUsesSdst, scalarDst, abs, opSel, clamp, omod, neg);
+    try {
+        checkNativeVop3Modifiers(instruction.op, permlane, vop3bUsesSdst, scalarDst, abs, opSel, clamp, omod, neg);
+    } catch (const std::invalid_argument& error) {
+        throw std::invalid_argument(std::string(error.what()) + ": opcode=" + std::to_string(opcode) +
+            " pc=" + std::to_string(programCounter) + " word0=" + std::to_string(word0) + " word1=" + std::to_string(word1));
+    }
 
     if (compareExec) {
         instruction.destination.kind = RdnaOperandKind::ExecLo;
