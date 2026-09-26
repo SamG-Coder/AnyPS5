@@ -29,7 +29,16 @@ struct NativeShader {
     std::optional<ShaderUserData> userDataInfo;
 };
 
+struct NativeCompletion {
+    std::uintptr_t begin;
+    std::uintptr_t end;
+    volatile std::uint32_t* address;
+    std::uint32_t value;
+};
+
 struct NativeDrawCall {
+    std::uintptr_t begin;
+    std::uintptr_t end;
     Graphics::State graphics;
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
@@ -52,6 +61,7 @@ struct NativeCommandBufferState {
     std::uint8_t indexSize = 0;
     std::uint32_t instances = 1;
     std::vector<NativeDrawCall> draws;
+    std::vector<NativeCompletion> completions;
 };
 std::mutex stateMutex;
 std::map<std::pair<std::uintptr_t, std::uintptr_t>, NativeCommandBufferState> states;
@@ -105,12 +115,16 @@ void writeUserConfiguration(Graphics::NativeGraphicsState& graphics, std::uint8_
         default: throw std::runtime_error("native AGC: user configuration has no native lowering at offset " + std::to_string(offset));
     }
 }
-void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
+void appendDraw(NativeCommandBufferState& s, CommandBuffer* buffer, std::uint32_t words,
+                std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
+    if (!s.completions.empty()) throw std::runtime_error("native AGC: drawing after a terminal release requires native lowering");
     if (!s.vertexShader || !s.fragmentShader) throw std::runtime_error("native AGC: draw is missing native vertex or fragment shader");
     if (!s.graphics.ReadyForDraw()) throw std::runtime_error("native AGC: draw graphics state is incomplete");
     const auto bytes=s.indexSize==0?2u:s.indexSize==1?4u:0u;
     if(indexed && bytes==0) throw std::runtime_error("native AGC: unsupported native index size");
     NativeDrawCall call;
+    call.begin = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
+    call.end = call.begin + words * sizeof(std::uint32_t);
     call.graphics=s.graphics.Get();
     call.vertexShader=s.vertexShader;
     call.fragmentShader=s.fragmentShader;
@@ -332,7 +346,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t 
     std::lock_guard lock(stateMutex);
     auto& target = state(b);
     const auto indexAddress = reinterpret_cast<std::uintptr_t>(address);
-    appendDraw(target, count, true, indexAddress);
+    appendDraw(target, b, 6, count, true, indexAddress);
     auto* token = opaque(b, 6);
     target.indexBuffer = indexAddress;
     target.indexCount = count;
@@ -343,7 +357,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint3
     reserveTokens(b, 3);
     std::lock_guard lock(stateMutex);
     auto& target = state(b);
-    appendDraw(target, count, false, 0, target.firstVertex);
+    appendDraw(target, b, 3, count, false, 0, target.firstVertex);
     auto* token = opaque(b, 3);
     target.indexCount = count;
     return token;
@@ -359,41 +373,78 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uin
     const auto displacement = static_cast<std::uint64_t>(offset) * bytes;
     if (displacement > UINT64_MAX - target.indexBuffer)
         throw std::overflow_error("native AGC: indexed offset address overflow");
-    appendDraw(target, count, true, target.indexBuffer + displacement);
+    appendDraw(target, b, 5, count, true, target.indexBuffer + displacement);
     auto* token = opaque(b, 5);
     target.indexCount = count;
     return token;
 }
-int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
+std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer* buffer, std::uint8_t action,
+    std::uint16_t gcrControl, std::uint8_t destination, std::uint8_t cachePolicy,
+    const volatile Label* label, std::uint8_t dataSelect, std::uint64_t data,
+    std::uint16_t, std::uint16_t, std::uint8_t interrupt, std::uint32_t interruptContextId) {
     AgcDriver::NativeGraphicsRuntime::Get().CheckFailure();
+    const bool cacheRelease = action == 0x2du && destination == 1 && dataSelect == 0;
+    const bool completion = action == 0x28u && destination == 0 && dataSelect <= 1;
+    if ((!cacheRelease && !completion) || (gcrControl & ~0x30cu) != 0 || cachePolicy != 0 ||
+        interrupt != 0 || interruptContextId != 0)
+        throw std::invalid_argument("native AGC: release operation requires native lowering");
+    const auto address = reinterpret_cast<std::uintptr_t>(label);
+    if (dataSelect == 1 && (!address || (address & 3u) != 0 || data > UINT32_MAX))
+        throw std::invalid_argument("native AGC: invalid completion marker");
+    reserveTokens(buffer, 8);
+    std::lock_guard lock(stateMutex);
+    auto& target = state(buffer);
+    const auto begin = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
+    target.completions.push_back({begin, begin + 8 * sizeof(std::uint32_t),
+        dataSelect == 1 ? reinterpret_cast<volatile std::uint32_t*>(address) : nullptr,
+        static_cast<std::uint32_t>(data)});
+    return opaque(buffer, 8);
+}
+int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
+    auto& runtime = AgcDriver::NativeGraphicsRuntime::Get();
+    runtime.CheckFailure();
+    std::lock_guard gpuLock(runtime.Mutex());
     std::vector<NativeDrawCall> draws;
+    std::vector<NativeCompletion> completions;
     {
         std::lock_guard lock(stateMutex);
-        auto& native=submittedState(packet);
-        if(native.draws.empty()) return 0;
-        draws=std::move(native.draws);
+        auto& native = submittedState(packet);
+        const auto begin = reinterpret_cast<std::uintptr_t>(packet->addr);
+        const auto end = begin + static_cast<std::uint64_t>(packet->dw_num) * sizeof(std::uint32_t);
+        const auto covered = [&](const auto& operation) { return operation.begin >= begin && operation.end <= end; };
+        if (!std::all_of(native.draws.begin(), native.draws.end(), covered) ||
+            !std::all_of(native.completions.begin(), native.completions.end(), covered))
+            throw std::runtime_error("native AGC: partial submission excludes pending native work");
+        draws = std::move(native.draws);
+        completions = std::move(native.completions);
         native.draws.clear();
+        native.completions.clear();
     }
-    auto& runtime=AgcDriver::NativeGraphicsRuntime::Get();
-    std::lock_guard gpuLock(runtime.Mutex());
-    auto& nativeDevice=runtime.Headless();
-    for(const auto& call:draws){
-        const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
-            return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
-        };
-        std::array<Graphics::NativeShaderProgram,2> programs{{
-            {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,0x8cu,8,call.vertexArguments.values,call.vertexArguments.missing},
-            {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,0x0cu,0,call.fragmentArguments.values,call.fragmentArguments.missing}
-        }};
-        std::array<ShaderRecompiler::MemoryRegion,4> memory{{
-            {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},
-            {call.vertexShader->headerAddress,call.vertexShader->header},
-            {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
-            {call.fragmentShader->headerAddress,call.fragmentShader->header}
-        }};
-        Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+    try {
+        for(const auto& call:draws){
+            auto& nativeDevice = runtime.Headless();
+            const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
+                return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
+            };
+            std::array<Graphics::NativeShaderProgram,2> programs{{
+                {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,0x8cu,8,call.vertexArguments.values,call.vertexArguments.missing},
+                {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,0x0cu,0,call.fragmentArguments.values,call.fragmentArguments.missing}
+            }};
+            std::array<ShaderRecompiler::MemoryRegion,4> memory{{
+                {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},
+                {call.vertexShader->headerAddress,call.vertexShader->header},
+                {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
+                {call.fragmentShader->headerAddress,call.fragmentShader->header}
+            }};
+            Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+        }
+        runtime.WaitDraws();
+        for (const auto& completion : completions)
+            if (completion.address) *completion.address = completion.value;
+    } catch (...) {
+        runtime.ReportFailure(std::current_exception());
+        throw;
     }
-    nativeDevice.WaitDraws();
     return 0;
 }
 }

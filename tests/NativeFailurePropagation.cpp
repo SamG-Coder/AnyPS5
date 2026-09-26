@@ -3,6 +3,7 @@
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include <atomic>
+#include <array>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -43,6 +44,12 @@ template<class F> void rejectsFirst(F action) {
 }
 }
 int main() {
+    std::array<std::uint32_t, 8> words{};
+    CommandBuffer commands{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    Label marker{17};
+    aps5NativeAgcReleaseMem(&commands, 0x28, 0x30c, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    const Packet pending{words.data(), 8, 0, {0, 0, 0}};
     const auto a = std::make_shared<Output>(1), b = std::make_shared<Output>(2);
     AgcDriverRegisterVideoOutput_nid_postfix(1, a);
     AgcDriverRegisterVideoOutput_nid_postfix(2, b);
@@ -63,6 +70,8 @@ int main() {
     rejectsFirst([] { AgcDriverSuspendPoint_nid_postfix(); });
     rejectsFirst([] { aps5NativeAgcSuspendPoint(); });
     rejectsFirst([] { aps5NativeAgcSubmit(nullptr); });
+    rejectsFirst([&] { aps5NativeAgcSubmit(&pending); });
+    if (marker.value != 17) return 3;
     rejectsFirst([&] { AgcDriverRegisterVideoOutput_nid_postfix(3, a); });
     AgcDriverReleaseWindow_nid_postfix(nullptr);
     return a->calls == 1 && b->calls == 1 ? 0 : 2;

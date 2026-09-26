@@ -32,6 +32,42 @@ bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userDa
     buffer->cursor_down = allocation.insufficient ? buffer->bottom + 1 : buffer->top;
     return true;
 }
+void terminalCompletion() {
+    static std::array<std::uint32_t, 32> words{};
+    CommandBuffer first{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    Label marker{0x1122334455667788ull};
+    auto* cache = aps5NativeAgcReleaseMem(&first, 0x2d, 0xc, 1, 0, nullptr, 0, 0, 0, 1, 0, 0);
+    check(cache == words.data() && first.cursor_up == words.data() + 8);
+    CommandBuffer second = first;
+    first = {};
+    auto* release = aps5NativeAgcReleaseMem(&second, 0x28, 0x30c, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    check(release == words.data() + 8 && second.cursor_up == words.data() + 16);
+    check(marker.value == 0x1122334455667788ull);
+    const auto before = words;
+    try {
+        aps5NativeAgcDrawIndexAuto(&second, 4, 2);
+        check(false);
+    } catch (const std::runtime_error& error) {
+        check(std::string(error.what()).find("drawing after a terminal release") != std::string::npos);
+    }
+    check(words == before && second.cursor_up == words.data() + 16);
+    second = {};
+    const Packet partial{words.data(), 8, 0, {0, 0, 0}};
+    rejects([&] { aps5NativeAgcSubmit(&partial); });
+    check(marker.value == 0x1122334455667788ull);
+    const Packet complete{words.data(), 16, 0, {0, 0, 0}};
+    check(aps5NativeAgcSubmit(&complete) == 0);
+    check(marker.value == 0x112233440000002aull);
+    CommandBuffer invalid{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    for (const auto select : {2u, 3u, 5u})
+        rejects([&] { aps5NativeAgcReleaseMem(&invalid, 0x28, 0, 0, 0, &marker, select, 42, 0, 0, 0, 0); });
+    rejects([&] { aps5NativeAgcReleaseMem(&invalid, 0x28, 0, 0, 0, nullptr, 1, 42, 0, 0, 0, 0); });
+    rejects([&] { aps5NativeAgcReleaseMem(&invalid, 0x28, 0, 0, 0, &marker, 1, 1ull << 32, 0, 0, 0, 0); });
+    rejects([&] { aps5NativeAgcReleaseMem(&invalid, 0x28, 0, 0, 0, &marker, 1, 42, 0, 0, 1, 0); });
+    check(invalid.cursor_up == words.data() && words == before);
+}
 void descriptorLifetime() {
     static std::array<std::uint32_t, 16> words{};
     static CommandBuffer descriptor;
@@ -177,6 +213,7 @@ void scalarStorage() {
 }
 }
 int main() {
+    terminalCompletion();
     descriptorLifetime();
     descriptorReuse();
     drawFailures();

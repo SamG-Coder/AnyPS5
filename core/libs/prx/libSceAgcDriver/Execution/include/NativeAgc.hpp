@@ -17,6 +17,9 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer*, std::uint64
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexCount(CommandBuffer*, std::uint32_t);
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexSize(CommandBuffer*, std::uint8_t, std::uint8_t);
 std::uint32_t* APS5_VABI aps5NativeAgcSetNumInstances(CommandBuffer*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t,
+    std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t,
+    std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 int APS5_VABI aps5NativeAgcSubmit(const Packet*);
 }
 #endif
