@@ -38,6 +38,7 @@ void require(bool condition, const char* reason) {
 }
 
 struct ShaderSnapshot {
+    std::uint64_t identity;
     std::uint64_t codeAddress;
     std::uint64_t headerAddress;
     std::uint8_t type;
@@ -274,7 +275,8 @@ public:
         GuestMemory::CheckRange(shader, shader->header_size, alignof(Shader));
         const auto* code = const_cast<const void*>(shader->code);
         GuestMemory::CheckRange(code, shader->shader_size, 256);
-        ShaderSnapshot snapshot{reinterpret_cast<std::uintptr_t>(code), reinterpret_cast<std::uintptr_t>(shader), shader->type, {}, {}};
+        require(nextShaderIdentity != std::numeric_limits<std::uint64_t>::max(), "shader identity overflow");
+        ShaderSnapshot snapshot{++nextShaderIdentity, reinterpret_cast<std::uintptr_t>(code), reinterpret_cast<std::uintptr_t>(shader), shader->type, {}, {}};
         snapshot.code.resize(shader->shader_size / sizeof(std::uint32_t));
         std::memcpy(snapshot.code.data(), code, shader->shader_size);
         snapshot.header.resize(shader->header_size);
@@ -291,6 +293,7 @@ private:
     std::condition_variable changed;
     std::deque<Submission> pending;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
+    std::uint64_t nextShaderIdentity = 0;
     std::map<std::uint32_t, QueueState> queues;
     std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
     std::recursive_mutex& gpuMutex = GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix();
@@ -360,7 +363,7 @@ private:
         });
         const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
         ShaderRecompiler::RecompileRequest request{
-            {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
+            {ShaderRecompiler::ShaderStage::Compute, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header, snapshot.identity},
             {(packet[4] & 0x8000u) != 0 ? 32u : 64u, 0, userData, compute, std::nullopt, std::nullopt, memory},
             device->Target(),
             {0, 0, 0, 128}
@@ -411,7 +414,7 @@ private:
             require(userCount <= 32, "graphics user SGPR count exceeds the register bank");
             const auto codeOffset = static_cast<std::size_t>((address - snapshot.codeAddress) / sizeof(std::uint32_t));
             Program result{
-                {stage, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header},
+                {stage, address, std::span(snapshot.code).subspan(codeOffset), snapshot.headerAddress, snapshot.header, snapshot.identity},
                 userDataBase,
                 8,
                 {},
