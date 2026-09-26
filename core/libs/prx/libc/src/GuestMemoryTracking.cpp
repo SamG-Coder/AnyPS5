@@ -2,6 +2,7 @@
 #include "prx/libc/include/MemoryTrackingPlatform.hpp"
 #include "prx/libc/include/GuestMemoryBacking.hpp"
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <limits>
 #include <map>
@@ -31,6 +32,11 @@ struct Registry {
 
 Registry& registry() {
     static auto* value = new Registry;
+    return *value;
+}
+
+std::atomic<std::uint64_t>& mappingGeneration() {
+    static auto* value = new std::atomic<std::uint64_t>(1);
     return *value;
 }
 
@@ -87,6 +93,14 @@ std::size_t GuestMemoryTrackingPageSize_nid_postfix() {
     return Platform::PageSize();
 }
 
+std::uint64_t GuestMemoryTrackingGeneration_nid_postfix() {
+    return mappingGeneration().load(std::memory_order_acquire);
+}
+
+void GuestMemoryTrackingNoteMappingChange_nid_postfix() {
+    mappingGeneration().fetch_add(1, std::memory_order_release);
+}
+
 void* GuestMemoryTrackingCreate_nid_postfix(std::uint64_t address, std::size_t bytes, void* context, Resolver resolver) {
     const auto end = checkedEnd(address, bytes);
     const auto pageSize = Platform::PageSize();
@@ -126,6 +140,7 @@ void GuestMemoryTrackingProtect_nid_postfix(void* handle, Protection protection)
     std::lock_guard lock(registry().mutex);
     auto& entry = **static_cast<std::shared_ptr<Entry>*>(handle);
     if (entry.protection == protection) return;
+    GuestMemoryTrackingNoteMappingChange_nid_postfix();
     if (protection == Protection::ReadWrite) {
         Platform::Restore(entry.original);
         entry.original.clear();
@@ -135,6 +150,7 @@ void GuestMemoryTrackingProtect_nid_postfix(void* handle, Protection protection)
         entry.active = true;
     }
     entry.protection = protection;
+    GuestMemoryTrackingNoteMappingChange_nid_postfix();
 }
 
 void GuestMemoryTrackingResolve_nid_postfix(std::uint64_t address, std::size_t bytes, bool writable) {

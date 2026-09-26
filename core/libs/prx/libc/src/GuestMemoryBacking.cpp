@@ -49,6 +49,7 @@ void* GuestMemoryBackingMap_nid_postfix(void* address, std::size_t bytes, std::s
         }
         Allocation allocation{mapping, {{mapping.address, mapping.address + bytes}}};
         if (!allocations().emplace(mapping.address, std::move(allocation)).second) throw std::runtime_error("duplicate guest backing mapping");
+        GuestMemoryTracking::GuestMemoryTrackingNoteMappingChange_nid_postfix();
     } catch (...) {
         Platform::Unmap(mapping);
         throw;
@@ -78,6 +79,7 @@ void GuestMemoryBackingUnmap_nid_postfix(void* pointer, std::size_t bytes) {
         Platform::Deactivate(address, bytes);
         allocation.ranges.swap(replacement);
     }
+    GuestMemoryTracking::GuestMemoryTrackingNoteMappingChange_nid_postfix();
 }
 
 void GuestMemoryBackingRequire_nid_postfix(std::uint64_t address, std::size_t bytes) {

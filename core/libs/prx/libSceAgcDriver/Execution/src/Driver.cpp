@@ -590,10 +590,8 @@ private:
                     const auto waitDraws = memoryTransfer || opcode == 0x42 || (opcode == 0x46 && (eventType == 0x07 || eventType == 0x0f || eventType == 0x10));
                     const auto gpuCacheBarrier = opcode == 0x58 && Pm4::UsesGpuCacheBarrier(packet);
                     if (device != nullptr) {
-                        if (opcode == 0x49) {
-                            device->WaitIdle();
-                            device->ResolveMemory(0, std::numeric_limits<std::size_t>::max(), false);
-                        } else if (gpuCacheBarrier) device->AcquireGpuMemory();
+                        if (opcode == 0x49) device->WaitIdle();
+                        else if (gpuCacheBarrier) device->AcquireGpuMemory();
                         else if (waitDraws) device->WaitDraws();
                         else {
                             const auto scope = header == FlipPacketHeader ? "Driver.FlipWait" : opcode == 0x58 ? "Driver.AcquireMemoryWait" : "Driver.CacheEventWait";
