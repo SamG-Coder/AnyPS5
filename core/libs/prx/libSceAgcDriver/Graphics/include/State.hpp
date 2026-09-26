@@ -4,7 +4,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
-#include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -54,9 +53,6 @@ struct State {
     VkPipelineColorBlendAttachmentState blend;
     std::array<float, 4> blendConstants;
 };
-
-ShaderStages DecodeShaderStages(const QueueState& queue);
-State DecodeState(const QueueState& queue);
 
 }
 
