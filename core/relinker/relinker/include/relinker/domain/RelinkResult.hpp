@@ -2,6 +2,7 @@
 #define RELINKER_DOMAIN_RELINKRESULT_HPP
 
 #include <relinker/domain/Types.hpp>
+#include <relinker/analysis/AgcLoweringAnalyzer.hpp>
 #include <vector>
 
 namespace Relinker {
@@ -17,6 +18,7 @@ struct RelinkResult {
     SysVDynamicSection DynamicSection;
     VirtualAddress OriginalPltGotVaddr;
     std::vector<RelinkPatch> Patches;
+    std::vector<AgcLoweringSite> AgcLoweringSites;
 };
 
 }
