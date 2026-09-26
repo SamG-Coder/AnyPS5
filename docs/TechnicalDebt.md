@@ -30,3 +30,4 @@ Throughout the project, every function at every stage either **does exactly what
 - [Shader recompilation](../core/shader/recompiler/Recompiler.cpp) currently occurs right before it was transferred to Vulkan with caching, but should be moved to the [relinker](../core/relinker/main.cpp) stage. For this purpose, [shader/recompiler](../core/shader/recompiler) was written completely independently from [libs/prx](../core/libs/prx).
 - The executable file that [relinker](../core/relinker/elfpatcher/src/windows/WindowsPeWriter.cpp) generates opens the console when launched, which is inconvenient for playability.
 - [Relinker](../core/relinker/elfpatcher/src) doesn't add an icon to the generated executable. This should be done without adding dependencies (only standard).
+- The game can expect its modified prx from the `sce_module`/`sce_modules` folder - this support is not implemented.
