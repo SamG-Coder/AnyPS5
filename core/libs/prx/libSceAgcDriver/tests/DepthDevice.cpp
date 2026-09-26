@@ -1,4 +1,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libc/include/GuestMemoryBacking.hpp"
 #include <SDL_loadso.h>
 #include <array>
 #include <chrono>
@@ -106,7 +108,7 @@ VkShaderModule LoadShader(const Context& context, const char* path) {
     return shader;
 }
 
-void TestDepth(const Context& context, const char* vertexPath, const char* fragmentPath) {
+void TestDepth(const Context& context, const char* vertexPath, const char* fragmentPath, bool resident = false) {
     constexpr VkExtent2D extent{129, 131};
     DepthTargetLayout layout(extent.width, extent.height);
     const DepthState state{0, extent, layout.Bytes(), VK_COMPARE_OP_LESS, true};
@@ -114,6 +116,15 @@ void TestDepth(const Context& context, const char* vertexPath, const char* fragm
     std::vector<std::byte> tiled(layout.Bytes(), std::byte{0xa5});
     std::vector<float> linear(extent.width * extent.height, 1.0f);
     layout.Tile(std::as_bytes(std::span(linear)), tiled);
+    std::shared_ptr<void> guest;
+    std::uint64_t guestAddress = 0;
+    if (resident) {
+        guest = std::shared_ptr<void>(GuestMemoryBacking::GuestMemoryBackingMap_nid_postfix(nullptr, layout.Bytes(), 65536, 3),
+            [bytes = layout.Bytes()](void* memory) { GuestMemoryBacking::GuestMemoryBackingUnmap_nid_postfix(memory, bytes); });
+        guestAddress = reinterpret_cast<std::uint64_t>(guest.get());
+        AgcDriver::GuestMemory::Write(guestAddress, tiled, 65536);
+        surface.BindGuest(guestAddress, [](bool) {});
+    }
     const auto vertex = LoadShader(context, vertexPath);
     const auto fragment = LoadShader(context, fragmentPath);
     const VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, 4};
@@ -183,14 +194,15 @@ void TestDepth(const Context& context, const char* vertexPath, const char* fragm
     pipelineInfo.pColorBlendState = &blend;
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.renderPass = pass;
-    const auto draw = [&](float value, VkCompareOp comparison, bool write, float expected) {
+    const auto draw = [&](float value, VkCompareOp comparison, bool write, float expected, bool readback = true) {
         depth.depthCompareOp = comparison;
         depth.depthWriteEnable = write;
         VkPipeline pipeline{};
         Check(context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline), "depth test pipeline");
         CommandBatch batch(context);
         const auto commands = batch.Handle();
-        surface.Upload(commands, tiled);
+        if (resident) surface.BeginGuest(commands, write);
+        else surface.Upload(commands, tiled);
         VkRenderPassBeginInfo begin{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
         begin.renderPass = pass;
         begin.framebuffer = framebuffer;
@@ -200,12 +212,15 @@ void TestDepth(const Context& context, const char* vertexPath, const char* fragm
         context.Function<PFN_vkCmdPushConstants>("vkCmdPushConstants")(commands, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, 4, &value);
         context.Function<PFN_vkCmdDraw>("vkCmdDraw")(commands, 3, 1, 0, 0);
         context.Function<PFN_vkCmdEndRenderPass>("vkCmdEndRenderPass")(commands);
-        surface.Download(commands);
+        if (!resident) surface.Download(commands);
         batch.SubmitAndWait();
-        surface.Read(tiled);
-        layout.Detile(tiled, std::as_writable_bytes(std::span(linear)));
-        for (const auto pixel : linear) Require(pixel == expected, "GPU depth comparison or persistence failed");
-        Require(tiled.back() == std::byte{0xa5}, "depth transfer changed tile padding");
+        if (readback) {
+            if (resident) AgcDriver::GuestMemory::Read(guestAddress, tiled, 65536);
+            else surface.Read(tiled);
+            layout.Detile(tiled, std::as_writable_bytes(std::span(linear)));
+            for (const auto pixel : linear) Require(pixel == expected, "GPU depth comparison or persistence failed");
+            Require(tiled.back() == std::byte{0xa5}, "depth transfer changed tile padding");
+        }
         context.Function<PFN_vkDestroyPipeline>("vkDestroyPipeline")(context.device, pipeline, nullptr);
     };
     draw(0.75f, VK_COMPARE_OP_LESS, true, 0.75f);
@@ -216,7 +231,23 @@ void TestDepth(const Context& context, const char* vertexPath, const char* fragm
     draw(0.25f, VK_COMPARE_OP_GREATER, true, 0.75f);
     std::fill(linear.begin(), linear.end(), 1.0f);
     layout.Tile(std::as_bytes(std::span(linear)), tiled);
+    if (resident) AgcDriver::GuestMemory::Write(guestAddress, tiled, 65536);
     draw(0.5f, VK_COMPARE_OP_LESS, true, 0.5f);
+    if (resident) {
+        draw(0.25f, VK_COMPARE_OP_LESS, true, 0.25f, false);
+        draw(0.75f, VK_COMPARE_OP_LESS, true, 0.25f);
+        draw(0.125f, VK_COMPARE_OP_LESS, true, 0.125f, false);
+        Require(*reinterpret_cast<volatile float*>(guestAddress) == 0.125f, "native CPU read missed GPU depth writes");
+        std::fill(linear.begin(), linear.end(), 1.0f);
+        layout.Tile(std::as_bytes(std::span(linear)), tiled);
+        std::memcpy(reinterpret_cast<void*>(guestAddress), tiled.data(), tiled.size());
+        draw(0.5f, VK_COMPARE_OP_LESS, true, 0.5f);
+        draw(0.125f, VK_COMPARE_OP_LESS, true, 0.125f, false);
+        surface.ReleaseGuest();
+        AgcDriver::GuestMemory::Read(guestAddress, tiled, 65536);
+        layout.Detile(tiled, std::as_writable_bytes(std::span(linear)));
+        for (const auto pixel : linear) Require(pixel == 0.125f, "releasing depth ownership lost GPU writes");
+    }
     context.Function<PFN_vkDestroyFramebuffer>("vkDestroyFramebuffer")(context.device, framebuffer, nullptr);
     context.Function<PFN_vkDestroyRenderPass>("vkDestroyRenderPass")(context.device, pass, nullptr);
     context.Function<PFN_vkDestroyPipelineLayout>("vkDestroyPipelineLayout")(context.device, pipelineLayout, nullptr);
@@ -254,6 +285,7 @@ int main(int argc, char** argv) {
         Require(argc == 3, "expected depth vertex and fragment SPIR-V paths");
         Device device;
         TestDepth(device.GetContext(), argv[1], argv[2]);
+        TestDepth(device.GetContext(), argv[1], argv[2], true);
         TestReadback(device.GetContext());
         std::cout << "Vulkan D32 occlusion, write masks, CPU clears and tiled readback passed\n";
         return 0;

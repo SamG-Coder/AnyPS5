@@ -62,6 +62,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthTargetLayout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthState.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthSurface.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthMemoryOwnership.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetTransfer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Pipeline.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Resources.cpp
@@ -352,7 +353,7 @@ configure_windows_unwind(agc_driver_bda_device_tests)
 option(AGC_BUILD_VISUAL_TEST "Enable the standalone AGC SPIR-V visual test" OFF)
 
 add_executable(agc_depth_device_tests EXCLUDE_FROM_ALL
-        tests/DepthDevice.cpp Graphics/src/DepthSurface.cpp Graphics/src/DepthTargetLayout.cpp
+        tests/DepthDevice.cpp Graphics/src/DepthSurface.cpp Graphics/src/DepthMemoryOwnership.cpp Graphics/src/DepthTargetLayout.cpp Execution/src/GuestMemory.cpp
         Graphics/src/Resources.cpp Graphics/src/BufferAddress.cpp Graphics/src/BufferPool.cpp)
 target_include_directories(agc_depth_device_tests PRIVATE ${LIBS_INCLUDE_DIR}
         ${CMAKE_SOURCE_DIR}/core/shader/recompiler ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)

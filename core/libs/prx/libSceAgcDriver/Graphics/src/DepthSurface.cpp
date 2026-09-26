@@ -29,6 +29,7 @@ void DepthSurface::transition(VkCommandBuffer commands, VkImageLayout oldLayout,
     barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, sourceStage, destinationStage,
         0, 0, nullptr, 0, nullptr, 1, &barrier);
+    imageLayout = newLayout;
 }
 
 void DepthSurface::Upload(VkCommandBuffer commands, std::span<const std::byte> tiled) {

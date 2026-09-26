@@ -12,6 +12,7 @@ namespace AgcDriver::Graphics {
 class GraphicsPipelineCache {
 public:
     explicit GraphicsPipelineCache(const Context& context) : context(context) {}
+    void ReleaseDepth(std::uint64_t address, std::size_t bytes);
     std::shared_ptr<Pipeline> Get(const State& state, const std::shared_ptr<ResidentColor>& target, const ShaderResources& resources, std::span<const CompiledShader> shaders);
 
 private:

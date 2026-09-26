@@ -128,4 +128,17 @@ void RenderCache::Flush() {
     Resolve(0, std::numeric_limits<std::size_t>::max(), true);
 }
 
+void RenderCache::Release(std::uint64_t address, std::size_t bytes) {
+    ColorTarget range{};
+    range.address = address;
+    range.bytes = bytes;
+    for (auto it = entries.begin(); it != entries.end();) {
+        if (!it->second->SharesPages(range)) { ++it; continue; }
+        const auto& color = it->second->Description();
+        Resolve(color.address, color.bytes, true);
+        it->second->ReleaseMemory();
+        it = entries.erase(it);
+    }
+}
+
 }
