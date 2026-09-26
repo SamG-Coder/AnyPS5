@@ -325,19 +325,44 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetNumInstances(CommandBuffer* b, std::uin
     target.instances = count;
     return token;
 }
-std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t count, const volatile void* address, std::uint64_t) {
+std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t count, const volatile void* address, std::uint64_t modifier) {
     if (!address) throw std::invalid_argument("native AGC: null draw index address");
-    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexBuffer=reinterpret_cast<std::uintptr_t>(address); s.indexCount=count; appendDraw(s,count,true,s.indexBuffer); return opaque(b);
+    if (modifier != 0) throw std::invalid_argument("native AGC: draw modifier requires native lowering");
+    reserveTokens(b, 6);
+    std::lock_guard lock(stateMutex);
+    auto& target = state(b);
+    const auto indexAddress = reinterpret_cast<std::uintptr_t>(address);
+    appendDraw(target, count, true, indexAddress);
+    auto* token = opaque(b, 6);
+    target.indexBuffer = indexAddress;
+    target.indexCount = count;
+    return token;
 }
-std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint32_t count, std::uint64_t) {
-    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count; appendDraw(s,count,false,0,s.firstVertex); return opaque(b);
+std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint32_t count, std::uint64_t modifier) {
+    if (modifier != 0) throw std::invalid_argument("native AGC: draw modifier requires native lowering");
+    reserveTokens(b, 3);
+    std::lock_guard lock(stateMutex);
+    auto& target = state(b);
+    appendDraw(target, count, false, 0, target.firstVertex);
+    auto* token = opaque(b, 3);
+    target.indexCount = count;
+    return token;
 }
-std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t offset, std::uint32_t count, std::uint64_t) {
-    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count;
-    const auto bytes=s.indexSize==0?2u:s.indexSize==1?4u:0u;
-    if(!s.indexBuffer||!bytes) throw std::runtime_error("native AGC: indexed offset draw is missing index buffer state");
-    appendDraw(s,count,true,s.indexBuffer+static_cast<std::uint64_t>(offset)*bytes);
-    return opaque(b);
+std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t offset, std::uint32_t count, std::uint64_t modifier) {
+    if (modifier != 0) throw std::invalid_argument("native AGC: draw modifier requires native lowering");
+    reserveTokens(b, 5);
+    std::lock_guard lock(stateMutex);
+    auto& target = state(b);
+    const auto bytes = target.indexSize == 0 ? 2u : target.indexSize == 1 ? 4u : 0u;
+    if (!target.indexBuffer || !bytes)
+        throw std::runtime_error("native AGC: indexed offset draw is missing index buffer state");
+    const auto displacement = static_cast<std::uint64_t>(offset) * bytes;
+    if (displacement > UINT64_MAX - target.indexBuffer)
+        throw std::overflow_error("native AGC: indexed offset address overflow");
+    appendDraw(target, count, true, target.indexBuffer + displacement);
+    auto* token = opaque(b, 5);
+    target.indexCount = count;
+    return token;
 }
 int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
     AgcDriver::NativeGraphicsRuntime::Get().CheckFailure();

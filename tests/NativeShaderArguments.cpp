@@ -2,6 +2,7 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
 #include <array>
 #include <stdexcept>
+#include <string>
 
 namespace {
 void check(bool value) { if (!value) throw std::runtime_error("native shader argument regression"); }
@@ -30,6 +31,38 @@ bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userDa
     buffer->cursor_up = buffer->bottom;
     buffer->cursor_down = allocation.insufficient ? buffer->bottom + 1 : buffer->top;
     return true;
+}
+void drawFailures() {
+    std::array<std::uint32_t, 24> words;
+    words.fill(0xabcdef01u);
+    static CommandBuffer buffer;
+    buffer = {words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    const auto original = words;
+    rejects([&] { aps5NativeAgcDrawIndex(&buffer, 4, reinterpret_cast<void*>(0x1000), 0); });
+    try {
+        aps5NativeAgcDrawIndexOffset(&buffer, 0, 4, 0);
+        check(false);
+    } catch (const std::runtime_error& error) {
+        check(std::string(error.what()).find("missing index buffer state") != std::string::npos);
+    }
+    check(buffer.cursor_up == words.data() && words == original);
+    for (unsigned kind = 0; kind < 3; ++kind) {
+        Allocation allocation;
+        allocation.words.fill(0xabcdef01u);
+        buffer = {nullptr, nullptr, nullptr, nullptr, allocate, &allocation, 0};
+        const auto draw = [&](std::uint64_t modifier) {
+            if (kind == 0) aps5NativeAgcDrawIndex(&buffer, 4, reinterpret_cast<void*>(0x1000), modifier);
+            else if (kind == 1) aps5NativeAgcDrawIndexAuto(&buffer, 4, modifier);
+            else aps5NativeAgcDrawIndexOffset(&buffer, 0, 4, modifier);
+        };
+        rejects([&] { draw(0x100); });
+        check(allocation.requested == 0);
+        rejects([&] { draw(0); });
+        check(allocation.requested == (kind == 0 ? 6u : kind == 1 ? 3u : 5u));
+        check(buffer.cursor_up == allocation.words.data());
+        for (const auto word : allocation.words) check(word == 0xabcdef01u);
+    }
 }
 void rangeStorage() {
     for (const bool shader : {false, true}) {
@@ -108,6 +141,7 @@ void scalarStorage() {
 }
 }
 int main() {
+    drawFailures();
     scalarStorage();
     rangeStorage();
     using AgcDriver::Graphics::NativeShaderArguments;
