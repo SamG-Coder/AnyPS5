@@ -170,6 +170,7 @@ struct VulkanDevice::State {
         std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
         if (device != VK_NULL_HANDLE) {
             if (drawQueue) drawQueue->Wait();
+            if (graphicsPipelines) graphicsPipelines->ReleaseDepth(0, std::numeric_limits<std::size_t>::max());
             if (renderCache) renderCache->Flush();
             const auto idle = reinterpret_cast<PFN_vkDeviceWaitIdle>(deviceProc(device, "vkDeviceWaitIdle"))(device);
             if (idle != VK_SUCCESS && idle != VK_ERROR_DEVICE_LOST) std::terminate();

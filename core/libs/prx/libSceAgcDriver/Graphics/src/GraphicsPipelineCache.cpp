@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/GraphicsPipelineCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DrawQueue.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <type_traits>
@@ -114,8 +115,15 @@ std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const s
     auto key = makeKey(context, state, target, resources, shaders);
     if (state.depth) {
         const auto extent = state.depth->extent;
-        if (!depthSurface || depthSurface->Extent().width != extent.width || depthSurface->Extent().height != extent.height)
+        if (!depthSurface || depthSurface->Extent().width != extent.width || depthSurface->Extent().height != extent.height) {
+            if (depthSurface) depthSurface->ReleaseGuest();
             depthSurface = std::make_shared<DepthSurface>(context, *state.depth);
+        }
+        context.renderCache->Release(state.depth->address, state.depth->bytes);
+        depthSurface->BindGuest(state.depth->address, [queue = context.drawQueue](bool gpuOnly) {
+            if (gpuOnly) queue->WaitGpu();
+            else queue->Wait();
+        });
         append(key, depthSurface->View());
     }
     timing.Mark("key");
@@ -145,6 +153,10 @@ std::shared_ptr<Pipeline> GraphicsPipelineCache::Get(const State& state, const s
         entries.erase(it);
     }
     return pipeline;
+}
+
+void GraphicsPipelineCache::ReleaseDepth(std::uint64_t address, std::size_t bytes) {
+    if (depthSurface && depthSurface->SharesPages(address, bytes)) depthSurface->ReleaseGuest();
 }
 
 }

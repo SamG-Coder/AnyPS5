@@ -59,16 +59,12 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     if (state.stages.tessellation) Require(draw.indexCount % state.stages.tessellation->inputControlPoints == 0, "incomplete tessellation patch");
     timing.Mark("validate");
     Require(context.renderCache != nullptr && context.drawQueue != nullptr && context.graphicsPipelines != nullptr, "device graphics execution caches are unavailable");
-    std::vector<std::byte> depthBytes;
     if (state.depth) {
-        context.drawQueue->Wait();
         const auto& depth = *state.depth;
         Require(!state.hasColorTarget || depth.address + depth.bytes <= state.color.address || state.color.address + state.color.bytes <= depth.address, "depth surface aliases the color target");
         Require(!draw.indexed || depth.address + depth.bytes <= draw.indexAddress || draw.indexAddress + indexBytes <= depth.address, "depth surface aliases the index buffer");
-        depthBytes.resize(depth.bytes);
-        GuestMemory::Read(depth.address, depthBytes, 65536);
     }
-    timing.Mark("depth_read");
+    timing.Mark("depth_validate");
     auto storage = std::make_shared<DrawStorage>();
     auto& indices = storage->indices;
     std::uint32_t maxIndex = draw.indexed ? 0u : draw.firstVertex + draw.indexCount - 1u;
@@ -110,6 +106,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     if (state.depth) Require(!resources->WritesOverlap(state.depth->address, state.depth->bytes), "writable shader buffer aliases the depth surface");
     timing.Mark("shader_resources");
     if (state.hasColorTarget) {
+        context.graphicsPipelines->ReleaseDepth(state.color.address, state.color.bytes);
         const ColorTargetLayout colorLayout(state.color.extent.width, state.color.extent.height, state.color.tileMode);
         Require(state.color.bytes == colorLayout.Bytes(), "color target transfer size mismatch");
         storage->color = context.renderCache->Get(state.color, state.blend.blendEnable != 0);
@@ -120,7 +117,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     const auto depthSurface = pipeline.Depth();
     timing.Mark("pipeline_cache");
     const auto commands = context.drawQueue->Begin(context);
-    if (depthSurface) depthSurface->Upload(commands, depthBytes);
+    if (depthSurface) depthSurface->BeginGuest(commands, state.depth->writeEnabled);
     VkMemoryBarrier upload{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     upload.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
     upload.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
@@ -141,20 +138,12 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         }
     }
     context.Function<PFN_vkCmdEndRenderPass>("vkCmdEndRenderPass")(commands);
-    if (depthSurface && state.depth->writeEnabled) depthSurface->Download(commands);
     VkMemoryBarrier download{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     download.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     download.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
     context.Function<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(commands, VK_PIPELINE_STAGE_TRANSFER_BIT | shaderStages, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &download, 0, nullptr, 0, nullptr);
     timing.Mark("command_record");
     context.drawQueue->Enqueue(std::move(resources), std::move(storage));
-    if (depthSurface) {
-        context.drawQueue->Wait();
-        if (state.depth->writeEnabled) {
-            depthSurface->Read(depthBytes);
-            GuestMemory::Write(state.depth->address, depthBytes, 65536);
-        }
-    }
     timing.Mark("enqueue");
 }
 
