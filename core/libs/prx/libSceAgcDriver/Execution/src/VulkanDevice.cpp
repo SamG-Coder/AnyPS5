@@ -773,12 +773,12 @@ void VulkanDevice::ResolveMemory(std::uint64_t address, std::size_t bytes, bool 
     state->renderCache->Resolve(address, bytes, writable);
 }
 
-void VulkanDevice::Draw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+void VulkanDevice::Draw(const Graphics::State& graphics, const Graphics::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
     EnqueueDraw(graphics, draw, shaders, snapshots);
     WaitIdle();
 }
 
-void VulkanDevice::EnqueueDraw(const Graphics::State& graphics, const Pm4::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
+void VulkanDevice::EnqueueDraw(const Graphics::State& graphics, const Graphics::DrawParameters& draw, std::span<const Graphics::CompiledShader> shaders, std::span<const Graphics::GuestMemorySnapshot> snapshots) {
     std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
     const GuestMemory::MemoryAccessScope memoryScope(this, [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
         static_cast<VulkanDevice*>(context)->ResolveMemory(address, bytes, writable);
