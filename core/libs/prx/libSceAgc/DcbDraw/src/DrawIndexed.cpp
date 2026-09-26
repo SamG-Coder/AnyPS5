@@ -9,13 +9,12 @@
 
 extern "C" {
 
-uint32_t* APS5_VABI sceAgcDcbDrawIndex(CommandBuffer* buf, uint32_t index_count, const volatile void* index_addr, uint64_t modifier) {
- (void)buf;
- (void)index_count;
- (void)index_addr;
- (void)modifier;
- NotImplemented_nid_no_patch(__func__);
- return nullptr;
+std::uint32_t* APS5_VABI sceAgcDcbDrawIndex(CommandBuffer* buf, std::uint32_t indexCount, const volatile void* indexAddress, std::uint64_t modifier) {
+    const auto address = reinterpret_cast<std::uintptr_t>(indexAddress);
+    Agc::Command::CheckAddress(address, 1, __func__);
+    return Agc::Command::Emit(buf, 0x27u, {indexCount == 0 ? 1u : indexCount,
+        static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32u),
+        indexCount, Agc::Command::DrawInitiator(modifier, true, __func__)}, __func__);
 }
 
 std::uint32_t APS5_VABI sceAgcDcbDrawIndexGetSize() {

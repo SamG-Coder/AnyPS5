@@ -98,10 +98,10 @@ std::string_view UnsupportedReason(std::uint32_t header) {
     }
     switch (opcode) {
         case 0x11: case 0x12: case 0x13: case 0x15: case 0x16: case 0x26:
-        case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
+        case 0x27: case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
         case 0x58: case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
         case 0x49: case 0x81: case 0x83: case 0x9f: return {};
-        case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
+        case 0x24: case 0x25: case 0x2c: case 0x38: case 0x3a: case 0x8d:
             return "graphics draw, shader stages and guest render-target materialization are not implemented";
         case 0x20: return "GPU query predication is not implemented";
         case 0x22: return "conditional command execution and conditional flip reservation are not implemented";
@@ -168,6 +168,12 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             graphics();
             size(3);
             require((packet[2] & ~0x20u) == 2u, "unsupported auto draw flags");
+            break;
+        case 0x27:
+            graphics();
+            size(6);
+            require(packet[4] <= packet[1], "index count exceeds maximum index size");
+            require((packet[5] & ~0x20u) == 0, "unsupported indexed draw flags");
             break;
         case 0x35:
             graphics();
@@ -289,7 +295,7 @@ bool UsesGpuCacheBarrier(std::span<const std::uint32_t> packet) {
 
 bool AccessesMemory(std::uint32_t header) {
     switch ((header >> 8u) & 0xffu) {
-        case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x49: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
+        case 0x16: case 0x27: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x49: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
         default: return false;
     }
 }
@@ -316,17 +322,20 @@ DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueSta
         require(packet[1] == 0 || firstVertex <= std::numeric_limits<std::uint32_t>::max() - (packet[1] - 1u), "auto draw vertex range overflow");
         return {0, packet[1], 0, queue.instanceCount, packet[2] & 0x20u, false, firstVertex, 0};
     }
-    require(((packet[0] >> 8u) & 0xffu) == 0x35, "expected DRAW_INDEX_OFFSET_2 packet");
+    const auto opcode = (packet[0] >> 8u) & 0xffu;
+    require(opcode == 0x35 || opcode == 0x27, "expected indexed draw packet");
     require(queue.indexType <= 2, "unsupported index type");
     const std::uint32_t indexSize = queue.indexType == 0 ? 2 : queue.indexType == 1 ? 4 : 1;
-    require(queue.indexBase != 0 && queue.indexBase % indexSize == 0, "null or misaligned index base");
-    const auto offset = static_cast<std::uint64_t>(packet[2]) * indexSize;
-    require(offset <= std::numeric_limits<std::uint64_t>::max() - queue.indexBase, "index address overflow");
-    const auto address = queue.indexBase + offset;
-    const auto bytes = static_cast<std::uint64_t>(packet[3]) * indexSize;
+    const auto base = opcode == 0x27 ? address(packet[2], packet[3]) : queue.indexBase;
+    const auto count = opcode == 0x27 ? packet[4] : packet[3];
+    require(base != 0 && base % indexSize == 0, "null or misaligned index base");
+    const auto offset = opcode == 0x27 ? 0 : static_cast<std::uint64_t>(packet[2]) * indexSize;
+    require(offset <= std::numeric_limits<std::uint64_t>::max() - base, "index address overflow");
+    const auto indexAddress = base + offset;
+    const auto bytes = static_cast<std::uint64_t>(count) * indexSize;
     require(bytes <= std::numeric_limits<std::size_t>::max(), "index range size overflow");
-    GuestMemory::CheckRange(reinterpret_cast<const void*>(address), static_cast<std::size_t>(bytes), indexSize);
-    return {address, packet[3], indexSize, queue.instanceCount, packet[4]};
+    GuestMemory::CheckRange(reinterpret_cast<const void*>(indexAddress), static_cast<std::size_t>(bytes), indexSize);
+    return {indexAddress, count, indexSize, queue.instanceCount, packet.back()};
 }
 
 void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
