@@ -7,7 +7,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
-#include <functional>
 #include <memory>
 
 namespace AgcDriver {
@@ -21,8 +20,6 @@ public:
     ShaderRecompiler::SpirvTarget Target() const;
     void WaitIdle();
     void WaitDraws();
-    void CollectDraws();
-    void AfterDraws(std::function<void()> callback);
     void AcquireGpuMemory();
     void ResolveMemory(std::uint64_t address, std::size_t bytes, bool writable);
     void* Window() const;
