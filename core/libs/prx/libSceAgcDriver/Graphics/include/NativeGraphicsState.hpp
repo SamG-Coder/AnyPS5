@@ -16,6 +16,8 @@ private:
     void updateRaster();
     void updateViewport();
     void updateScissor();
+    void updateColorTarget();
+    void updateBlend();
     State state{};
     std::optional<std::uint32_t> primitive;
     std::optional<std::uint32_t> raster;
@@ -23,6 +25,10 @@ private:
     std::optional<std::uint32_t> clipControl;
     std::optional<std::uint32_t> viewport[6];
     std::optional<std::uint32_t> screenTl, screenBr, windowTl, windowBr;
+    std::optional<std::uint32_t> targetMask, shaderMask, colorControl, colorInfo;
+    std::optional<std::uint32_t> colorBase, colorBaseExt, colorAttrib2, colorAttrib3;
+    std::optional<std::uint32_t> blendControl;
+    std::optional<std::uint32_t> blendConstant[4];
 };
 }
 #endif
