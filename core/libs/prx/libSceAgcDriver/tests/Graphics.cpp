@@ -238,11 +238,17 @@ void DepthClipTests() {
     auto queue = makeState();
     const auto direct = AgcDriver::Graphics::DecodeState(queue);
     Require(!direct.negativeOneToOne && direct.viewport.minDepth == 0 && direct.viewport.maxDepth == 1, "zero-to-one depth transform changed");
+    queue.context[0x204] |= 0x01000000u;
+    const auto directLinear = AgcDriver::Graphics::DecodeState(queue);
+    Require(!directLinear.negativeOneToOne && directLinear.viewport.minDepth == direct.viewport.minDepth && directLinear.viewport.maxDepth == direct.viewport.maxDepth, "linear attribute clipping changed zero-to-one depth");
     queue.context[0x204] = 0;
     queue.context[0x113] = std::bit_cast<std::uint32_t>(0.5f);
     queue.context[0x114] = std::bit_cast<std::uint32_t>(0.5f);
     const auto symmetric = AgcDriver::Graphics::DecodeState(queue);
     Require(symmetric.negativeOneToOne && symmetric.viewport.minDepth == 0 && symmetric.viewport.maxDepth == 1, "negative-one-to-one depth transform is incorrect");
+    queue.context[0x204] |= 0x01000000u;
+    const auto symmetricLinear = AgcDriver::Graphics::DecodeState(queue);
+    Require(symmetricLinear.negativeOneToOne && symmetricLinear.viewport.minDepth == symmetric.viewport.minDepth && symmetricLinear.viewport.maxDepth == symmetric.viewport.maxDepth, "linear attribute clipping changed negative-one-to-one depth");
     queue.context[0x113] = std::bit_cast<std::uint32_t>(-0.5f);
     const auto reversed = AgcDriver::Graphics::DecodeState(queue);
     Require(reversed.viewport.minDepth == 1 && reversed.viewport.maxDepth == 0, "reversed depth transform is incorrect");
@@ -262,7 +268,7 @@ void DepthClipTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "inverted viewport depth clamp");
     queue.context[0xb4] = 0;
     for (std::uint32_t bit = 0; bit < 32; ++bit) {
-        if (bit == 19) continue;
+        if (bit == 19 || bit == 24) continue;
         queue.context[0x204] = 1u << bit;
         expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "PA_CL_CLIP_CNTL");
     }
@@ -1151,6 +1157,11 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string_view(argv[1]) == "stages") {
             ShaderStageTests();
             std::cout << "Shader stage tests passed\n";
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "clipping") {
+            DepthClipTests();
+            std::cout << "Clipping state tests passed\n";
             return 0;
         }
         {

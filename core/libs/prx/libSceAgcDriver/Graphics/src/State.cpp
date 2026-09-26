@@ -174,7 +174,7 @@ State DecodeState(const QueueState& queue) {
         message << "AGC graphics: PA_CL_VTE_CNTL=0x" << std::hex << viewportControl << ": expected 0x43f for homogeneous positions and all viewport transforms; pre-divided coordinates, reciprocal W or disabled transforms are unsupported";
         throw std::runtime_error(message.str());
     }
-    zero(cx, 0x204, ~0x80000u, "unsupported PA_CL_CLIP_CNTL flags");
+    zero(cx, 0x204, ~0x01080000u, "PA_CL_CLIP_CNTL flags");
     result.negativeOneToOne = (read(cx, 0x204) & 0x80000u) == 0;
     const auto raster = read(cx, 0x205);
     Require((raster & ~0x7u) == 0 || (raster & ~0x7u) == 0x240u, "polygon mode, depth bias, provoking vertex or nonstandard rasterization is unsupported");
