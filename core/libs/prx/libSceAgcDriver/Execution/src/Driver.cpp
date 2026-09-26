@@ -592,7 +592,7 @@ private:
                     if (device != nullptr) {
                         if (opcode == 0x49) {
                             device->WaitIdle();
-                            device->ResolveMemory(0, std::numeric_limits<std::size_t>::max(), true);
+                            device->ResolveMemory(0, std::numeric_limits<std::size_t>::max(), false);
                         } else if (gpuCacheBarrier) device->AcquireGpuMemory();
                         else if (waitDraws) device->WaitDraws();
                         else {
