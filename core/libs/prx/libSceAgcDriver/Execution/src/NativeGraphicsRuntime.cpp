@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include <stdexcept>
 namespace AgcDriver {
 NativeGraphicsRuntime& NativeGraphicsRuntime::Get(){static NativeGraphicsRuntime runtime;return runtime;}

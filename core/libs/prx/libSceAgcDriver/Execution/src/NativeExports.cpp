@@ -10,7 +10,15 @@ namespace {
 std::unordered_map<std::uint32_t,std::shared_ptr<AgcDriver::IVideoOutput>> outputs;
 std::mutex outputsMutex;
 }
+namespace AgcDriver {
+void Submit(const Packet* packet, std::uint32_t queue) {
+    if (queue != 0) throw std::runtime_error("native graphics: compute submission has no native lowering");
+    aps5NativeAgcSubmit(packet);
+}
+}
 extern "C" {
+void AgcDriverSuspendPoint_nid_postfix(){AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();}
+int APS5_VABI sceAgcDriverAgrSubmitDcb(const Packet* packet){return aps5NativeAgcSubmit(packet);}
 int APS5_VABI sceAgcDriverSubmitDcb(const Packet* packet){return aps5NativeAgcSubmit(packet);}
 void AgcDriverWaitIdle_nid_postfix(){AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();}
 void AgcDriverRegisterVideoOutput_nid_postfix(std::uint32_t handle,const std::shared_ptr<AgcDriver::IVideoOutput>& output){std::lock_guard lock(outputsMutex);if(!output||!outputs.emplace(handle,output).second)throw std::runtime_error("native graphics: invalid video output registration");}

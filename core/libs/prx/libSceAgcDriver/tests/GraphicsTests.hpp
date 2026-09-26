@@ -2,6 +2,8 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_TESTS_GRAPHICSTESTS_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/StateDecode.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>

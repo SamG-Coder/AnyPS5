@@ -10,6 +10,9 @@
 
 namespace AgcDriver::Pm4 {
 
+// Legacy source compatibility only; native graphics owns the data type.
+using DrawParameters = Graphics::DrawParameters;
+
 std::string Name(std::uint32_t header);
 std::string_view UnsupportedReason(std::uint32_t header);
 void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue);

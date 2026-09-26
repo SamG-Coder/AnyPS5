@@ -4,12 +4,14 @@
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeDrawCompiler.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include <mutex>
 #include <cstring>
 #include <memory>
 #include <vector>
 #include <stdexcept>
 #include <unordered_map>
+namespace Graphics = AgcDriver::Graphics;
 namespace {
 struct NativeShader {
     std::uint64_t identity;
@@ -203,7 +205,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const vol
     target.userData.clear(); target.userData.reserve(count);
     for(std::uint32_t i=0;i<count;++i){
         if(regs[i].offset!=target.userDataBase+i) throw std::runtime_error("native AGC: non-contiguous user data must be lowered explicitly");
-        target.userData.push_back(regs[i].value);
+        target.userData.push_back(static_cast<std::uint32_t>(regs[i].value));
     }
     return opaque(b);
 }

@@ -28,7 +28,7 @@ inline bool IsNidNoPatch(const std::string& name) {
     return (
         name.size() >= kNidNoPatchLen &&
         name.compare(name.size() - kNidNoPatchLen, kNidNoPatchLen, kNidNoPatch) == 0
-    ) || name.compare(0, kSDLPrefixLen, kSDLPrefix) == 0;
+    ) || name.compare(0, kSDLPrefixLen, kSDLPrefix) == 0 || name.starts_with("aps5NativeAgc");
 }
 
 inline bool IsNidNoPatchCut(const std::string& name) {

@@ -5,6 +5,9 @@
 #include <prx/libc/include/General.hpp>
 
 #include "SceShaders.hpp"
+#ifdef AGC_NATIVE_RELINKED_ONLY
+#include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
+#endif
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
@@ -16,6 +19,9 @@
 extern "C" {
 
 int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void* code) {
+#ifdef AGC_NATIVE_RELINKED_ONLY
+    return aps5NativeAgcCreateShader(dst, header, code);
+#else
     constexpr auto fn = __func__;
     if (dst == nullptr) {
         throw std::runtime_error(std::string(fn) + ": dst is null");
@@ -65,6 +71,7 @@ int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void
     *dst = h;
     // APS5_LOG_OUT_IF(APS5_AGC_CREATE_LOG, "OK type=%u sh_regs=%u shader_size=%u", h->type, h->num_sh_registers, h->shader_size);
     return 0;
+#endif
 }
 
 }

@@ -70,7 +70,7 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
     state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     state.blend.colorWriteMask = 15;
     const std::array<std::uint16_t, 3> indices{0, 1, 2};
-    const AgcDriver::Pm4::DrawParameters draw{reinterpret_cast<std::uintptr_t>(indices.data()), 3, 2, 1, 0};
+    const AgcDriver::Graphics::DrawParameters draw{reinterpret_cast<std::uintptr_t>(indices.data()), 3, 2, 1, 0};
     device.Draw(state, draw, shaders);
     const std::vector<std::byte> indexedPixels(Pixels.begin(), Pixels.end());
     for (std::size_t i = 0; i < Pixels.size(); i += 4) {
@@ -79,7 +79,7 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
         Pixels[i + 2] = std::byte{40};
         Pixels[i + 3] = std::byte{255};
     }
-    const AgcDriver::Pm4::DrawParameters autoDraw{0, 3, 0, 1, 0, false};
+    const AgcDriver::Graphics::DrawParameters autoDraw{0, 3, 0, 1, 0, false};
     device.Draw(state, autoDraw, shaders);
     Require(std::equal(Pixels.begin(), Pixels.end(), indexedPixels.begin()), "GPU readback: auto draw differs from indexed triangle");
     const auto center = (Height / 2 * Width + Width / 2) * 4;

@@ -1,3 +1,4 @@
+#include "prx/libSceAgcDriver/Graphics/include/DepthStateDecode.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
 #include <array>
 #include <stdexcept>

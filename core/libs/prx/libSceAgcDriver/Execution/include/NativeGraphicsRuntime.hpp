@@ -1,10 +1,11 @@
 #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
-#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 #include <memory>
 #include <mutex>
 namespace AgcDriver {
+class VulkanDevice;
 class NativeGraphicsRuntime {
 public:
     static NativeGraphicsRuntime& Get();

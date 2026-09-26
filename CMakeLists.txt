@@ -34,3 +34,5 @@ set(CMAKE_EXE_LINKER_FLAGS "${ANYPS5_EXE_LINKER_FLAGS}")
 add_subdirectory(core/shader/recompiler)
 add_subdirectory(core/libs)
 add_subdirectory(core/relinker)
+
+include(cmake/NativeRelinkChecks.cmake)
