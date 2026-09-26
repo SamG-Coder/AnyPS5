@@ -5,6 +5,15 @@
 #include <cmath>
 #include <stdexcept>
 namespace AgcDriver::Graphics {
+bool NativeGraphicsState::ReadyForDraw() const {
+    if (!primitive || !raster || !clipControl) return false;
+    for (const auto& v:viewport) if (!v) return false;
+    if (!screenTl || !screenBr) return false;
+    if (state.hasColorTarget) {
+        if (!targetMask || !shaderMask || !colorControl || !colorInfo || !colorBase || !colorBaseExt || !colorAttrib2 || !colorAttrib3) return false;
+    }
+    return state.renderExtent.width!=0 && state.renderExtent.height!=0;
+}
 void NativeGraphicsState::SetUser(std::uint32_t o, std::uint32_t v) {
     if (o == 0x242) { primitive=v; updateTopology(); }
 }
