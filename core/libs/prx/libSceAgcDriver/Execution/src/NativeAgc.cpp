@@ -244,14 +244,16 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uin
     return opaque(b);
 }
 int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
-    std::lock_guard lock(stateMutex);
-    auto& native=submittedState(packet);
-    if (!native.vertexShader || !native.fragmentShader)
-        throw std::runtime_error("native AGC: graphics submission is missing native vertex or fragment shader binding");
-    if (!native.graphics.Primitive())
-        throw std::runtime_error("native AGC: graphics submission is missing native primitive topology");
+    std::vector<NativeDrawCall> draws;
+    {
+        std::lock_guard lock(stateMutex);
+        auto& native=submittedState(packet);
+        if(native.draws.empty()) return 0;
+        draws=std::move(native.draws);
+        native.draws.clear();
+    }
     if(!nativeDevice) nativeDevice=std::make_unique<AgcDriver::VulkanDevice>();
-    for(const auto& call:native.draws){
+    for(const auto& call:draws){
         const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
             return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
         };
@@ -268,7 +270,6 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
         Graphics::CompileAndEnqueueNativeDraw(*nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
     }
     nativeDevice->WaitDraws();
-    native.draws.clear();
     return 0;
 }
 }
