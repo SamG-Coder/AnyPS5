@@ -39,6 +39,7 @@ void libraries() {
     check(Relinker::AgcImportLowering::NativeSymbol(hashed + "#H#I", "libSceAgc") == "aps5NativeAgcDrawIndex", "qualified hashed import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("sceAgcCreateShader", "libSceAgc") == "aps5NativeAgcCreateShader", "named import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("kW3GLb7QfPg#H#I", "libSceAgc") == "aps5NativeAgcInit", "Quake initialization import did not lower");
+    check(Relinker::AgcImportLowering::NativeSymbol("h9z6+0hEydk#H#I", "libSceAgc") == "aps5NativeAgcSuspendPoint", "Quake suspend import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("MqAdbRMdNz4#H#I", "libSceAgc") == "aps5NativeAgcLinkShaders", "Quake shader-link import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("Wi82ArQtAwg#H#I", "libSceAgc") == "aps5NativeAgcGetRegisterDefaults", "Quake register-defaults import did not lower");
     std::vector<Relinker::NidReference> references{{hashed + "#H#I", "libSceAgc", 7, 10, 20, 0}};

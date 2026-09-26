@@ -9,6 +9,8 @@
 #include <thread>
 #include <vector>
 
+extern "C" int APS5_VABI aps5NativeAgcSuspendPoint();
+
 namespace {
 std::string message(std::exception_ptr error) {
     try { std::rethrow_exception(error); }
@@ -59,6 +61,7 @@ int main() {
     for (auto& thread : repeats) thread.join();
     rejectsFirst([] { AgcDriverWaitIdle_nid_postfix(); });
     rejectsFirst([] { AgcDriverSuspendPoint_nid_postfix(); });
+    rejectsFirst([] { aps5NativeAgcSuspendPoint(); });
     rejectsFirst([] { aps5NativeAgcSubmit(nullptr); });
     rejectsFirst([&] { AgcDriverRegisterVideoOutput_nid_postfix(3, a); });
     AgcDriverReleaseWindow_nid_postfix(nullptr);

@@ -18,6 +18,7 @@
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
+extern "C" int APS5_VABI aps5NativeAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
 extern "C" int APS5_VABI aps5NativeAgcInit(std::uint32_t version);
 extern "C" int APS5_VABI sceAgc_23LRUSvYu1M(std::uint32_t* state, std::uint32_t version);
@@ -216,6 +217,7 @@ void testFlip() {
     expectFailure([&] { sceAgcDcbSetFlip(&exhausted.buffer, 1, 0, 1, 0); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed flip allocation advanced cursor");
     check(sceAgcSuspendPoint() == 0, "empty suspend failed");
+    check(aps5NativeAgcSuspendPoint() == 0, "empty native suspend failed");
 }
 
 void testRegisters() {

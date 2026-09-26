@@ -13,4 +13,8 @@ int APS5_VABI sceAgcSuspendPoint(void) {
     return 0;
 }
 
+int APS5_VABI aps5NativeAgcSuspendPoint(void) {
+    return sceAgcSuspendPoint();
+}
+
 }
