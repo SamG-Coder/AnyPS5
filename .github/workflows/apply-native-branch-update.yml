@@ -1,0 +1,39 @@
+name: Publish verified native branch patch
+
+on:
+  push:
+    branches: [relink/native-agc-only]
+    paths: [.github/workflows/apply-native-branch-update.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-native-branch-patch
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.repository == 'SamG-Coder/AnyPS5' && github.ref == 'refs/heads/relink/native-agc-only'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact locally tested changes without rewriting history
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/relink/native-agc-only | cut -f1)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor fa5e79e5bbe492ad26efa531fc51ae6084646dc5 HEAD
+          echo '9fdf95d841e4989ebd5d3cf3d654727a8f26f8bbf553dd7c0efb7e3a71b59e83  .github/native-branch-update.patch' | sha256sum --check
+          git apply --check .github/native-branch-update.patch
+          git apply .github/native-branch-update.patch
+          git rm .github/native-branch-update.patch .github/workflows/apply-native-branch-update.yml
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(build): validate native PRX linkage and interpreter exclusion'
+          git push origin HEAD:refs/heads/relink/native-agc-only
+          git rev-parse HEAD
