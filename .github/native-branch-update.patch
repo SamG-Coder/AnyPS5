@@ -1,0 +1,318 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 9c0f11d..716efcf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -31,3 +31,5 @@ add_subdirectory(3rdparty/SDL2)
+ add_subdirectory(core/shader/recompiler)
+ add_subdirectory(core/libs)
+ add_subdirectory(core/relinker)
++
++include(cmake/NativeRelinkChecks.cmake)
+diff --git a/cmake/NativeRelinkChecks.cmake b/cmake/NativeRelinkChecks.cmake
+new file mode 100644
+index 0000000..4ec7e33
+--- /dev/null
++++ b/cmake/NativeRelinkChecks.cmake
+@@ -0,0 +1,30 @@
++if(BUILD_TESTING AND TARGET agc_sampler_tests)
++    # The shared graphics fixture declarations include shader compiler types.
++    target_include_directories(agc_sampler_tests PRIVATE ${CMAKE_SOURCE_DIR}/core/shader/recompiler)
++endif()
++
++if(AGC_NATIVE_RELINKED_ONLY)
++    target_compile_definitions(libSceAgcDriver PUBLIC AGC_NATIVE_RELINKED_ONLY=1)
++    if(UNIX AND NOT APPLE)
++        foreach(nativeTarget IN ITEMS libSceAgcDriver libSceAgc libSceVideoOut)
++            target_link_options(${nativeTarget} PRIVATE "LINKER:--no-undefined")
++        endforeach()
++    endif()
++
++    if(BUILD_TESTING)
++        add_executable(native_host_exception_tests tests/NativeHostExceptions.cpp)
++        target_include_directories(native_host_exception_tests PRIVATE ${CMAKE_SOURCE_DIR}/core/libs)
++        target_link_libraries(native_host_exception_tests PRIVATE libc)
++        add_test(NAME native_host_exceptions COMMAND native_host_exception_tests)
++        if(WIN32)
++            set_tests_properties(native_host_exceptions PROPERTIES ENVIRONMENT_MODIFICATION
++                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
++        endif()
++        find_package(Python3 QUIET COMPONENTS Interpreter)
++        if(Python3_Interpreter_FOUND AND UNIX AND NOT APPLE)
++            add_test(NAME native_build_contract COMMAND ${Python3_EXECUTABLE}
++                ${CMAKE_SOURCE_DIR}/tests/native_build_contract.py
++                $<TARGET_FILE:libSceAgcDriver> $<TARGET_FILE:libSceAgc> $<TARGET_FILE:libSceVideoOut>)
++        endif()
++    endif()
++endif()
+diff --git a/core/libs/CMakeLists.txt b/core/libs/CMakeLists.txt
+index 531bbf1..7aa40df 100644
+--- a/core/libs/CMakeLists.txt
++++ b/core/libs/CMakeLists.txt
+@@ -206,22 +206,24 @@ if(BUILD_TESTING)
+         set_tests_properties(guest_condition_lifecycle PROPERTIES ENVIRONMENT_MODIFICATION
+             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+     endif()
+-    set_target_properties(agc_driver_pm4_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+-    add_test(NAME agc_driver_pm4 COMMAND agc_driver_pm4_tests)
+-    add_test(NAME agc_driver_pm4_failure COMMAND agc_driver_pm4_tests failure)
+-    set_tests_properties(agc_driver_pm4 agc_driver_pm4_failure PROPERTIES TIMEOUT 30)
+-    if(WIN32)
+-        set_tests_properties(agc_driver_pm4 agc_driver_pm4_failure PROPERTIES ENVIRONMENT_MODIFICATION
+-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+-    endif()
+-    add_executable(guest_rendering_wait_tests tests/GuestRenderingWait.cpp)
+-    target_include_directories(guest_rendering_wait_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+-    target_link_libraries(guest_rendering_wait_tests PRIVATE libSceAgcDriver libc)
+-    configure_windows_unwind(guest_rendering_wait_tests)
+-    add_test(NAME guest_rendering_wait COMMAND guest_rendering_wait_tests)
+-    if(WIN32)
+-        set_tests_properties(guest_rendering_wait PROPERTIES ENVIRONMENT_MODIFICATION
+-            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
++    if(NOT AGC_NATIVE_RELINKED_ONLY)
++        set_target_properties(agc_driver_pm4_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
++        add_test(NAME agc_driver_pm4 COMMAND agc_driver_pm4_tests)
++        add_test(NAME agc_driver_pm4_failure COMMAND agc_driver_pm4_tests failure)
++        set_tests_properties(agc_driver_pm4 agc_driver_pm4_failure PROPERTIES TIMEOUT 30)
++        if(WIN32)
++            set_tests_properties(agc_driver_pm4 agc_driver_pm4_failure PROPERTIES ENVIRONMENT_MODIFICATION
++                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
++        endif()
++        add_executable(guest_rendering_wait_tests tests/GuestRenderingWait.cpp)
++        target_include_directories(guest_rendering_wait_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
++        target_link_libraries(guest_rendering_wait_tests PRIVATE libSceAgcDriver libc)
++        configure_windows_unwind(guest_rendering_wait_tests)
++        add_test(NAME guest_rendering_wait COMMAND guest_rendering_wait_tests)
++        if(WIN32)
++            set_tests_properties(guest_rendering_wait PROPERTIES ENVIRONMENT_MODIFICATION
++                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
++        endif()
+     endif()
+     add_executable(guest_buffer_reuse_tests tests/GuestBufferReuse.cpp)
+     target_include_directories(guest_buffer_reuse_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+diff --git a/core/libs/nid/include/nid/NidPatcherUtils.hpp b/core/libs/nid/include/nid/NidPatcherUtils.hpp
+index 886296f..d66502b 100644
+--- a/core/libs/nid/include/nid/NidPatcherUtils.hpp
++++ b/core/libs/nid/include/nid/NidPatcherUtils.hpp
+@@ -28,7 +28,7 @@ inline bool IsNidNoPatch(const std::string& name) {
+     return (
+         name.size() >= kNidNoPatchLen &&
+         name.compare(name.size() - kNidNoPatchLen, kNidNoPatchLen, kNidNoPatch) == 0
+-    ) || name.compare(0, kSDLPrefixLen, kSDLPrefix) == 0;
++    ) || name.compare(0, kSDLPrefixLen, kSDLPrefix) == 0 || name.starts_with("aps5NativeAgc");
+ }
+ 
+ inline bool IsNidNoPatchCut(const std::string& name) {
+diff --git a/core/libs/prx/libSceAgc/Shader/src/CreateShader.cpp b/core/libs/prx/libSceAgc/Shader/src/CreateShader.cpp
+index 068b2e6..6b961c8 100644
+--- a/core/libs/prx/libSceAgc/Shader/src/CreateShader.cpp
++++ b/core/libs/prx/libSceAgc/Shader/src/CreateShader.cpp
+@@ -5,6 +5,9 @@
+ #include <prx/libc/include/General.hpp>
+ 
+ #include "SceShaders.hpp"
++#ifdef AGC_NATIVE_RELINKED_ONLY
++#include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
++#endif
+ #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+ #include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
+ #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
+@@ -16,6 +19,9 @@
+ extern "C" {
+ 
+ int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void* code) {
++#ifdef AGC_NATIVE_RELINKED_ONLY
++    return aps5NativeAgcCreateShader(dst, header, code);
++#else
+     constexpr auto fn = __func__;
+     if (dst == nullptr) {
+         throw std::runtime_error(std::string(fn) + ": dst is null");
+@@ -65,6 +71,7 @@ int APS5_VABI sceAgcCreateShader(Shader** dst, void* header, const volatile void
+     *dst = h;
+     // APS5_LOG_OUT_IF(APS5_AGC_CREATE_LOG, "OK type=%u sh_regs=%u shader_size=%u", h->type, h->num_sh_registers, h->shader_size);
+     return 0;
++#endif
+ }
+ 
+ }
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp b/core/libs/prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp
+index 28ac7bc..6b19f23 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp
+@@ -1,10 +1,11 @@
+ #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
+ #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
+-#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
++#include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
+ #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
+ #include <memory>
+ #include <mutex>
+ namespace AgcDriver {
++class VulkanDevice;
+ class NativeGraphicsRuntime {
+ public:
+     static NativeGraphicsRuntime& Get();
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/include/Pm4.hpp b/core/libs/prx/libSceAgcDriver/Execution/include/Pm4.hpp
+index 39f2ca3..c95937b 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/include/Pm4.hpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/include/Pm4.hpp
+@@ -10,6 +10,9 @@
+ 
+ namespace AgcDriver::Pm4 {
+ 
++// Legacy source compatibility only; native graphics owns the data type.
++using DrawParameters = Graphics::DrawParameters;
++
+ std::string Name(std::uint32_t header);
+ std::string_view UnsupportedReason(std::uint32_t header);
+ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue);
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/Driver.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/Driver.cpp
+index 673681c..83c09d8 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/src/Driver.cpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/src/Driver.cpp
+@@ -7,7 +7,8 @@
+ #include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
+ #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+ #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+-#include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"\n#include "prx/libSceAgcDriver/Graphics/include/StateDecode.hpp"
++#include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
++#include "prx/libSceAgcDriver/Graphics/include/StateDecode.hpp"
+ #include "prx/libc/include/Shutdown.hpp"
+ #include "prx/libSceAgcDriver/Execution/include/MemoryAccessScope.hpp"
+ #include "prx/libc/include/GuestMemoryTracking.hpp"
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/NativeAgc.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/NativeAgc.cpp
+index 512b07b..1430526 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/src/NativeAgc.cpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/src/NativeAgc.cpp
+@@ -4,12 +4,14 @@
+ #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
+ #include "prx/libSceAgcDriver/Graphics/include/NativeDrawCompiler.hpp"
+ #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
++#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+ #include <mutex>
+ #include <cstring>
+ #include <memory>
+ #include <vector>
+ #include <stdexcept>
+ #include <unordered_map>
++namespace Graphics = AgcDriver::Graphics;
+ namespace {
+ struct NativeShader {
+     std::uint64_t identity;
+@@ -203,7 +205,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const vol
+     target.userData.clear(); target.userData.reserve(count);
+     for(std::uint32_t i=0;i<count;++i){
+         if(regs[i].offset!=target.userDataBase+i) throw std::runtime_error("native AGC: non-contiguous user data must be lowered explicitly");
+-        target.userData.push_back(regs[i].value);
++        target.userData.push_back(static_cast<std::uint32_t>(regs[i].value));
+     }
+     return opaque(b);
+ }
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/NativeExports.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/NativeExports.cpp
+index 71b2118..8c64bcd 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/src/NativeExports.cpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/src/NativeExports.cpp
+@@ -10,7 +10,15 @@ namespace {
+ std::unordered_map<std::uint32_t,std::shared_ptr<AgcDriver::IVideoOutput>> outputs;
+ std::mutex outputsMutex;
+ }
++namespace AgcDriver {
++void Submit(const Packet* packet, std::uint32_t queue) {
++    if (queue != 0) throw std::runtime_error("native graphics: compute submission has no native lowering");
++    aps5NativeAgcSubmit(packet);
++}
++}
+ extern "C" {
++void AgcDriverSuspendPoint_nid_postfix(){AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();}
++int APS5_VABI sceAgcDriverAgrSubmitDcb(const Packet* packet){return aps5NativeAgcSubmit(packet);}
+ int APS5_VABI sceAgcDriverSubmitDcb(const Packet* packet){return aps5NativeAgcSubmit(packet);}
+ void AgcDriverWaitIdle_nid_postfix(){AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();}
+ void AgcDriverRegisterVideoOutput_nid_postfix(std::uint32_t handle,const std::shared_ptr<AgcDriver::IVideoOutput>& output){std::lock_guard lock(outputsMutex);if(!output||!outputs.emplace(handle,output).second)throw std::runtime_error("native graphics: invalid video output registration");}
+diff --git a/core/libs/prx/libSceAgcDriver/Execution/src/NativeGraphicsRuntime.cpp b/core/libs/prx/libSceAgcDriver/Execution/src/NativeGraphicsRuntime.cpp
+index 1ebd256..0cf4eb5 100644
+--- a/core/libs/prx/libSceAgcDriver/Execution/src/NativeGraphicsRuntime.cpp
++++ b/core/libs/prx/libSceAgcDriver/Execution/src/NativeGraphicsRuntime.cpp
+@@ -1,4 +1,5 @@
+ #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
++#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+ #include <stdexcept>
+ namespace AgcDriver {
+ NativeGraphicsRuntime& NativeGraphicsRuntime::Get(){static NativeGraphicsRuntime runtime;return runtime;}
+diff --git a/core/libs/prx/libSceAgcDriver/tests/DepthState.cpp b/core/libs/prx/libSceAgcDriver/tests/DepthState.cpp
+index 1f3d655..fb178c3 100644
+--- a/core/libs/prx/libSceAgcDriver/tests/DepthState.cpp
++++ b/core/libs/prx/libSceAgcDriver/tests/DepthState.cpp
+@@ -1,3 +1,4 @@
++#include "prx/libSceAgcDriver/Graphics/include/DepthStateDecode.hpp"
+ #include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
+ #include <array>
+ #include <stdexcept>
+diff --git a/core/libs/prx/libSceAgcDriver/tests/GraphicsTests.hpp b/core/libs/prx/libSceAgcDriver/tests/GraphicsTests.hpp
+index f3a1e91..cc5524b 100644
+--- a/core/libs/prx/libSceAgcDriver/tests/GraphicsTests.hpp
++++ b/core/libs/prx/libSceAgcDriver/tests/GraphicsTests.hpp
+@@ -2,6 +2,8 @@
+ #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_TESTS_GRAPHICSTESTS_HPP
+ 
+ #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
++#include "prx/libSceAgcDriver/Graphics/include/StateDecode.hpp"
++#include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
+diff --git a/core/libs/prx/libSceAgcDriver/tests/Visual.cpp b/core/libs/prx/libSceAgcDriver/tests/Visual.cpp
+index 8e9d5d0..faf64ce 100644
+--- a/core/libs/prx/libSceAgcDriver/tests/Visual.cpp
++++ b/core/libs/prx/libSceAgcDriver/tests/Visual.cpp
+@@ -70,7 +70,7 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
+     state.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+     state.blend.colorWriteMask = 15;
+     const std::array<std::uint16_t, 3> indices{0, 1, 2};
+-    const AgcDriver::Pm4::DrawParameters draw{reinterpret_cast<std::uintptr_t>(indices.data()), 3, 2, 1, 0};
++    const AgcDriver::Graphics::DrawParameters draw{reinterpret_cast<std::uintptr_t>(indices.data()), 3, 2, 1, 0};
+     device.Draw(state, draw, shaders);
+     const std::vector<std::byte> indexedPixels(Pixels.begin(), Pixels.end());
+     for (std::size_t i = 0; i < Pixels.size(); i += 4) {
+@@ -79,7 +79,7 @@ void Run(SDL_Window* window, const std::filesystem::path& directory, bool verify
+         Pixels[i + 2] = std::byte{40};
+         Pixels[i + 3] = std::byte{255};
+     }
+-    const AgcDriver::Pm4::DrawParameters autoDraw{0, 3, 0, 1, 0, false};
++    const AgcDriver::Graphics::DrawParameters autoDraw{0, 3, 0, 1, 0, false};
+     device.Draw(state, autoDraw, shaders);
+     Require(std::equal(Pixels.begin(), Pixels.end(), indexedPixels.begin()), "GPU readback: auto draw differs from indexed triangle");
+     const auto center = (Height / 2 * Width + Width / 2) * 4;
+diff --git a/tests/native_build_contract.py b/tests/native_build_contract.py
+new file mode 100644
+index 0000000..932350d
+--- /dev/null
++++ b/tests/native_build_contract.py
+@@ -0,0 +1,29 @@
++"""Load native libraries eagerly and reject legacy execution symbols."""
++import ctypes
++import os
++from pathlib import Path
++import subprocess
++import sys
++
++
++def main():
++    paths = [Path(arg).resolve(strict=True) for arg in sys.argv[1:]]
++    if len(paths) != 3:
++        raise RuntimeError("expected driver, AGC and VideoOut libraries")
++    symbols = subprocess.run(["nm", "-C", "--defined-only", str(paths[0])],
++                             check=True, text=True, capture_output=True).stdout
++    forbidden = ("AgcDriver::Pm4::Execute(", "AgcDriver::Pm4::ResolveDraw(",
++                 "AgcDriver::Pm4::ResolveValidatedDraw(",
++                 "AgcDriver::Graphics::DecodeState(",
++                 "AgcDriver::Graphics::DecodeDepthState(")
++    for symbol in forbidden:
++        if symbol in symbols:
++            raise AssertionError("legacy execution linked into native driver: " + symbol)
++    libraries = [ctypes.CDLL(str(path), mode=os.RTLD_NOW | os.RTLD_GLOBAL) for path in paths]
++    for name in ("aps5NativeAgcSubmit", "aps5NativeAgcCreateShader", "aps5NativeAgcDrawIndex"):
++        getattr(libraries[0], name)
++    print("Native shared libraries loaded; legacy command execution is absent")
++
++
++if __name__ == "__main__":
++    main()
