@@ -1,8 +1,10 @@
 #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEAGC_HPP
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEAGC_HPP
 #include "SceTypes.hpp"
+#include "SceShaders.hpp"
 #include <cstdint>
 extern "C" {
+int APS5_VABI aps5NativeAgcCreateShader(Shader**, void*, const volatile void*);
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer*, std::uint32_t, const volatile void*, std::uint64_t);
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer*, std::uint32_t, std::uint64_t);
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer*, std::uint32_t, std::uint32_t, std::uint64_t);
