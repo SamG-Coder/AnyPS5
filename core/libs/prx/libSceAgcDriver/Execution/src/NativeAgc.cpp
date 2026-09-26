@@ -23,6 +23,8 @@ struct NativeCommandBufferState {
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
     std::shared_ptr<const NativeShader> computeShader;
+    std::vector<std::uint32_t> userData;
+    std::uint32_t userDataBase = 0;
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
@@ -151,13 +153,21 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs && count) throw std::invalid_argument("native AGC: null user register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
-    for (std::uint32_t i=0;i<count;++i) target.SetUser(regs[i].offset, regs[i].value);
+    std::lock_guard lock(stateMutex); auto& target=state(b);
+    if (!count) return opaque(b);
+    target.userDataBase=regs[0].offset;
+    target.userData.clear(); target.userData.reserve(count);
+    for(std::uint32_t i=0;i<count;++i){
+        if(regs[i].offset!=target.userDataBase+i) throw std::runtime_error("native AGC: non-contiguous user data must be lowered explicitly");
+        target.userData.push_back(regs[i].value);
+    }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
-    if (values) for (std::uint32_t i=0;i<count;++i) target.SetUser(offset+i, values[i]);
+    if (!values && count) throw std::invalid_argument("native AGC: null user register range");
+    std::lock_guard lock(stateMutex); auto& target=state(b);
+    target.userDataBase=offset;
+    target.userData.assign(values,values+count);
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer* b, std::uint64_t address) {
