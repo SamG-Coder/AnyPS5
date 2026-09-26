@@ -105,6 +105,42 @@ def strict_replacement(relinker, work, library, windows):
             raise AssertionError(("invalid strict replacement accepted", expected, result.stdout, result.stderr))
 
 
+def indirect_import(relinker, work, library, windows):
+    data = strict_image()
+    data[0x1000:0x1080] = b"\xcc" * 0x80
+    code = bytearray(b"\x55\xbf\x13\0\0\0")
+    code += b"\x48\x8b\x05" + struct.pack("<i", 0x2800 - 0x100d)
+    code += b"\x48\x89\x05" + struct.pack("<i", 0x2808 - 0x1014)
+    code += b"\xff\x15" + struct.pack("<i", 0x2808 - 0x101a)
+    code += b"\x5d\xc3"
+    data[0x1000:0x1000 + len(code)] = code
+    strings = b"\0sceAgcInit#A#A\0libSceAgc\0" + library.encode() + b"\0"
+    data[0x2600:0x2600 + len(strings)] = strings
+    struct.pack_into("<Q", data, 0x2418, len(strings))
+    for i in (8, 9):
+        struct.pack_into("<Q", data, 0x2400 + i * 16 + 8, strings.index(b"libSceAgc"))
+    struct.pack_into("<qQ", data, 0x24a0, 1, strings.index(library.encode()))
+    struct.pack_into("<qQ", data, 0x24b0, 0, 0)
+    struct.pack_into("<QQ", data, 64 + 3 * 56 + 32, 12 * 16, 12 * 16)
+    source = work / "indirect.elf"
+    source.write_bytes(data)
+    output = work / ("indirect.exe" if windows else "indirect")
+    platform = ["--windows"] if windows else []
+    result = run([relinker, *platform, "unused-filter=0", "--rpath", work, source, output])
+    if result.returncode or "Native AGC lowering sites: 0" not in result.stdout:
+        raise AssertionError(("indirect native import rejected", result.stdout, result.stderr))
+    if not windows:
+        output.chmod(0o700)
+    executed = run([output], cwd=work)
+    if executed.returncode != 42:
+        raise AssertionError(("copied native import did not execute", executed.returncode, executed.stdout, executed.stderr))
+    emitted = output.read_bytes()
+    source.write_bytes(data.replace(b"sceAgcInit#A#A", b"badAgcInit#A#A"))
+    result = run([relinker, *platform, "unused-filter=0", "--rpath", work, source, output])
+    if result.returncode != 2 or "AGC import has no native lowering" not in result.stderr or output.read_bytes() != emitted:
+        raise AssertionError(("unsupported indirect import accepted", result.stdout, result.stderr))
+
+
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], capture_output=True, text=True, timeout=30, **kwargs)
 
@@ -119,7 +155,8 @@ def windows_main(relinker, compiler):
         manifest.write_text(valid)
         impl = work / "native.cpp"
         impl.write_text('extern "C" __attribute__((dllexport,sysv_abi)) '
-                        'int native_fixture_add(int value) { return value + 23; }\n')
+                        'int native_fixture_add(int value) { return value + 23; }\n'
+                        'extern "C" __attribute__((dllexport,sysv_abi)) int aps5NativeAgcInit(int value) { return value + 23; }\n')
         compiled = run([compiler, "-shared", impl, "-o", work / "native_fixture.prx"])
         if compiled.returncode:
             raise AssertionError((compiled.stdout, compiled.stderr))
@@ -142,6 +179,7 @@ def windows_main(relinker, compiler):
         if result.returncode != 2 or output.read_bytes() != emitted:
             raise AssertionError(("invalid PE lowering modified output", result.stdout, result.stderr))
         strict_replacement(relinker, work, "native_fixture.prx", True)
+        indirect_import(relinker, work, "native_fixture.prx", True)
     print("PE loader execution verified: original=7, native System V replacement=42")
 
 
@@ -157,7 +195,8 @@ def main():
         manifest = work / "bindings.txt"
         manifest.write_text("0x240 native_fixture_add native_fixture.so b807000000c3\n")
         impl = work / "native.cpp"
-        impl.write_text('extern "C" int native_fixture_add(int value) { return value + 23; }\n')
+        impl.write_text('extern "C" int native_fixture_add(int value) { return value + 23; }\n'
+                        'extern "C" int aps5NativeAgcInit(int value) { return value + 23; }\n')
         compiled = run([compiler, "-shared", "-fPIC", impl, "-o", work / "native_fixture.so"])
         if compiled.returncode:
             raise AssertionError(compiled.stderr)
@@ -216,6 +255,7 @@ def main():
         if result.returncode or (work / "ported.exe").read_bytes()[:2] != b"MZ":
             raise AssertionError(("PE native import lowering", result.stdout, result.stderr))
         strict_replacement(relinker, work, "native_fixture.so", False)
+        indirect_import(relinker, work, "native_fixture.so", False)
     print("Native entry rebinding executed: original=7, native=42; no interpreter or runtime code generation")
 
 

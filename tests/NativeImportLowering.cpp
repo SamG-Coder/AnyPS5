@@ -97,6 +97,9 @@ void coverage() {
     }
     entries.resize(1);
     check(Relinker::AgcLoweringAnalyzer().Analyze(entries).size() == 1, "supported native import rejected");
+    entries[0].CallSites.clear();
+    entries[0].CallSitesResolved = false;
+    check(Relinker::AgcLoweringAnalyzer().Analyze(entries).empty(), "native GOT replacement required a direct call site");
 }
 }
 int main() {

@@ -19,11 +19,10 @@ std::vector<AgcLoweringSite> AgcLoweringAnalyzer::Analyze(const std::vector<Call
             if (!failures.empty()) failures += '\n';
             failures += std::string(reason) + entry.Nid + " [" + entry.Library + "]";
         };
-        if (!entry.CallSitesResolved || entry.CallSites.empty()) {
-            reject("AGC import has indirect or unresolved call sites: ");
-        }
         const auto kind=classify(entry);
         if (kind==AgcLoweringKind::Other) {
+            if (!entry.CallSitesResolved || entry.CallSites.empty())
+                reject("AGC import has indirect or unresolved call sites: ");
             reject("AGC import has no native lowering: ");
             continue;
         }
