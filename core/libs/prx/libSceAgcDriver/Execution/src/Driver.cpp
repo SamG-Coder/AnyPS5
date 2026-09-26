@@ -665,7 +665,10 @@ private:
                     PerformanceContext timingContext(frameTiming.get());
                     PerformanceTimer timing("Driver.SubmissionCompletion");
                     std::lock_guard gpuLock(gpuMutex);
-                    if (device) device->WaitIdle();
+                    // A guest AGC submission must not be reported complete while its
+                    // translated graphics work is still using guest resources.  It
+                    // does not, however, require idling unrelated Vulkan device work.
+                    if (device) device->WaitDraws();
                 }
                 {
                     PerformanceContext timingContext(frameTiming.get());
