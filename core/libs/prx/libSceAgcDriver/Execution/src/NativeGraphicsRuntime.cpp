@@ -13,6 +13,7 @@ VulkanDevice& NativeGraphicsRuntime::Presenting(const PresentationWindow& window
     if(device->Window()!=window.context) throw std::runtime_error("native graphics: presentation window does not match Vulkan surface");
     return *device;
 }
+void NativeGraphicsRuntime::WaitDraws(){std::lock_guard lock(mutex);if(device)device->WaitDraws();}
 void NativeGraphicsRuntime::ReleaseWindow(void* window){
     std::lock_guard lock(mutex);
     if(device&&device->Window()==window)device.reset();
