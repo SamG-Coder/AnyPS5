@@ -44,12 +44,12 @@ int main(const int argc, char* argv[]) {
 
             const Relinker::ElfReader elfReader(sourceBytes);
             const auto converter = Codegen::MakeAmd64OnlyConverter();
-            auto result = converter->Convert(std::move(sourceBytes), elfReader.ReadCodeSegments());
 
-            fileWriter.Write(absPath, std::move(result.Bytes));
+            auto codeSegments = elfReader.ReadCodeSegments();
+            auto result = converter->Convert(std::move(sourceBytes), codeSegments);
+
+            sourceBytes = std::move(result.Bytes);
             std::cout << "OK: " << result.ReplacedCount << " instructions replaced\n";
-
-            if (args.autorun) return Cli::Autorun(absPath, args.toWindows);
         }
 
         auto elfReader = std::make_shared<Relinker::ElfReader>(sourceBytes);
