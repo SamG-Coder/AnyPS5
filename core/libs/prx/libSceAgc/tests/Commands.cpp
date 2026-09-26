@@ -22,6 +22,8 @@ extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
 extern "C" int APS5_VABI sceAgc_23LRUSvYu1M(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t, std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetIndexCount(CommandBuffer* buf, std::uint32_t indexCount);
+extern "C" std::uint32_t APS5_VABI sceAgcDcbSetIndexCountGetSize();
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbSetShRegisterRangeDirect(CommandBuffer* buf, std::uint32_t offset, const std::uint32_t* values, std::uint32_t numValues);
@@ -79,6 +81,22 @@ void testPackets() {
     exhausted.buffer.cursor_down = exhausted.words.data() + 2;
     expectFailure([&] { Agc::Command::WriteNop(&exhausted.buffer, 3, __func__); });
     check(exhausted.buffer.cursor_up == exhausted.words.data(), "failed allocation advanced cursor");
+}
+
+void testIndexCount() {
+    for (const auto count : {0u, 37u, 0xffffffffu}) {
+        Storage storage;
+        auto* packet = sceAgcDcbSetIndexCount(&storage.buffer, count);
+        check(packet == storage.words.data(), "incorrect index count packet address");
+        check(packet[0] == 0xc0001300u && packet[1] == count, "incorrect index buffer size packet");
+        check(storage.buffer.cursor_up == packet + 2, "incorrect index count cursor advance");
+        check(sceAgcDcbSetIndexCountGetSize() == 2 * sizeof(std::uint32_t), "incorrect index count size");
+    }
+    Storage exhausted;
+    exhausted.buffer.cursor_down = exhausted.words.data() + 1;
+    expectFailure([&] { sceAgcDcbSetIndexCount(&exhausted.buffer, 37); });
+    check(exhausted.buffer.cursor_up == exhausted.words.data() && exhausted.words[0] == 0,
+          "failed index count allocation modified the command buffer");
 }
 
 struct ContextGrowth {
@@ -314,6 +332,7 @@ void testDefaults() {
 int main() {
     try {
         testPackets();
+        testIndexCount();
         testContextState();
         testFlip();
         testRegisters();
