@@ -159,6 +159,29 @@ void vectorInstructionLengths() {
         require(decoder.Decode(instruction.data(), instruction.size()) == instruction.size(), "Vector immediate or VZEROUPPER was decoded with the wrong length");
 }
 
+void populationCountInstructions() {
+    const Codegen::X64InstructionDecoder decoder;
+    const std::vector<std::vector<std::uint8_t>> instructions{
+        {0x44, 0x0f, 0xbb, 0xe9},
+        {0xf3, 0x41, 0x0f, 0xb8, 0xd0},
+        {0xf3, 0x48, 0x0f, 0xb8, 0x44, 0x24, 0x08},
+        {0xf3, 0x0f, 0xb8, 0x05, 0x10, 0, 0, 0}
+    };
+    for (const auto& bytes : instructions) {
+        const auto info = decoder.DecodeInstruction(bytes.data(), bytes.size());
+        require(info.Length == bytes.size() && info.HasModRm, "Bit instruction lost its ModRM operand");
+        require(info.FlowKind == Codegen::ControlFlowKind::Sequential, "Bit instruction was treated as a branch");
+    }
+    const auto rip = decoder.DecodeInstruction(instructions.back().data(), instructions.back().size());
+    require(rip.HasRipRelativeDisp && rip.RipRelativeDispOffset == 4, "POPCNT RIP displacement was lost");
+    auto input = fixture();
+    emit(input, 0, {0xf3, 0x41, 0x0f, 0xb8, 0xd0, 0x49, 0xc1, 0xe8, 0x20,
+                   0xf3, 0x41, 0x0f, 0xb8, 0xf8, 0xc3});
+    const auto result = AnalyzeStrictReachability(input);
+    require(result.Instructions.contains(0x1005) && result.Instructions.contains(0x1009),
+            "POPCNT desynchronized the following shift instruction");
+}
+
 void exceptionLandingPads() {
     std::vector<std::uint8_t> bytes(0x400);
     write<std::uint32_t>(bytes, 0x200, 15);
@@ -289,6 +312,7 @@ int main() {
         isolatedFunctionCycle();
         relativeTableAndWholeFunction();
         vectorInstructionLengths();
+        populationCountInstructions();
         exceptionLandingPads();
         filterCallbackDataImports();
         filterAndPltCompaction();

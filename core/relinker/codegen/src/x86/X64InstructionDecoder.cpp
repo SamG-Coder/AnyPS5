@@ -243,7 +243,7 @@ std::size_t X64InstructionDecoder::Decode(const std::uint8_t* data, std::size_t 
                    (opcode >= TwoByteModRmRangeIMin && opcode <= TwoByteModRmRangeIMax) ||
                    (opcode >= TwoBytePrefetchGrpMin && opcode <= TwoBytePrefetchGrpMax) ||
                    (opcode >= TwoByteSetccMin && opcode <= TwoByteSetccMax) ||
-                   opcode == TwoByteImulRmModRm ||
+                   opcode == TwoBytePopcnt || opcode == TwoByteBtc || opcode == TwoByteImulRmModRm ||
                    opcode == TwoByteGrp7 ||
                    opcode == TwoByteGrp15 ||
                    opcode == TwoByteXadd ||
@@ -496,7 +496,7 @@ DecodedInstructionInfo X64InstructionDecoder::DecodeInstruction(
             (op >= TwoByteModRmRangeIMin && op <= TwoByteModRmRangeIMax) ||
             (op >= TwoBytePrefetchGrpMin && op <= TwoBytePrefetchGrpMax) ||
             (op >= TwoByteSetccMin && op <= TwoByteSetccMax) ||
-            op == TwoByteImulRmModRm || op == TwoByteGrp7 ||
+            op == TwoBytePopcnt || op == TwoByteBtc || op == TwoByteImulRmModRm || op == TwoByteGrp7 ||
             op == TwoByteGrp15 || op == TwoByteXadd ||
             op == TwoByteGrp9 || op == TwoByteNopModRm ||
             op == TwoByteEndbr || op == TwoByteMovImm8ModRm ||
