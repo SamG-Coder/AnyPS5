@@ -536,6 +536,16 @@ void VulkanDevice::WaitDraws() {
     state->drawQueue->Wait();
 }
 
+std::uint64_t VulkanDevice::SubmitDraws() {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
+    return state->drawQueue->SubmitFence();
+}
+
+std::uint64_t VulkanDevice::CompletedDraws() {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
+    return state->drawQueue->CompletedFence();
+}
+
 void* VulkanDevice::Window() const {
     return state->window;
 }

@@ -13,6 +13,7 @@ void DrawQueue::retire(Batch batch) {
     timing.Mark("resources_writeback");
     batch.entries.clear();
     available.push_back(std::move(batch.commands));
+    completedSerial = batch.serial;
     timing.Mark("resources_release");
 }
 

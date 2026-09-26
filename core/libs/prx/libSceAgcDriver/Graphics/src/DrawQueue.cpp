@@ -34,9 +34,21 @@ void DrawQueue::Enqueue(std::shared_ptr<ShaderResources> resources, std::shared_
 void DrawQueue::Flush() {
     if (!recording.commands) return;
     Require(!recording.entries.empty() || recording.hasBarrier, "cannot submit an incomplete draw batch");
+    Require(submittedSerial != UINT64_MAX, "draw queue serial overflow");
+    recording.serial = ++submittedSerial;
     pending.push_back(std::move(recording));
     recording = Batch{};
     pending.back().commands->Submit();
+}
+
+std::uint64_t DrawQueue::SubmitFence() {
+    Flush();
+    return submittedSerial;
+}
+
+std::uint64_t DrawQueue::CompletedFence() {
+    Collect();
+    return completedSerial;
 }
 
 void DrawQueue::Resolve(std::uint64_t address, std::size_t bytes) {

@@ -5,6 +5,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/NativeRegisterBindings.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
+#include "prx/libc/include/Shutdown.hpp"
 #include <thread>
 #include <functional>
 #include <array>
@@ -159,6 +160,7 @@ void renderingDependency() {
     check(output->captures == 0 && marker.value == 17);
     const Packet full{words.data(), 12, 0, {0, 0, 0}};
     check(aps5NativeAgcSubmit(&full) == 0);
+    AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();
     check(output->captures == 1 && output->dependency->waited && marker.value == 42);
 }
 class FlipProbe final : public AgcDriver::IFlipRequest, public AgcDriver::IRenderingWait {
@@ -229,11 +231,16 @@ void terminalFlip(bool failWait, bool failReady = false) {
     check(!output->probe->reserved && marker.value == 17);
     const Packet complete{words.data(), 26, 0, {0, 0, 0}};
     if (failWait || failReady) {
-        rejects([&] { aps5NativeAgcSubmit(&complete); });
+        if (failWait) rejects([&] { aps5NativeAgcSubmit(&complete); });
+        else {
+            check(aps5NativeAgcSubmit(&complete) == 0);
+            rejects([] { AgcDriver::NativeGraphicsRuntime::Get().WaitDraws(); });
+        }
         check(output->probe->failed && !output->probe->ready && marker.value == (failWait ? 17u : 42u));
         AgcDriverUnregisterVideoOutput_nid_postfix(78, output);
     } else {
         check(aps5NativeAgcSubmit(&complete) == 0);
+        AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();
         check(output->probe->ready && !output->probe->failed && marker.value == 43);
     }
 }
@@ -263,6 +270,7 @@ void terminalCompletion() {
     check(marker.value == 0x1122334455667788ull);
     const Packet complete{words.data(), 16, 0, {0, 0, 0}};
     check(aps5NativeAgcSubmit(&complete) == 0);
+    AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();
     check(marker.value == 0x112233440000002aull);
     CommandBuffer invalid{words.data(), words.data() + words.size(), words.data(),
         words.data() + words.size(), nullptr, nullptr, 0};
@@ -517,6 +525,7 @@ void scalarStorage() {
 }
 }
 int main(int argc, char** argv) {
+    struct Shutdown { ~Shutdown() { LibcRunShutdown_nid_postfix(); } } shutdown;
     if (argc > 1) {
         const std::string mode = argv[1];
         if (mode == "--indirect-value" || mode == "--indirect-layout") {

@@ -20,6 +20,8 @@ public:
     ShaderRecompiler::SpirvTarget Target() const;
     void WaitIdle();
     void WaitDraws();
+    std::uint64_t SubmitDraws();
+    std::uint64_t CompletedDraws();
     void AcquireGpuMemory();
     void ResolveMemory(std::uint64_t address, std::size_t bytes, bool writable);
     void* Window() const;

@@ -655,18 +655,23 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
                 }};
                 Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
             }
-            runtime.WaitDraws();
+            runtime.CompleteAfterDraws(
+                [completions = std::move(completions), flips = std::move(flips), requests, received] {
+                    auto completion = completions.begin();
+                    for (std::size_t i = 0; i < flips.size(); ++i) {
+                        while (completion != completions.end() && completion->end <= flips[i].begin) {
+                            if (completion->address) *completion->address = completion->value;
+                            ++completion;
+                        }
+                        requests[i]->GpuReady(AgcDriver::FrameTiming::NativeFlip(received));
+                    }
+                    for (; completion != completions.end(); ++completion)
+                        if (completion->address) *completion->address = completion->value;
+                },
+                [requests](std::exception_ptr error) {
+                    for (const auto& request : requests) request->Fail(error);
+                });
         }
-        auto completion = completions.begin();
-        for (std::size_t i = 0; i < flips.size(); ++i) {
-            while (completion != completions.end() && completion->end <= flips[i].begin) {
-                if (completion->address) *completion->address = completion->value;
-                ++completion;
-            }
-            requests[i]->GpuReady(AgcDriver::FrameTiming::NativeFlip(received));
-        }
-        for (; completion != completions.end(); ++completion)
-            if (completion->address) *completion->address = completion->value;
     } catch (...) {
         const auto failure = std::current_exception();
         for (const auto& request : requests) request->Fail(failure);

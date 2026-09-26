@@ -1,8 +1,19 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libc/include/Shutdown.hpp"
 #include <stdexcept>
 
 namespace AgcDriver {
+NativeGraphicsRuntime::NativeGraphicsRuntime() {
+    LibcRegisterShutdown_nid_postfix([] { Get().Shutdown(); });
+}
+
+void NativeGraphicsRuntime::Shutdown() {
+    completions.Stop();
+    std::lock_guard lock(mutex);
+    device.reset();
+}
+
 NativeGraphicsRuntime& NativeGraphicsRuntime::Get() {
     static NativeGraphicsRuntime runtime;
     return runtime;
@@ -73,10 +84,38 @@ void NativeGraphicsRuntime::Present(const PresentationWindow& window, const Disp
 }
 
 void NativeGraphicsRuntime::WaitDraws() {
+    std::exception_ptr error;
+    {
+        std::lock_guard lock(mutex);
+        try {
+            CheckFailure();
+            if (device) device->WaitDraws();
+        } catch (...) {
+            error = std::current_exception();
+        }
+    }
+    if (error) AgcDriverReportFailure_nid_postfix(error);
+    completions.WaitIdle();
+    if (error) std::rethrow_exception(error);
+    CheckFailure();
+}
+
+void NativeGraphicsRuntime::CompleteAfterDraws(std::function<void()> complete, std::function<void(std::exception_ptr)> fail) {
     std::lock_guard lock(mutex);
     CheckFailure();
-    if (device) device->WaitDraws();
-    CheckFailure();
+    const auto submittedDevice = device;
+    const auto serial = submittedDevice ? submittedDevice->SubmitDraws() : 0;
+    completions.Enqueue(
+        [this, submittedDevice, serial] {
+            std::lock_guard gpuLock(mutex);
+            CheckFailure();
+            return !submittedDevice || submittedDevice->CompletedDraws() >= serial;
+        }, std::move(complete),
+        [this, fail = std::move(fail)](std::exception_ptr error) {
+            AgcDriverReportFailure_nid_postfix(error);
+            ReportFailure(error);
+            fail(error);
+        });
 }
 
 void NativeGraphicsRuntime::ReleaseWindow(void* window) {
