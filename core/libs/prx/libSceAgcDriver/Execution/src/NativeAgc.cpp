@@ -3,6 +3,7 @@
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeDrawCompiler.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/NativeShaderArguments.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include <mutex>
@@ -30,8 +31,8 @@ struct NativeDrawCall {
     Graphics::State graphics;
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
-    std::vector<std::uint32_t> userData;
-    std::uint32_t userDataBase = 0;
+    Graphics::NativeArgumentSnapshot vertexArguments;
+    Graphics::NativeArgumentSnapshot fragmentArguments;
     Graphics::DrawParameters draw{};
     ShaderRecompiler::ShaderPixelStageInfo pixel{};
 };
@@ -41,8 +42,9 @@ struct NativeCommandBufferState {
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
     std::shared_ptr<const NativeShader> computeShader;
-    std::vector<std::uint32_t> userData;
-    std::uint32_t userDataBase = 0;
+    Graphics::NativeShaderArguments vertexArguments;
+    Graphics::NativeShaderArguments fragmentArguments;
+    std::uint32_t firstVertex = 0;
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
@@ -73,6 +75,34 @@ void bindShaderRegister(NativeCommandBufferState& target, std::uint32_t offset, 
         default: throw std::runtime_error("native AGC: shader register has no native lowering");
     }
 }
+void writeShaderArgument(NativeCommandBufferState& target, std::uint32_t offset, std::uint32_t value) {
+    if (offset == 0x8bu || offset == 0x0bu) {
+        const auto count = ((value >> 1u) & 0x1fu) | (((value >> 27u) & 1u) << 5u);
+        (offset == 0x8bu ? target.vertexArguments : target.fragmentArguments).SetCount(count);
+    } else if (offset >= 0x8cu && offset < 0xacu) {
+        target.vertexArguments.Write(offset - 0x8cu, std::span(&value, 1));
+    } else if (offset >= 0x0cu && offset < 0x2cu) {
+        target.fragmentArguments.Write(offset - 0x0cu, std::span(&value, 1));
+    } else {
+        throw std::runtime_error("native AGC: shader configuration has no native lowering at offset " + std::to_string(offset));
+    }
+}
+void writeUserConfiguration(Graphics::NativeGraphicsState& graphics, std::uint8_t& indexSize,
+                            std::uint32_t& firstVertex, std::uint32_t offset, std::uint32_t value) {
+    // UC is graphics configuration, not the per-stage SH user-data arguments.
+    switch (offset) {
+        case 0x242u: graphics.SetUser(offset, value); break;
+        case 0x243u:
+            if ((value & ~0x4c3u) != 0 || (value & 3u) > 2)
+                throw std::invalid_argument("native AGC: invalid index configuration");
+            indexSize = static_cast<std::uint8_t>(value & 3u); break;
+        case 0x24au: firstVertex = value; break;
+        case 0x24bu:
+            if (value != 0) throw std::runtime_error("native AGC: primitive restart requires native lowering");
+            break;
+        default: throw std::runtime_error("native AGC: user configuration has no native lowering at offset " + std::to_string(offset));
+    }
+}
 void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
     if (!s.vertexShader || !s.fragmentShader) throw std::runtime_error("native AGC: draw is missing native vertex or fragment shader");
     if (!s.graphics.ReadyForDraw()) throw std::runtime_error("native AGC: draw graphics state is incomplete");
@@ -82,12 +112,19 @@ void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, 
     call.graphics=s.graphics.Get();
     call.vertexShader=s.vertexShader;
     call.fragmentShader=s.fragmentShader;
-    call.userData=s.userData;
-    call.userDataBase=s.userDataBase;
+    call.vertexArguments=s.vertexArguments.Capture();
+    call.fragmentArguments=s.fragmentArguments.Capture();
     call.draw={indexed?address:0u,count,indexed?bytes:0u,s.instances,0u,indexed,firstVertex,0u};
     const auto pixel=s.graphics.PixelStage();
     if(!pixel) throw std::runtime_error("native AGC: draw pixel-stage metadata is incomplete");
     call.pixel=*pixel;
+    if (s.vertexShader->type != 2 || s.fragmentShader->type != 1 || !s.vertexShader->specials)
+        throw std::runtime_error("native AGC: shader stages require an explicit native lowering");
+    const auto routing = s.vertexShader->specials->vgt_shader_stages_en.value;
+    if ((routing & 0x2000u) == 0 || (routing & 0x24u) != 0 || call.graphics.rectList)
+        throw std::runtime_error("native AGC: generated primitive stages require an explicit native lowering");
+    call.graphics.stages = {Graphics::ShaderPath::Vertex, routing,
+        (routing & 0x400000u) ? 32u : 64u, pixel->wave32 ? 32u : 64u, {}, {}};
     s.draws.push_back(std::move(call));
 }
 NativeCommandBufferState& state(CommandBuffer* buffer) {
@@ -175,46 +212,60 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
     return 0;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
-    if (!regs && count) throw std::invalid_argument("native AGC: null shader register list");
+    if (!regs || count == 0 || count > 0x4000u) throw std::invalid_argument("native AGC: invalid shader argument list");
     std::lock_guard lock(stateMutex); auto& target=state(b);
     for (std::uint32_t i=0;i<count;++i) {
         const std::optional<std::uint32_t> next=(i+1<count && regs[i+1].offset==regs[i].offset+1)?std::optional<std::uint32_t>(regs[i+1].value):std::nullopt;
         if (regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_PS || regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_ES || regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_LS || regs[i].offset==ShaderRegs::COMPUTE_PGM_LO) {
             bindShaderRegister(target,regs[i].offset,regs[i].value,next); ++i;
-        }
+        } else writeShaderArgument(target, regs[i].offset, regs[i].value);
     }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    if (!values && count) throw std::invalid_argument("native AGC: null shader register range");
+    if (!values || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
+        throw std::invalid_argument("native AGC: invalid shader argument range");
     std::lock_guard lock(stateMutex); auto& target=state(b);
     for (std::uint32_t i=0;i<count;++i) {
         const auto current=offset+i;
         if (current==ShaderRegs::SPI_SHADER_PGM_LO_PS || current==ShaderRegs::SPI_SHADER_PGM_LO_ES || current==ShaderRegs::SPI_SHADER_PGM_LO_LS || current==ShaderRegs::COMPUTE_PGM_LO) {
             const std::optional<std::uint32_t> next=i+1<count?std::optional<std::uint32_t>(values[i+1]):std::nullopt;
             bindShaderRegister(target,current,values[i],next); ++i;
-        }
+        } else writeShaderArgument(target, current, values[i]);
     }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
-    if (!regs && count) throw std::invalid_argument("native AGC: null user register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b);
-    if (!count) return opaque(b);
-    target.userDataBase=regs[0].offset;
-    target.userData.clear(); target.userData.reserve(count);
-    for(std::uint32_t i=0;i<count;++i){
-        if(regs[i].offset!=target.userDataBase+i) throw std::runtime_error("native AGC: non-contiguous user data must be lowered explicitly");
-        target.userData.push_back(static_cast<std::uint32_t>(regs[i].value));
-    }
-    return opaque(b);
+    if (!regs || count == 0 || count > 0x4000u)
+        throw std::invalid_argument("native AGC: invalid user configuration list");
+    std::lock_guard lock(stateMutex);
+    auto& target = state(b);
+    auto graphics = target.graphics;
+    auto indexSize = target.indexSize;
+    auto firstVertex = target.firstVertex;
+    for (std::uint32_t i = 0; i < count; ++i)
+        writeUserConfiguration(graphics, indexSize, firstVertex, regs[i].offset, regs[i].value);
+    auto* token = opaque(b);
+    target.graphics = std::move(graphics);
+    target.indexSize = indexSize;
+    target.firstVertex = firstVertex;
+    return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    if (!values && count) throw std::invalid_argument("native AGC: null user register range");
-    std::lock_guard lock(stateMutex); auto& target=state(b);
-    target.userDataBase=offset;
-    target.userData.assign(values,values+count);
-    return opaque(b);
+    if (!values || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
+        throw std::invalid_argument("native AGC: invalid user configuration range");
+    std::lock_guard lock(stateMutex);
+    auto& target = state(b);
+    auto graphics = target.graphics;
+    auto indexSize = target.indexSize;
+    auto firstVertex = target.firstVertex;
+    for (std::uint32_t i = 0; i < count; ++i)
+        writeUserConfiguration(graphics, indexSize, firstVertex, offset + i, values[i]);
+    auto* token = opaque(b);
+    target.graphics = std::move(graphics);
+    target.indexSize = indexSize;
+    target.firstVertex = firstVertex;
+    return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer* b, std::uint64_t address) {
     if (!address) throw std::invalid_argument("native AGC: null index buffer");
@@ -235,7 +286,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t 
     std::lock_guard lock(stateMutex); auto& s=state(b); s.indexBuffer=reinterpret_cast<std::uintptr_t>(address); s.indexCount=count; appendDraw(s,count,true,s.indexBuffer); return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint32_t count, std::uint64_t) {
-    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count; appendDraw(s,count,false,0); return opaque(b);
+    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count; appendDraw(s,count,false,0,s.firstVertex); return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t offset, std::uint32_t count, std::uint64_t) {
     std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count;
@@ -245,6 +296,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uin
     return opaque(b);
 }
 int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
+    AgcDriver::NativeGraphicsRuntime::Get().CheckFailure();
     std::vector<NativeDrawCall> draws;
     {
         std::lock_guard lock(stateMutex);
@@ -261,8 +313,8 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
             return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
         };
         std::array<Graphics::NativeShaderProgram,2> programs{{
-            {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,call.userDataBase,8,call.userData,0},
-            {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,call.userDataBase,0,call.userData,0}
+            {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,0x8cu,8,call.vertexArguments.values,call.vertexArguments.missing},
+            {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,0x0cu,0,call.fragmentArguments.values,call.fragmentArguments.missing}
         }};
         std::array<ShaderRecompiler::MemoryRegion,4> memory{{
             {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},

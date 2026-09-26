@@ -49,3 +49,26 @@ if(BUILD_TESTING AND Python3_Interpreter_FOUND AND UNIX AND NOT APPLE)
         ${CMAKE_SOURCE_DIR}/tests/native_function_relink.py
         $<TARGET_FILE:relinker> ${CMAKE_CXX_COMPILER})
 endif()
+
+if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
+    add_executable(native_failure_propagation_tests tests/NativeFailurePropagation.cpp)
+    target_include_directories(native_failure_propagation_tests PRIVATE core/libs 3rdparty/Vulkan-Headers/include)
+    target_link_libraries(native_failure_propagation_tests PRIVATE libSceAgcDriver libc)
+    add_test(NAME native_failure_propagation COMMAND native_failure_propagation_tests)
+    set_tests_properties(native_failure_propagation PROPERTIES TIMEOUT 10)
+    if(WIN32)
+        set_tests_properties(native_failure_propagation PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceAgcDriver>")
+    endif()
+endif()
+
+if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
+    add_executable(native_shader_argument_tests tests/NativeShaderArguments.cpp)
+    target_include_directories(native_shader_argument_tests PRIVATE core/libs)
+    target_link_libraries(native_shader_argument_tests PRIVATE libSceAgcDriver libc)
+    add_test(NAME native_shader_arguments COMMAND native_shader_argument_tests)
+    if(WIN32)
+        set_tests_properties(native_shader_arguments PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceAgcDriver>")
+    endif()
+endif()

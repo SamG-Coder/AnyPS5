@@ -13,9 +13,13 @@ public:
     VulkanDevice& Presenting(const PresentationWindow& window);
     void ReleaseWindow(void* window);
     void WaitDraws();
+    void CheckFailure() const;
+    bool ReportFailure(std::exception_ptr error) noexcept;
     void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context);
     std::recursive_mutex& Mutex(){return mutex;}
 private:
+    mutable std::mutex failureMutex;
+    std::exception_ptr failure;
     std::recursive_mutex mutex;
     std::shared_ptr<VulkanDevice> device;
 };
