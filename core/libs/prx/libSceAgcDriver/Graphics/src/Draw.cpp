@@ -86,7 +86,6 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
     }
     timing.Mark("index_upload");
     const auto& attributes = shaders.front().program->vertexAttributes;
-    static_cast<void>(BuildVertexInputLayout(context, attributes));
     auto& vertexBuffers = storage->vertices;
     std::vector<VkBuffer> vertexHandles;
     std::vector<VkDeviceSize> vertexOffsets(attributes.size(), 0);
