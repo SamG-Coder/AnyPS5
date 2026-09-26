@@ -1,4 +1,4 @@
-#include "prx/libSceAgcDriver/Graphics/include/State.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/StateDecode.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
