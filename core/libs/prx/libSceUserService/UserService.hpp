@@ -4,9 +4,12 @@
 #include <cstdint>
 
 constexpr int USER_SERVICE_OK = 0;
-constexpr int USER_SERVICE_ERROR_INVALID_ARGUMENT = -2137653246;
+constexpr int USER_SERVICE_ERROR_INVALID_ARGUMENT = static_cast<int>(0x80960005u);
+constexpr int USER_SERVICE_ERROR_NOT_LOGGED_IN = static_cast<int>(0x80960009u);
+constexpr int USER_SERVICE_ERROR_BUFFER_TOO_SHORT = static_cast<int>(0x8096000au);
 constexpr int USER_SERVICE_ERROR_NO_EVENT = -2137653241;
 constexpr int USER_SERVICE_USER_ID_INVALID = -1;
 constexpr int USER_SERVICE_INITIAL_USER_ID = 0x10000000;
+constexpr char USER_SERVICE_INITIAL_USER_NAME[] = "Player";
 
 #endif

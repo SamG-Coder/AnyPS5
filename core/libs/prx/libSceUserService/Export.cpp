@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceUserService/UserService.hpp"
@@ -84,12 +85,12 @@ int APS5_VABI sceUserServiceGetLoginUserIdList(UserServiceLoginUserIdList* user_
  return USER_SERVICE_OK;
 }
 
-int APS5_VABI sceUserServiceGetUserName(int user_id, char* name, size_t size) {
- (void)user_id;
- (void)name;
- (void)size;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceUserServiceGetUserName(int userId, char* name, size_t size) {
+ if (!name || userId == USER_SERVICE_USER_ID_INVALID) return USER_SERVICE_ERROR_INVALID_ARGUMENT;
+ if (userId != USER_SERVICE_INITIAL_USER_ID) return USER_SERVICE_ERROR_NOT_LOGGED_IN;
+ if (size < sizeof(USER_SERVICE_INITIAL_USER_NAME)) return USER_SERVICE_ERROR_BUFFER_TOO_SHORT;
+ std::memcpy(name, USER_SERVICE_INITIAL_USER_NAME, sizeof(USER_SERVICE_INITIAL_USER_NAME));
+ return USER_SERVICE_OK;
 }
 
 int APS5_VABI sceUserServiceGetUserNumber(int user_id, int32_t* number) {
