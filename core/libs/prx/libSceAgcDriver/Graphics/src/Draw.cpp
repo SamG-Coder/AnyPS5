@@ -68,6 +68,7 @@ void Draw(const Context& context, const State& state, const Pm4::DrawParameters&
         depthBytes.resize(depth.bytes);
         GuestMemory::Read(depth.address, depthBytes, 65536);
     }
+    timing.Mark("depth_read");
     auto storage = std::make_shared<DrawStorage>();
     auto& indices = storage->indices;
     std::uint32_t maxIndex = draw.indexed ? 0u : draw.firstVertex + draw.indexCount - 1u;
