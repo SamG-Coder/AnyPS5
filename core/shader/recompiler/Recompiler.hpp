@@ -35,6 +35,9 @@ struct ShaderBinary {
     std::span<const std::uint32_t> code;
     std::uint64_t headerAddress;
     std::span<const std::byte> header;
+    // Stable identity supplied by a native relinker/runtime when the source
+    // binary is immutable. Zero keeps the content-keyed generic behaviour.
+    std::uint64_t sourceIdentity = 0;
 };
 
 struct ShaderComputeStageInfo {
