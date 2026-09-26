@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/State.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DepthState.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libc/include/General.hpp"
 #include <algorithm>
@@ -155,7 +156,7 @@ State DecodeState(const QueueState& queue) {
     }
     zero(queue.userConfig, 0x24b, ~0u, "primitive restart (GE_MULTI_PRIM_IB_RESET_EN)", "user-config");
     zero(cx, 0x207, ~0u, "clip distances, layer, viewport or auxiliary vertex exports");
-    zero(cx, 0x200, ~0x007007f0u, "depth, stencil or conditional color writes");
+    Require(!DecodeDepthState(cx), "depth attachment rendering is not implemented");
     zero(cx, 0x203, ~0x00009870u, "depth export, shader coverage or ordered fragment execution");
     zero(cx, 0x2dc, ~0x0001ff00u, "alpha-to-coverage");
     zero(cx, 0x2f8, ~0u, "multisampling or coverage conversion");
