@@ -1,5 +1,6 @@
 #include <relinker/pipeline/RelinkerPipeline.hpp>
 #include <relinker/analysis/ValidationPolicy.hpp>
+#include <relinker/analysis/AgcLoweringAnalyzer.hpp>
 #include <relinker/analysis/UnusedNidFilter/PltCompactor.hpp>
 #include <sstream>
 #include <iostream>
@@ -301,7 +302,9 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         entries.push_back(std::move(entry));
     }
 
-    return RelinkResult{std::move(entries), std::move(programHeaders), std::move(dynSection), gotVAddr, std::move(patches)};
+    auto agcLoweringSites = AgcLoweringAnalyzer().Analyze(entries);
+    std::cout << "Native AGC lowering sites: " << agcLoweringSites.size() << "\n";
+    return RelinkResult{std::move(entries), std::move(programHeaders), std::move(dynSection), gotVAddr, std::move(patches), std::move(agcLoweringSites)};
 }
 
 }
