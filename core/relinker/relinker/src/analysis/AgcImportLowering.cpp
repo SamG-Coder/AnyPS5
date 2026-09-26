@@ -7,6 +7,7 @@ namespace Relinker {
 static const std::unordered_map<std::string, std::string>& nativeMap() {
     static const std::unordered_map<std::string, std::string> native = {
 
+        {"sceAgcInit", "aps5NativeAgcInit"},
         {"sceAgcDcbDrawIndex", "aps5NativeAgcDrawIndex"},
         {"sceAgcDcbDrawIndexAuto", "aps5NativeAgcDrawIndexAuto"},
         {"sceAgcDcbDrawIndexOffset", "aps5NativeAgcDrawIndexOffset"},

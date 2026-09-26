@@ -20,4 +20,8 @@ int APS5_VABI sceAgcInit(std::uint32_t version) {
     return 0;
 }
 
+int APS5_VABI aps5NativeAgcInit(std::uint32_t version) {
+    return sceAgcInit(version);
+}
+
 }

@@ -19,6 +19,7 @@ extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std:
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
+extern "C" int APS5_VABI aps5NativeAgcInit(std::uint32_t version);
 extern "C" int APS5_VABI sceAgc_23LRUSvYu1M(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t, std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
@@ -329,8 +330,11 @@ void testDefaults() {
     check(sceAgcInit(8) == 0, "AGC initialization failed");
     expectFailure([] { sceAgcInit(14); });
     expectFailure([] { sceAgcInit(0xffffffffu); });
+    expectFailure([] { aps5NativeAgcInit(14); });
+    expectFailure([] { aps5NativeAgcInit(0xffffffffu); });
     for (std::uint32_t version = 0; version < 14; ++version) {
         check(sceAgcInit(version) == 0, "supported AGC version rejected");
+        check(aps5NativeAgcInit(version) == 0, "native AGC initialization rejected supported version");
         check(sceAgc_23LRUSvYu1M(state.data(), version) == 0, "state-based AGC initialization failed");
         for (const bool internal : {false, true}) {
             auto* first = Agc::Command::GetRegisterDefaults(version, internal, __func__);
