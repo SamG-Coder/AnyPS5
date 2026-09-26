@@ -313,8 +313,7 @@ std::array<std::uint32_t, 5> ResolveDispatch(std::span<const std::uint32_t> pack
     return result;
 }
 
-DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
-    Validate(packet, 0);
+DrawParameters ResolveValidatedDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
     if (((packet[0] >> 8u) & 0xffu) == 0x2d) {
         const auto offset = queue.userConfig.find(0x24a);
         require(offset != queue.userConfig.end(), "missing GE_INDX_OFFSET register");
@@ -336,6 +335,11 @@ DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueSta
     require(bytes <= std::numeric_limits<std::size_t>::max(), "index range size overflow");
     GuestMemory::CheckRange(reinterpret_cast<const void*>(indexAddress), static_cast<std::size_t>(bytes), indexSize);
     return {indexAddress, count, indexSize, queue.instanceCount, packet.back()};
+}
+
+DrawParameters ResolveDraw(std::span<const std::uint32_t> packet, const QueueState& queue) {
+    Validate(packet, 0);
+    return ResolveValidatedDraw(packet, queue);
 }
 
 void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
