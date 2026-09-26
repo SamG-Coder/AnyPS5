@@ -2,6 +2,8 @@
 #include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/NativeDrawCompiler.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include <mutex>
 #include <cstring>
 #include <memory>
@@ -29,6 +31,7 @@ struct NativeDrawCall {
     std::vector<std::uint32_t> userData;
     std::uint32_t userDataBase = 0;
     Graphics::DrawParameters draw{};
+    ShaderRecompiler::ShaderPixelStageInfo pixel{};
 };
 
 struct NativeCommandBufferState {
@@ -48,6 +51,7 @@ std::mutex stateMutex;
 std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
 std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
 std::uint64_t nextShaderIdentity = 0;
+std::unique_ptr<AgcDriver::VulkanDevice> nativeDevice;
 std::shared_ptr<const NativeShader> findShaderByProgramAddress(std::uint64_t address) {
     for (const auto& [header, shader] : shaders) {
         if (shader->codeAddress == address) return shader;
@@ -80,6 +84,9 @@ void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, 
     call.userData=s.userData;
     call.userDataBase=s.userDataBase;
     call.draw={indexed?address:0u,count,indexed?bytes:0u,s.instances,0u,indexed,firstVertex,0u};
+    const auto pixel=s.graphics.PixelStage();
+    if(!pixel) throw std::runtime_error("native AGC: draw pixel-stage metadata is incomplete");
+    call.pixel=*pixel;
     s.draws.push_back(std::move(call));
 }
 NativeCommandBufferState& state(CommandBuffer* buffer) {
@@ -243,8 +250,25 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
         throw std::runtime_error("native AGC: graphics submission is missing native vertex or fragment shader binding");
     if (!native.graphics.Primitive())
         throw std::runtime_error("native AGC: graphics submission is missing native primitive topology");
-    // Submission now resolves an authored native command object. Vulkan recording
-    // is connected in the next stage; there is deliberately no PM4 fallback.
-    throw std::runtime_error("native AGC: native Vulkan draw compilation is not complete");
+    if(!nativeDevice) nativeDevice=std::make_unique<AgcDriver::VulkanDevice>();
+    for(const auto& call:native.draws){
+        const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
+            return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
+        };
+        std::array<Graphics::NativeShaderProgram,2> programs{{
+            {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,call.userDataBase,8,call.userData,0},
+            {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,call.userDataBase,0,call.userData,0}
+        }};
+        std::array<ShaderRecompiler::MemoryRegion,4> memory{{
+            {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},
+            {call.vertexShader->headerAddress,call.vertexShader->header},
+            {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
+            {call.fragmentShader->headerAddress,call.fragmentShader->header}
+        }};
+        Graphics::CompileAndEnqueueNativeDraw(*nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+    }
+    nativeDevice->WaitDraws();
+    native.draws.clear();
+    return 0;
 }
 }
