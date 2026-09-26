@@ -1,11 +1,23 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
+#include "prx/libc/include/Shutdown.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceSystemService/SystemService.hpp"
 
 extern "C" {
+
+int APS5_VABI sceSystemServiceLoadExec(const char* path, const char* const* arguments) {
+    if (!path || !*path) return SYSTEM_SERVICE_ERROR_PARAMETER;
+    if (std::strcmp(path, "exit") != 0) {
+        NotImplemented_nid_no_patch("sceSystemServiceLoadExec: executable replacement");
+    }
+    (void)arguments;
+    LibcRunShutdown_nid_postfix();
+    std::exit(0);
+}
 
 int APS5_VABI sceSystemServiceDisableNoticeScreenSkipFlagAutoSet(void) {
  NotImplemented_nid_no_patch(__func__);

@@ -97,6 +97,13 @@ double APS5_VABI strtod_nid_postfix(const char* str, char** endptr) {
     return std::strtod(str, endptr);
 }
 
+double APS5_VABI atof_nid_postfix(const char* str) { return std::atof(str); }
+float APS5_VABI strtof_nid_postfix(const char* str, char** endptr) { return std::strtof(str, endptr); }
+long double APS5_VABI strtold_nid_postfix(const char* str, char** endptr) {
+    static_assert(sizeof(long double) == 16, "Guest long double requires x87 extended precision storage");
+    return std::strtold(str, endptr);
+}
+
 int APS5_VABI atoi_nid_postfix(const char* str) {
     return std::atoi(str);
 }

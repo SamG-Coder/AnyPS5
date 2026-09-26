@@ -77,8 +77,15 @@ PeDirectory WindowsTlsBuilder::Build(const std::vector<std::uint8_t>& source, co
         return {};
     }
 
-    if (tls->MemorySize == 0 || tls->FileSize > tls->MemorySize || tls->Offset > source.size() || tls->FileSize > source.size() - tls->Offset || !std::has_single_bit(tls->Alignment) || tls->Alignment > 8192 || tls->MemorySize > 0x7fff0000u)
+    if (tls->FileSize > tls->MemorySize || tls->Offset > source.size() || tls->FileSize > source.size() - tls->Offset || !std::has_single_bit(tls->Alignment) || tls->Alignment > 8192 || tls->MemorySize > 0x7fff0000u)
         throw Domain::RelinkerException("Invalid or unsupported ELF TLS layout", tls->Offset);
+    // Native homebrew linkers can emit an empty PT_TLS placeholder.
+    // It needs no Windows TLS directory unless guest code accesses TLS.
+    if (tls->MemorySize == 0) {
+        if (!accesses.empty())
+            throw Domain::RelinkerException("Guest TLS access with empty PT_TLS", tls->Offset);
+        return {};
+    }
     const auto alignment = std::max<std::uint64_t>(tls->Alignment, 16);
     const auto blockSize = CheckedRva((tls->MemorySize + alignment - 1) & ~(alignment - 1));
     const auto templateOffset = CheckedRva((64 + alignment - 1) & ~(alignment - 1));

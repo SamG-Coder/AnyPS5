@@ -16,6 +16,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 #include "prx/libSceVideoOut/include/DisplayWindow.hpp"
+#include "prx/libSceVideoOut/include/BufferReuseTracker.hpp"
 
 #include "SDL.h"
 #include "SceTypes.hpp"
@@ -111,6 +112,7 @@ struct VideoOutConfig {
 
     std::array<VideoOutBuffer, VIDEO_OUT_BUFFER_NUM_MAX> buffers{};
     std::array<uint32_t, VIDEO_OUT_BUFFER_NUM_MAX> bufferPending{};
+    std::array<BufferReuseTracker, VIDEO_OUT_BUFFER_NUM_MAX> bufferReuse;
     std::array<BufferAttributeGroup, VIDEO_OUT_BUFFER_ATTRIBUTE_NUM_MAX> groups{};
 
     void Check() const {
@@ -122,6 +124,7 @@ struct VideoOutConfig {
 struct FlipQueue;
 
 struct FlipRequest final : AgcDriver::IFlipRequest, std::enable_shared_from_this<FlipRequest> {
+    std::uint64_t reuseTicket = 0;
     std::shared_ptr<VideoOutConfig> cfg;
     std::shared_ptr<FlipQueue> queue;
     uint64_t generation = 0;

@@ -50,6 +50,7 @@ struct Submission {
     std::vector<std::uint32_t> commands;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
     std::map<std::size_t, std::shared_ptr<IFlipRequest>> flips;
+    std::map<std::size_t, std::shared_ptr<IRenderingWait>> renderingWaits;
     bool suspend = false;
     FrameTiming::Clock::time_point received;
     FrameTiming::Clock::time_point copied;
@@ -119,6 +120,13 @@ public:
             require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
             for (std::size_t cursor = 0; cursor < submission.commands.size();) {
                 const auto* words = submission.commands.data() + cursor;
+                if (words[0] == RenderingWaitPacketHeader) {
+                    const auto output = outputs.find(words[1]);
+                    require(output != outputs.end(), "rendering wait references an unregistered video output");
+                    auto wait = output->second->CaptureRenderingWait(words[2]);
+                    require(wait != nullptr, "video output returned a null rendering wait");
+                    submission.renderingWaits.emplace(cursor, std::move(wait));
+                }
                 if (words[0] == FlipPacketHeader) {
                     const auto output = outputs.find(words[1]);
                     require(output != outputs.end(), "flip references an unregistered video output");
@@ -580,7 +588,10 @@ private:
                     }
                     timing.Mark(gpuCacheBarrier ? "gpu_cache_barrier" : waitDraws ? "draw_wait" : "device_idle_wait");
                 }
-                if (header == FlipPacketHeader) {
+                if (header == RenderingWaitPacketHeader) {
+                    submission.renderingWaits.at(cursor)->Wait();
+                    timing.Mark("rendering_wait");
+                } else if (header == FlipPacketHeader) {
                     CheckFailure();
                     timing.Mark("flip_prepare");
                 } else if (opcode == 0x15) {

@@ -57,6 +57,10 @@ extern "C" void LibcRunShutdown_nid_postfix() {
 
 extern "C" {
 
+[[noreturn]] void APS5_VABI _Exit_nid_postfix(int code) {
+    std::_Exit(code);
+}
+
 void APS5_VABI exit_nid_postfix(int code) {
     LibcRunShutdown_nid_postfix();
     std::exit(code);
@@ -90,5 +94,3 @@ int APS5_VABI atexit_nid_postfix(atexit_func_t func) {
 }
 
 }
-
-#include "prx/libc/src/specifics/linux/PosixProcess.cpp"

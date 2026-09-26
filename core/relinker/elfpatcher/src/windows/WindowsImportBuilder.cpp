@@ -48,6 +48,11 @@ std::vector<std::string> WindowsImportBuilder::ReadLibraries(const Domain::SysVD
             throw Domain::RelinkerException("Invalid or duplicate DT_NEEDED library: " + name);
         result.push_back(std::move(name));
     }
+    // AnyPS5 implements the C runtime in libc.prx. Windows GetProcAddress
+    // does not search a module's dependencies as ELF symbol lookup does.
+    // Keep the requested module first, then make its shared runtime visible.
+    if (unique.contains("libSceLibcInternal.prx") && !unique.contains("libc.prx"))
+        result.push_back("libc.prx");
     return result;
 }
 

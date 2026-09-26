@@ -4,12 +4,44 @@
 #include <cstdarg>
 #include "SceTypes.hpp"
 #include "prx/libc/include/VarArgsAbi.hpp"
+#include "prx/libc/include/FileStream.hpp"
 
 #ifdef _WIN32
 #include "prx/libc/include/WindowsFormatting.hpp"
 #endif
 
 extern "C" {
+
+int APS5_VABI vfprintf_nid_postfix(FileStream* stream, const char* format, VaList* args) {
+    auto* native = GetNativeStream(stream);
+#ifdef _WIN32
+    std::string buffer;
+    const int count = LibcDetail::FormatWindows(nullptr, 0, format, args, &buffer);
+    const int result = std::fwrite(buffer.data(), 1, static_cast<size_t>(count), native) ==
+        static_cast<size_t>(count) ? count : -1;
+#else
+    const int result = std::vfprintf(native, format, *reinterpret_cast<std::va_list*>(args));
+#endif
+    stream->SyncStatus();
+    return result;
+}
+
+int APS5_VABI fprintf_nid_postfix(FileStream* stream, const char* format, ...) {
+#ifdef _WIN32
+    __builtin_sysv_va_list args;
+    __builtin_sysv_va_start(args, format);
+#else
+    std::va_list args;
+    va_start(args, format);
+#endif
+    const int result = vfprintf_nid_postfix(stream, format, reinterpret_cast<VaList*>(args));
+#ifdef _WIN32
+    __builtin_sysv_va_end(args);
+#else
+    va_end(args);
+#endif
+    return result;
+}
 
 #ifdef _WIN32
 
@@ -117,6 +149,14 @@ int APS5_VABI vprintf_nid_postfix(const char* str, VaList* c) {
 #else
     std::va_list* va = reinterpret_cast<std::va_list*>(c);
     return std::vprintf(str, *va);
+#endif
+}
+
+int APS5_VABI vsprintf_nid_postfix(char* str, const char* format, VaList* args) {
+#ifdef _WIN32
+    return LibcDetail::FormatWindows(str, SIZE_MAX, format, args);
+#else
+    return std::vsprintf(str, format, *reinterpret_cast<std::va_list*>(args));
 #endif
 }
 

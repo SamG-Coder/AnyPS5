@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <limits>
 #include <utility>
+#include <cerrno>
 
 #include "prx/libc/include/FileStream.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
@@ -14,6 +15,25 @@
 extern "C" {
 
 [[noreturn]] void APS5_VABI _ZSt11_Xbad_allocv_nid_postfix();
+
+FileStream* APS5_VABI freopen_nid_postfix(const char* filename, const char* mode, FileStream* stream) {
+    if (!stream || !mode) { errno = 22; return nullptr; }
+    if (!filename) { errno = 45; return nullptr; } // Mode-only reopening is not supported.
+    const char* supported[] = {"r", "w", "a", "rb", "wb", "ab", "r+", "w+", "a+",
+        "rb+", "wb+", "ab+", "r+b", "w+b", "a+b"};
+    bool valid = false;
+    for (const auto* candidate : supported) if (std::strcmp(mode, candidate) == 0) valid = true;
+    if (!valid) { errno = 22; return nullptr; }
+    try {
+        const auto path = *filename ? ResolvePath_nid_no_patch(filename).string() : std::string{};
+        if (stream->Reopen(path.c_str(), mode)) return stream;
+        const int error = errno;
+        if (stream->IsDynamic()) delete stream;
+        errno = error;
+        return nullptr;
+    } catch (const std::bad_alloc&) { errno = 12; return nullptr; }
+      catch (const std::filesystem::filesystem_error&) { errno = 5; return nullptr; }
+}
 
 FileStream* APS5_VABI fopen_nid_postfix(const char* filename, const char* mode) {
     if (!filename || !mode) throw std::runtime_error(std::string(__func__) + ": " + FOPEN_MSG_NULL_ARG);
@@ -55,6 +75,7 @@ size_t APS5_VABI fread_nid_postfix(void* buffer, size_t size, size_t count, File
     if (size == 0 || count == 0) return 0;
     if (!buffer) throw std::runtime_error("fread: null buffer");
     const auto result = std::fread(buffer, size, count, handle);
+    stream->SyncStatus();
     if (std::ferror(handle)) throw std::runtime_error("fread: read failed");
     return result;
 }
@@ -64,21 +85,41 @@ size_t APS5_VABI fwrite_nid_postfix(const void* buffer, size_t size, size_t coun
     if (size == 0 || count == 0) return 0;
     if (!buffer) throw std::runtime_error("fwrite: null buffer");
     const auto result = std::fwrite(buffer, size, count, handle);
+    stream->SyncStatus();
     if (result != count || std::ferror(handle)) throw std::runtime_error("fwrite: write failed");
     return result;
 }
 
-int APS5_VABI fseek_nid_postfix(FileStream* stream, long offset, int origin) {
-    if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) throw std::runtime_error("fseek: invalid origin");
-    if (std::fseek(GetNativeStream(stream), offset, origin) != 0) throw std::runtime_error("fseek: seek failed");
-    return 0;
-}
-
-long APS5_VABI ftell_nid_postfix(FileStream* stream) {
-    const auto result = std::ftell(GetNativeStream(stream));
-    if (result == -1L) throw std::runtime_error("ftell: position query failed");
+int APS5_VABI fseeko_nid_postfix(FileStream* stream, std::int64_t offset, int origin) {
+    if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) { errno = 22; return -1; }
+#ifdef _WIN32
+    const int result = _fseeki64(GetNativeStream(stream), offset, origin);
+#else
+    static_assert(sizeof(off_t) == 8);
+    const int result = ::fseeko(GetNativeStream(stream), offset, origin);
+#endif
+    const int nativeError = errno;
+    stream->SyncStatus();
+    if (result) errno = nativeError == EOVERFLOW ? 84 : nativeError;
     return result;
 }
+
+std::int64_t APS5_VABI ftello_nid_postfix(FileStream* stream) {
+#ifdef _WIN32
+    const auto result = _ftelli64(GetNativeStream(stream));
+#else
+    static_assert(sizeof(off_t) == 8);
+    const auto result = ::ftello(GetNativeStream(stream));
+#endif
+    if (result == -1 && errno == EOVERFLOW) errno = 84;
+    return result;
+}
+
+int APS5_VABI fseek_nid_postfix(FileStream* stream, std::int64_t offset, int origin) {
+    return fseeko_nid_postfix(stream, offset, origin);
+}
+
+std::int64_t APS5_VABI ftell_nid_postfix(FileStream* stream) { return ftello_nid_postfix(stream); }
 
 int APS5_VABI fputs_nid_postfix(const char* str, FileStream* stream) {
     if (!str) throw std::runtime_error("fputs: null string");
@@ -114,6 +155,27 @@ void* APS5_VABI calloc_nid_postfix(size_t count, size_t size) {
 
 int APS5_VABI posix_memalign_nid_postfix(void** pointer, size_t alignment, size_t size) {
     return ApplicationHeapPosixAlign_nid_no_patch(pointer, alignment, size);
+}
+
+void* APS5_VABI bsearch_nid_postfix(const void* key, const void* base, size_t count,
+    size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
+    if (count == 0) return nullptr;
+    if (!key || !base || !compare || size == 0)
+        throw std::invalid_argument("bsearch: invalid arguments");
+    if (count > std::numeric_limits<size_t>::max() / size)
+        throw std::overflow_error("bsearch: array size overflow");
+    const auto* bytes = static_cast<const unsigned char*>(base);
+    size_t first = 0;
+    while (count != 0) {
+        const size_t half = count / 2;
+        const size_t middle = first + half;
+        const auto* element = bytes + middle * size;
+        const int result = compare(key, element);
+        if (result == 0) return const_cast<unsigned char*>(element);
+        if (result < 0) count = half;
+        else { first = middle + 1; count -= half + 1; }
+    }
+    return nullptr;
 }
 
 void APS5_VABI qsort_nid_postfix(void* base, size_t count, size_t size, int (APS5_VABI *compare)(const void*, const void*)) {
