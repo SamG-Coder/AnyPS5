@@ -1,4 +1,7 @@
 #include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libc/include/GuestMemoryBacking.hpp"
+#include "prx/libc/include/GuestMemoryTracking.hpp"
 #include "ControlFlow/RequestSerializer.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/ResourceProgram.hpp"
@@ -6,6 +9,7 @@
 #if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
 #endif
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <future>
@@ -37,6 +41,25 @@ void verifyResult(const ShaderRecompiler::RecompileResult& first, const ShaderRe
         const auto& left = first.bindings[index];
         const auto& right = second.bindings[index];
         require(left.kind == right.kind && left.role == right.role && left.descriptorSet == right.descriptorSet && left.binding == right.binding && left.count == right.count && left.guestDescriptor == right.guestDescriptor && left.readOnly == right.readOnly, "replayed binding differs");
+    }
+}
+
+void verifyMappingCache() {
+    const auto page = GuestMemoryTracking::GuestMemoryTrackingPageSize_nid_postfix();
+    const auto granule = std::max(page, std::size_t{65536});
+    auto* mapping = static_cast<std::byte*>(GuestMemoryBacking::GuestMemoryBackingMap_nid_postfix(nullptr, granule * 2, granule, 3));
+    auto split = false;
+    try {
+        AgcDriver::GuestMemory::CheckRange(mapping, granule * 2, 1, true);
+        AgcDriver::GuestMemory::CheckRange(mapping + 64, 16, 1, true);
+        GuestMemoryBacking::GuestMemoryBackingUnmap_nid_postfix(mapping + granule, granule);
+        split = true;
+        expectFailure([&] { AgcDriver::GuestMemory::CheckRange(mapping + granule, page, 1); }, "not readable", "cached mapping query kept a deactivated guest page readable");
+        AgcDriver::GuestMemory::CheckRange(mapping, granule, 1, true);
+        GuestMemoryBacking::GuestMemoryBackingUnmap_nid_postfix(mapping, granule);
+    } catch (...) {
+        GuestMemoryBacking::GuestMemoryBackingUnmap_nid_postfix(mapping, split ? granule : granule * 2);
+        throw;
     }
 }
 
@@ -99,6 +122,7 @@ void verifyInputOwnership() {
 int main() {
     try {
         using namespace ShaderRecompiler;
+        verifyMappingCache();
         verifyRegisterSources();
         verifyInputOwnership();
 #if ANYPS5_ENABLE_SPIRV_TOOLS

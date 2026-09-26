@@ -18,6 +18,8 @@ std::size_t GuestMemoryTrackingPageSize_nid_postfix();
 void* GuestMemoryTrackingCreate_nid_postfix(std::uint64_t address, std::size_t bytes, void* context, Resolver resolver);
 void GuestMemoryTrackingDestroy_nid_postfix(void* handle) noexcept;
 void GuestMemoryTrackingProtect_nid_postfix(void* handle, Protection protection);
+std::uint64_t GuestMemoryTrackingGeneration_nid_postfix();
+void GuestMemoryTrackingNoteMappingChange_nid_postfix();
 void GuestMemoryTrackingResolve_nid_postfix(std::uint64_t address, std::size_t bytes, bool writable);
 void GuestMemoryTrackingInvalidate_nid_postfix(std::uint64_t address, std::size_t bytes);
 void GuestMemoryTrackingValidate_nid_postfix(std::uint64_t address, std::size_t bytes, const std::function<void(std::uint64_t, std::size_t)>& validate);
