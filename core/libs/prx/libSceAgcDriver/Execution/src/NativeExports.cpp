@@ -3,6 +3,8 @@
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include <memory>
+#include <mutex>
+#include <unordered_map>
 #include <stdexcept>
 namespace {
 std::unordered_map<std::uint32_t,std::shared_ptr<AgcDriver::IVideoOutput>> outputs;
