@@ -50,6 +50,7 @@ constexpr Vop2OpcodeInfo vop2Opcodes[] = {
     {0x03u, RdnaOpcode::VAddF32, Vop2SdwaProfile::Float32},
     {0x04u, RdnaOpcode::VSubF32, Vop2SdwaProfile::Float32},
     {0x05u, RdnaOpcode::VSubrevF32},
+    {0x07u, RdnaOpcode::VMulLegacyF32, Vop2SdwaProfile::Float32},
     {0x08u, RdnaOpcode::VMulF32, Vop2SdwaProfile::Float32},
     {0x09u, RdnaOpcode::VMulI32I24, Vop2SdwaProfile::IntegerFullDestination},
     {0x0bu, RdnaOpcode::VMulU32U24, Vop2SdwaProfile::IntegerFullDestination},
@@ -418,7 +419,7 @@ template <typename TEntry, std::size_t Size>
 RdnaOpcode lookupVectorOpcode(const TEntry (&table)[Size], std::uint32_t encoding, const char* notSupportedReason) {
     const auto* entry = findVectorOpcodeEntry(table, encoding);
     if (entry == nullptr) {
-        throw std::invalid_argument(notSupportedReason);
+        throw std::invalid_argument(std::string(notSupportedReason) + ": " + std::to_string(encoding));
     }
     return entry->opcode;
 }
@@ -656,6 +657,7 @@ bool isVop2FloatOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VAddF32:
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VSubrevF32:
+        case RdnaOpcode::VMulLegacyF32:
         case RdnaOpcode::VMulF32:
         case RdnaOpcode::VMinF32:
         case RdnaOpcode::VMaxF32:
@@ -1315,6 +1317,7 @@ bool supportsNativeVop3SourceModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VAddF32:
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VSubrevF32:
+        case RdnaOpcode::VMulLegacyF32:
         case RdnaOpcode::VMulF32:
         case RdnaOpcode::VMinF32:
         case RdnaOpcode::VMaxF32:
@@ -1345,6 +1348,7 @@ bool supportsNativeVop3ResultModifiers(RdnaOpcode opcode) {
         case RdnaOpcode::VAddF32:
         case RdnaOpcode::VSubF32:
         case RdnaOpcode::VSubrevF32:
+        case RdnaOpcode::VMulLegacyF32:
         case RdnaOpcode::VMulF32:
         case RdnaOpcode::VMinF32:
         case RdnaOpcode::VMaxF32:
