@@ -1,9 +1,16 @@
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
+#include "prx/libc/include/GuestMemoryBacking.hpp"
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 extern "C" {
 void* APS5_VABI mmap_nid_postfix(void*, std::size_t, int, int, int, std::int64_t) noexcept;
@@ -84,4 +91,37 @@ int main() {
         }
         Require(munmap_nid_postfix(mapped, 1) == 0);
     }
+#ifdef _WIN32
+    using namespace GuestMemoryBacking;
+    constexpr std::size_t granularity = 0x10000;
+    auto* initial = static_cast<unsigned char*>(GuestMemoryBackingMap_nid_postfix(nullptr, granularity * 3, granularity, 3));
+    Require(reinterpret_cast<std::uintptr_t>(initial) + granularity * 3 <= 0x100000000ull);
+    GuestMemoryBackingUnmap_nid_postfix(initial, granularity * 3);
+    MEMORY_BASIC_INFORMATION retained{};
+    Require(VirtualQuery(initial, &retained, sizeof(retained)) != 0 && retained.State == MEM_RESERVE);
+    void* pressure = VirtualAlloc(nullptr, 0x4000000000ull, MEM_RESERVE, PAGE_NOACCESS);
+    Require(pressure != nullptr);
+    for (std::size_t i = 0; i < 3; ++i)
+        Require(GuestMemoryBackingMap_nid_postfix(initial + i * granularity, granularity, granularity, 3) == initial + i * granularity);
+    const unsigned char value = 91;
+    GuestMemoryBackingWrite_nid_postfix(reinterpret_cast<std::uintptr_t>(initial), &value, sizeof(value));
+    Require(initial[0] == value);
+    bool rejected = false;
+    try { GuestMemoryBackingMap_nid_postfix(initial, granularity, granularity, 3); }
+    catch (...) { rejected = true; }
+    Require(rejected && initial[0] == value);
+    GuestMemoryBackingUnmap_nid_postfix(initial + granularity, granularity);
+    GuestMemoryBackingUnmap_nid_postfix(initial, granularity);
+    GuestMemoryBackingUnmap_nid_postfix(initial + granularity * 2, granularity);
+    Require(GuestMemoryBackingMap_nid_postfix(initial, granularity * 3, granularity, 3) == initial);
+    Require(initial[0] == 0);
+    GuestMemoryBackingUnmap_nid_postfix(initial, granularity * 3);
+    auto* texture = static_cast<unsigned char*>(GuestMemoryBackingMap_nid_postfix(nullptr, 0x200000, 0x200000, 3));
+    Require(reinterpret_cast<std::uintptr_t>(texture) % 0x200000 == 0);
+    Require(reinterpret_cast<std::uintptr_t>(texture) + 0x200000 <= 0x100000000ull);
+    texture[0] = value;
+    Require(texture[0] == value);
+    GuestMemoryBackingUnmap_nid_postfix(texture, 0x200000);
+    Require(VirtualFree(pressure, 0, MEM_RELEASE) != FALSE);
+#endif
 }
