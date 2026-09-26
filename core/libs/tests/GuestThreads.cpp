@@ -67,6 +67,7 @@ int APS5_VABI pthread_attr_setinheritsched_nid_postfix(PthreadAttr*, int);
 int APS5_VABI pthread_attr_setschedparam_nid_postfix(PthreadAttr*, const KernelSchedParam*);
 int APS5_VABI pthread_attr_setschedpolicy_nid_postfix(PthreadAttr*, int);
 int APS5_VABI pthread_attr_setstacksize_nid_postfix(PthreadAttr*, std::size_t);
+int APS5_VABI scePthreadAttrSetstack(PthreadAttr*, void*, std::size_t);
 Pthread APS5_VABI pthread_self_nid_postfix();
 int APS5_VABI pthread_equal_nid_postfix(Pthread, Pthread);
 void APS5_VABI pthread_yield_nid_postfix();
@@ -413,6 +414,22 @@ static void CheckAttributes() {
     Require(pthread_attr_setdetachstate_nid_postfix(&attr, 0) == 0);
     Require(pthread_attr_setstacksize_nid_postfix(&attr, 2048) == 0);
     Pthread thread = nullptr;
+    const auto rejectedEntries = attributeEntries.load();
+    Require(pthread_attr_setinheritsched_nid_postfix(&attr, 0) == 0);
+    Require(pthread_create_nid_postfix(&thread, &attr, CountAttributeThread, nullptr) == 45 && !thread);
+    Require(pthread_attr_setinheritsched_nid_postfix(&attr, 4) == 0);
+#ifdef _WIN32
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, SIZE_MAX) == 0);
+    Require(pthread_create_nid_postfix(&thread, &attr, CountAttributeThread, nullptr) == 22 && !thread);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 2048) == 0);
+#endif
+    std::array<unsigned char, 2048> suppliedStack{};
+    Require(scePthreadAttrSetstack(&attr, suppliedStack.data(), suppliedStack.size()) == 0);
+    Require(pthread_create_nid_postfix(&thread, &attr, CountAttributeThread, nullptr) == 45 && !thread);
+    Require(attributeEntries.load() == rejectedEntries);
+    Require(pthread_attr_destroy_nid_postfix(&attr) == 0);
+    Require(pthread_attr_init_nid_postfix(&attr) == 0);
+    Require(pthread_attr_setstacksize_nid_postfix(&attr, 2048) == 0);
     const auto before = attributeEntries.load();
     Require(pthread_create_nid_postfix(&thread, &attr, CountAttributeThread, nullptr) == 0);
     PthreadAttr queried = nullptr;

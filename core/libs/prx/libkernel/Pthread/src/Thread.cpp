@@ -120,6 +120,8 @@ extern "C" {
 int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, PthreadEntry entry, void* arg, const char*) {
     if (!thread || !entry) throw std::runtime_error("scePthreadCreate: null arg");
     if (attr && !*attr) throw std::runtime_error("scePthreadCreate: null attributes");
+    if (attr && ((*attr)->stackAddress || (*attr)->_inheritsched == 0))
+        return static_cast<int>(0x8002002du);
     auto p = std::make_unique<PthreadPrivate>();
     bool detached = false;
     if (attr && *attr) detached = ((*attr)->_detachstate == DETACH_DETACHED);
@@ -132,10 +134,12 @@ int APS5_VABI scePthreadCreate(Pthread* thread, const PthreadAttr* attr, Pthread
     SYSTEM_INFO system{};
     GetSystemInfo(&system);
     const auto page = system.dwPageSize == 0 ? static_cast<std::size_t>(4096) : static_cast<std::size_t>(system.dwPageSize);
+    if (p->stackSize > std::numeric_limits<unsigned>::max() - (page - 1))
+        return SCE_KERNEL_ERROR_EINVAL;
     auto hostStack = (p->stackSize + page - 1) & ~(page - 1);
     if (hostStack < 16384) hostStack = 16384;
     if (hostStack > std::numeric_limits<unsigned>::max())
-        throw std::runtime_error("scePthreadCreate: stack exceeds host limit");
+        return SCE_KERNEL_ERROR_EINVAL;
     auto native = std::make_unique<NativeThreadArgs>(NativeThreadArgs{std::move(args), start.get_future(), {}});
     auto initialized = native->initialized.get_future();
     const auto handle = _beginthreadex(nullptr, static_cast<unsigned>(hostStack), StartNativeThread, native.get(), 0, nullptr);
