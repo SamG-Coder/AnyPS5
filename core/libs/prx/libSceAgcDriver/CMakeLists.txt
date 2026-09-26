@@ -77,6 +77,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderValidation.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/State.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/NativeGraphicsState.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/NativeDrawCompiler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestTextureResource.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestSamplerResource.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/TextureFormat.cpp
