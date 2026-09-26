@@ -125,6 +125,18 @@ bool TranslationContext::floatBinary(const RdnaInstruction& inst, IrOpcode opcod
     return true;
 }
 
+bool TranslationContext::mulLegacyF32(const RdnaInstruction& inst) {
+    auto& lhs = *readOperand(sourceAt(inst, 0u), IrType::F32);
+    auto& rhs = *readOperand(sourceAt(inst, 1u), IrType::F32);
+    auto& lhsMagnitude = ir.BitwiseAnd(ir.BitCastU32(lhs), ir.Constant(0x7fffffffu));
+    auto& rhsMagnitude = ir.BitwiseAnd(ir.BitCastU32(rhs), ir.Constant(0x7fffffffu));
+    auto& zero = ir.LogicalOr(ir.IEqual(lhsMagnitude, ir.Constant(0u)), ir.IEqual(rhsMagnitude, ir.Constant(0u)));
+    auto& product = ir.Emit(IrOpcode::FPMul32, IrType::F32, {&lhs, &rhs});
+    auto& result = ir.Select(zero, ir.ConstantF32(0.0f), product);
+    writeOperand(inst.destination, &result);
+    return true;
+}
+
 bool TranslationContext::floatTernary(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool mix) {
     std::array<IrValue*, 3> args{};
     for (std::uint32_t index = 0u; index < args.size(); ++index) {

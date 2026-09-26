@@ -138,6 +138,7 @@ private:
     bool float16Ternary(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool mix);
     bool floatUnary(const RdnaInstruction& inst, IrOpcode opcode);
     bool floatBinary(const RdnaInstruction& inst, IrOpcode opcode, bool reverse);
+    bool mulLegacyF32(const RdnaInstruction& inst);
     bool floatTernary(const RdnaInstruction& inst, IrOpcode opcode, bool accumulator, bool mix);
     bool vFrexpMantF32(const RdnaInstruction& inst);
     bool vDot2cF32F16(const RdnaInstruction& inst);
