@@ -23,8 +23,12 @@ int APS5_VABI sceAgcCreatePrimState(ShaderRegister* cx_regs, ShaderRegister* uc_
     }
     (void)GraphicsPrimTypeToGsOut(prim_type);
     if (cx_regs != nullptr) {
-        const auto valid = [](const Shader* shader) { return shader->specials->vgt_shader_stages_en.offset == ShaderRegs::VGT_SHADER_STAGES_EN && shader->specials->vgt_gs_out_prim_type.offset == ShaderRegs::VGT_GS_OUT_PRIM_TYPE; };
-        if (!valid(gs) || (hs != nullptr && !valid(hs))) {
+        const auto valid = [](const Shader* shader, bool needsOutputPrimitive) {
+            return shader->specials->vgt_shader_stages_en.offset == ShaderRegs::VGT_SHADER_STAGES_EN &&
+                (!needsOutputPrimitive || shader->specials->vgt_gs_out_prim_type.offset == ShaderRegs::VGT_GS_OUT_PRIM_TYPE);
+        };
+        const bool usesGeometryOutput = (gs->specials->vgt_shader_stages_en.value & ShaderRegs::VGT_SHADER_STAGES_GS_BIT) != 0;
+        if (!valid(gs, usesGeometryOutput) || (hs != nullptr && !valid(hs, !usesGeometryOutput && (hs->specials->vgt_shader_stages_en.value & ShaderRegs::VGT_SHADER_STAGES_GS_BIT) == 0))) {
             throw std::runtime_error(std::string(__func__) + ": invalid context register offsets");
         }
     }

@@ -53,6 +53,20 @@ int main() {
     Require(context.back().value == 0xcafebabe && primitive.back().value == 0xcafebabe);
     const auto savedContext = context;
     const auto savedPrimitive = primitive;
+    special.vgt_gs_out_prim_type = {};
+    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
+    Require(context[1].offset == VGT_GS_OUT_PRIM_TYPE && context[1].value == 2);
+    Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
+    Require(std::memcmp(primitive.data(), savedPrimitive.data(), sizeof(primitive)) == 0);
+    special.vgt_shader_stages_en.value |= VGT_SHADER_STAGES_GS_BIT;
+    bool missingGeometryOutputRejected = false;
+    try { sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
+    catch (const std::runtime_error&) { missingGeometryOutputRejected = true; }
+    Require(missingGeometryOutputRejected);
+    Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
+    Require(std::memcmp(primitive.data(), savedPrimitive.data(), sizeof(primitive)) == 0);
+    special.vgt_shader_stages_en.value &= ~VGT_SHADER_STAGES_GS_BIT;
+    special.vgt_gs_out_prim_type = {VGT_GS_OUT_PRIM_TYPE, 0};
     pixel.num_input_semantics = 33;
     Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == GRAPHICS5_ERROR_INVALID_SHADER_PROGRAM);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
