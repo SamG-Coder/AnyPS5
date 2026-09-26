@@ -3,6 +3,7 @@
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <array>
+#include <bit>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -84,9 +85,10 @@ ShaderRecompiler::ShaderPixelStageInfo DecodePixelStageInfo(const Registers& con
     const auto ena = read(context, spiPsInputEna);
     const auto addr = read(context, spiPsInputAddr);
     const auto activeInputs = ena & addr;
-    constexpr std::uint32_t knownMask = 0x1u | 0x2u | 0x10u | 0x20u | 0x100u | 0x200u | 0x400u | 0x800u | 0x1000u | 0x2000u;
+    constexpr std::uint32_t knownMask = 0x1u | 0x2u | 0x10u | 0x20u | 0x80u | 0x100u | 0x200u | 0x400u | 0x800u | 0x1000u | 0x2000u;
     if ((activeInputs & ~knownMask) != 0) {
-        throw std::runtime_error("AGC graphics: unsupported SPI_PS_INPUT_ENA/ADDR bit combination");
+        throw std::runtime_error("AGC graphics: unsupported SPI_PS_INPUT_ENA/ADDR bit combination: ena=" +
+            std::to_string(ena) + ", addr=" + std::to_string(addr) + ", unsupported=" + std::to_string(activeInputs & ~knownMask));
     }
     std::array<std::uint32_t, 32> interpolatorSettings{};
     for (std::uint32_t i = 0; i < inputNum; ++i) {
@@ -137,7 +139,9 @@ ShaderRecompiler::ShaderPixelStageInfo DecodePixelStageInfo(const Registers& con
         zOrder == 1u && !pixelKillEnable && !depthExportEnable && !sampleMaskExportEnable,
         ((shaderControl >> 10u) & 0x1u) != 0,
         targetOutputMode,
-        targetExportMapping
+        targetExportMapping,
+        2u * static_cast<std::uint32_t>(std::popcount(activeInputs & 0x33u)) + ((activeInputs & 0x80u) != 0u ? 1u : 0u),
+        (activeInputs & 0x80u) != 0u
     };
 }
 
