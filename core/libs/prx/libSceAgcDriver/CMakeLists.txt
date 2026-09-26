@@ -50,6 +50,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/NativeAgc.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/NativeGraphicsRuntime.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../libSceAgc/Shader/src/ShaderUtils.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/ShaderMemory.cpp
