@@ -15,12 +15,14 @@ struct Allocation {
     std::uint32_t requested = 0;
     bool success = true;
     bool insufficient = false;
+    std::uint32_t* source = nullptr;
     CommandBuffer nested{nestedWords.data(), nestedWords.data() + nestedWords.size(),
         nestedWords.data(), nestedWords.data() + nestedWords.size(), nullptr, nullptr, 0};
 };
 bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userData) {
     auto& allocation = *static_cast<Allocation*>(userData);
     allocation.requested = count;
+    if (allocation.source) *allocation.source = 0xffffffffu;
     aps5NativeAgcSetIndexCount(&allocation.nested, 7);
     if (!allocation.success) return false;
     buffer->bottom = allocation.words.data();
@@ -28,6 +30,40 @@ bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userDa
     buffer->cursor_up = buffer->bottom;
     buffer->cursor_down = allocation.insufficient ? buffer->bottom + 1 : buffer->top;
     return true;
+}
+void rangeStorage() {
+    for (const bool shader : {false, true}) {
+        Allocation allocation;
+        allocation.words.fill(0xabcdef01u);
+        std::uint32_t value = shader ? 8u : 4u;
+        allocation.source = &value;
+        CommandBuffer buffer{nullptr, nullptr, nullptr, nullptr, allocate, &allocation, 0};
+        const auto setter = shader ? aps5NativeAgcSetShRegisterRange : aps5NativeAgcSetUcRegisterRange;
+        const auto offset = shader ? 0x8bu : 0x242u;
+        check(setter(&buffer, offset, &value, 1) == allocation.words.data());
+        check(allocation.requested == 3 && value == 0xffffffffu);
+        check(buffer.cursor_up == allocation.words.data() + 3);
+        check(allocation.words[0] == 0 && allocation.words[1] == 0 && allocation.words[2] == 0);
+        check(allocation.words[3] == 0xabcdef01u);
+        const auto cursor = buffer.cursor_up;
+        const auto words = allocation.words;
+        rejects([&] { setter(&buffer, offset, reinterpret_cast<const std::uint32_t*>(
+            reinterpret_cast<std::uintptr_t>(&value) + 1), 1); });
+        check(buffer.cursor_up == cursor && allocation.words == words);
+        buffer.cursor_down = cursor + 2;
+        buffer.callback = nullptr;
+        value = shader ? 8u : 4u;
+        rejects([&] { setter(&buffer, offset, &value, 1); });
+        check(buffer.cursor_up == cursor && allocation.words == words);
+    }
+    std::array<std::uint32_t, 16> words{};
+    const std::array<std::uint32_t, 2> values{4, 1};
+    CommandBuffer buffer{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    check(aps5NativeAgcSetUcRegisterRange(&buffer, 0x242, values.data(), 2) == words.data());
+    check(buffer.cursor_up == words.data() + 4);
+    check(aps5NativeAgcSetShRegisterRange(&buffer, 0x8c, values.data(), 2) == words.data() + 4);
+    check(buffer.cursor_up == words.data() + 8);
 }
 void scalarStorage() {
     std::array<std::uint32_t, 16> words;
@@ -73,6 +109,7 @@ void scalarStorage() {
 }
 int main() {
     scalarStorage();
+    rangeStorage();
     using AgcDriver::Graphics::NativeShaderArguments;
     NativeShaderArguments vertex, fragment;
     rejects([&] { vertex.Capture(); });

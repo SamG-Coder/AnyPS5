@@ -247,17 +247,19 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer* b, const vol
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    if (!values || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
+    if (!values || (reinterpret_cast<std::uintptr_t>(values) & 3u) != 0 || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
         throw std::invalid_argument("native AGC: invalid shader argument range");
+    const std::vector<std::uint32_t> snapshot(values, values + count);
+    reserveTokens(b, count + 2u);
     std::lock_guard lock(stateMutex); auto& target=state(b);
     for (std::uint32_t i=0;i<count;++i) {
         const auto current=offset+i;
         if (current==ShaderRegs::SPI_SHADER_PGM_LO_PS || current==ShaderRegs::SPI_SHADER_PGM_LO_ES || current==ShaderRegs::SPI_SHADER_PGM_LO_LS || current==ShaderRegs::COMPUTE_PGM_LO) {
-            const std::optional<std::uint32_t> next=i+1<count?std::optional<std::uint32_t>(values[i+1]):std::nullopt;
-            bindShaderRegister(target,current,values[i],next); ++i;
-        } else writeShaderArgument(target, current, values[i]);
+            const std::optional<std::uint32_t> next=i+1<count?std::optional<std::uint32_t>(snapshot[i+1]):std::nullopt;
+            bindShaderRegister(target,current,snapshot[i],next); ++i;
+        } else writeShaderArgument(target, current, snapshot[i]);
     }
-    return opaque(b);
+    return opaque(b, count + 2u);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs || count == 0 || count > 0x4000u)
@@ -276,16 +278,18 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const vol
     return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    if (!values || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
+    if (!values || (reinterpret_cast<std::uintptr_t>(values) & 3u) != 0 || count == 0 || count > 0x3fffu || offset > 0xffffu || count > 0x10000u - offset)
         throw std::invalid_argument("native AGC: invalid user configuration range");
+    const std::vector<std::uint32_t> snapshot(values, values + count);
+    reserveTokens(b, count + 2u);
     std::lock_guard lock(stateMutex);
     auto& target = state(b);
     auto graphics = target.graphics;
     auto indexSize = target.indexSize;
     auto firstVertex = target.firstVertex;
     for (std::uint32_t i = 0; i < count; ++i)
-        writeUserConfiguration(graphics, indexSize, firstVertex, offset + i, values[i]);
-    auto* token = opaque(b);
+        writeUserConfiguration(graphics, indexSize, firstVertex, offset + i, snapshot[i]);
+    auto* token = opaque(b, count + 2u);
     target.graphics = std::move(graphics);
     target.indexSize = indexSize;
     target.firstVertex = firstVertex;
