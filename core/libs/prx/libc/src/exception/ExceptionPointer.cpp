@@ -1,9 +1,9 @@
 #include <exception>
+#include <cstring>
 
 extern "C" {
 void ExceptionPointerAddref(std::exception_ptr* self) noexcept asm("_ZNSt15__exception_ptr13exception_ptr9_M_addrefEv");
 void ExceptionPointerRelease(std::exception_ptr* self) noexcept asm("_ZNSt15__exception_ptr13exception_ptr10_M_releaseEv");
-void* ExceptionPointerGet(const std::exception_ptr* self) noexcept asm("_ZNKSt15__exception_ptr13exception_ptr6_M_getEv");
 void ExceptionPointerConstruct(std::exception_ptr* self, void* exception) noexcept asm("_ZNSt15__exception_ptr13exception_ptrC1EPv");
 const std::type_info* ExceptionPointerType(const std::exception_ptr* self) noexcept asm("_ZNKSt15__exception_ptr13exception_ptr20__cxa_exception_typeEv");
 
@@ -16,7 +16,10 @@ void APS5_VABI _ZNSt15__exception_ptr13exception_ptr10_M_releaseEv_nid_postfix(s
 }
 
 void* APS5_VABI _ZNKSt15__exception_ptr13exception_ptr6_M_getEv_nid_postfix(const std::exception_ptr* self) noexcept {
-    return ExceptionPointerGet(self);
+    static_assert(sizeof(std::exception_ptr) == sizeof(void*));
+    void* object = nullptr;
+    std::memcpy(&object, self, sizeof(object));
+    return object;
 }
 
 void APS5_VABI _ZNSt15__exception_ptr13exception_ptrC1EPv_nid_postfix(std::exception_ptr* self, void* exception) noexcept {
@@ -40,6 +43,7 @@ std::exception_ptr APS5_VABI _ZSt17current_exceptionv_nid_postfix() noexcept {
 }
 }
 
+#ifdef _WIN32
 namespace std {
 
 exception_ptr current_exception() noexcept {
@@ -79,3 +83,4 @@ const type_info* exception_ptr::__cxa_exception_type() const noexcept {
 }
 
 }
+#endif
