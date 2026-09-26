@@ -64,7 +64,7 @@ endif()
 
 if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
     add_executable(native_shader_argument_tests tests/NativeShaderArguments.cpp)
-    target_include_directories(native_shader_argument_tests PRIVATE core/libs)
+    target_include_directories(native_shader_argument_tests PRIVATE core/libs 3rdparty/Vulkan-Headers/include)
     target_link_libraries(native_shader_argument_tests PRIVATE libSceAgcDriver libc)
     add_test(NAME native_shader_arguments COMMAND native_shader_argument_tests)
     if(WIN32)

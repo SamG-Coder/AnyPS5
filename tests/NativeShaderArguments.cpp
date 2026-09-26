@@ -1,5 +1,8 @@
 #include "prx/libSceAgcDriver/Graphics/include/NativeShaderArguments.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
+#include <thread>
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -31,6 +34,63 @@ bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userDa
     buffer->cursor_up = buffer->bottom;
     buffer->cursor_down = allocation.insufficient ? buffer->bottom + 1 : buffer->top;
     return true;
+}
+class RenderingDependency final : public AgcDriver::IRenderingWait {
+public:
+    explicit RenderingDependency(Label& marker) : marker(marker) {}
+    void Wait() override {
+        check(marker.value == 17);
+        bool unlocked = false;
+        std::thread other([&] {
+            auto& mutex = AgcDriver::NativeGraphicsRuntime::Get().Mutex();
+            unlocked = mutex.try_lock();
+            if (unlocked) mutex.unlock();
+        });
+        other.join();
+        check(unlocked);
+        waited = true;
+    }
+    Label& marker;
+    bool waited = false;
+};
+class RenderingOutput final : public AgcDriver::IVideoOutput, public std::enable_shared_from_this<RenderingOutput> {
+public:
+    explicit RenderingOutput(Label& marker) : dependency(std::make_shared<RenderingDependency>(marker)) {}
+    std::shared_ptr<AgcDriver::IFlipRequest> Reserve(const AgcDriver::FlipInfo&) override {
+        throw std::runtime_error("unexpected flip reservation");
+    }
+    std::shared_ptr<AgcDriver::IRenderingWait> CaptureRenderingWait(std::uint32_t index) override {
+        check(index == 2 && !dependency->waited);
+        ++captures;
+        AgcDriverUnregisterVideoOutput_nid_postfix(77, shared_from_this());
+        return dependency;
+    }
+    void Fail(std::exception_ptr) noexcept override {}
+    std::shared_ptr<RenderingDependency> dependency;
+    unsigned captures = 0;
+};
+void renderingDependency() {
+    static std::array<std::uint32_t, 16> words{};
+    auto* cursor = words.data();
+    Label marker{17};
+    const auto output = std::make_shared<RenderingOutput>(marker);
+    AgcDriverRegisterVideoOutput_nid_postfix(77, output);
+    check(aps5NativeAgcGetWaitRenderingSize() == 4);
+    rejects([&] { aps5NativeAgcWaitUntilSafeForRendering(&cursor, 3, 0, 77, 2); });
+    rejects([&] { aps5NativeAgcWaitUntilSafeForRendering(&cursor, 4, 1, 77, 2); });
+    rejects([&] { aps5NativeAgcWaitUntilSafeForRendering(&cursor, 4, 0, 77, -1); });
+    check(cursor == words.data());
+    check(aps5NativeAgcWaitUntilSafeForRendering(&cursor, 4, 0, 77, 2) == 0);
+    check(cursor == words.data() + 4 && output->captures == 0);
+    CommandBuffer command{words.data(), words.data() + words.size(), cursor,
+        words.data() + words.size(), nullptr, nullptr, 0};
+    aps5NativeAgcReleaseMem(&command, 0x28, 0x30c, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    const Packet split{words.data() + 1, 11, 0, {0, 0, 0}};
+    rejects([&] { aps5NativeAgcSubmit(&split); });
+    check(output->captures == 0 && marker.value == 17);
+    const Packet full{words.data(), 12, 0, {0, 0, 0}};
+    check(aps5NativeAgcSubmit(&full) == 0);
+    check(output->captures == 1 && output->dependency->waited && marker.value == 42);
 }
 void terminalCompletion() {
     static std::array<std::uint32_t, 32> words{};
@@ -213,6 +273,7 @@ void scalarStorage() {
 }
 }
 int main() {
+    renderingDependency();
     terminalCompletion();
     descriptorLifetime();
     descriptorReuse();

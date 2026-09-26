@@ -6,6 +6,8 @@
 #include "prx/libSceAgcDriver/Graphics/include/NativeShaderArguments.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
+#include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include <mutex>
 #include <algorithm>
 #include <cstring>
@@ -63,6 +65,14 @@ struct NativeCommandBufferState {
     std::vector<NativeDrawCall> draws;
     std::vector<NativeCompletion> completions;
 };
+struct NativeRenderingWait {
+    std::uintptr_t begin;
+    std::uintptr_t end;
+    std::uint32_t handle;
+    std::uint32_t index;
+};
+std::map<std::uintptr_t, NativeRenderingWait> renderingWaits;
+std::mutex submissionMutex;
 std::mutex stateMutex;
 std::map<std::pair<std::uintptr_t, std::uintptr_t>, NativeCommandBufferState> states;
 std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
@@ -174,7 +184,7 @@ NativeCommandBufferState& state(CommandBuffer* buffer) {
     return states[{reinterpret_cast<std::uintptr_t>(buffer->bottom),
                    reinterpret_cast<std::uintptr_t>(buffer->top)}];
 }
-NativeCommandBufferState& submittedState(const Packet* packet) {
+NativeCommandBufferState* submittedState(const Packet* packet) {
     if (!packet) throw std::invalid_argument("native AGC: null submission");
     if (packet->dw_num == 0) throw std::invalid_argument("native AGC: empty submission");
     const auto begin=reinterpret_cast<std::uintptr_t>(packet->addr);
@@ -188,8 +198,7 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
             match=&native;
         }
     }
-    if (!match) throw std::runtime_error("native AGC: submission was not authored by a lowered native command buffer");
-    return *match;
+    return match;
 }
 std::uint32_t* opaque(CommandBuffer* buffer, std::uint32_t count = 1) {
     if (tokenCapacity(buffer) < count)
@@ -400,27 +409,68 @@ std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer* buffer, std::uin
         static_cast<std::uint32_t>(data)});
     return opaque(buffer, 8);
 }
+std::uint32_t APS5_VABI aps5NativeAgcGetWaitRenderingSize() {
+    return AgcDriver::RenderingWaitPacketWords;
+}
+std::uint32_t APS5_VABI aps5NativeAgcWaitUntilSafeForRendering(std::uint32_t** command,
+    std::uint32_t capacity, std::uint32_t mode, std::uint32_t handle, int index) {
+    AgcDriver::NativeGraphicsRuntime::Get().CheckFailure();
+    if (!command || capacity < AgcDriver::RenderingWaitPacketWords || mode != 0 || index < 0)
+        throw std::invalid_argument("native AGC: invalid rendering wait arguments");
+    AgcDriver::GuestMemory::CheckRange(command, sizeof(*command), alignof(std::uint32_t*), true);
+    AgcDriver::GuestMemory::CheckRange(*command, AgcDriver::RenderingWaitPacketWords * 4, 4, true);
+    const auto begin = reinterpret_cast<std::uintptr_t>(*command);
+    std::lock_guard lock(stateMutex);
+    renderingWaits.insert_or_assign(begin, NativeRenderingWait{begin,
+        begin + AgcDriver::RenderingWaitPacketWords * 4, handle, static_cast<std::uint32_t>(index)});
+    std::fill_n(*command, AgcDriver::RenderingWaitPacketWords, 0u);
+    *command += AgcDriver::RenderingWaitPacketWords;
+    return 0;
+}
 int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
     auto& runtime = AgcDriver::NativeGraphicsRuntime::Get();
     runtime.CheckFailure();
-    std::lock_guard gpuLock(runtime.Mutex());
+    std::lock_guard submissionLock(submissionMutex);
+    std::vector<NativeRenderingWait> waits;
     std::vector<NativeDrawCall> draws;
     std::vector<NativeCompletion> completions;
     {
         std::lock_guard lock(stateMutex);
-        auto& native = submittedState(packet);
+        auto* native = submittedState(packet);
         const auto begin = reinterpret_cast<std::uintptr_t>(packet->addr);
         const auto end = begin + static_cast<std::uint64_t>(packet->dw_num) * sizeof(std::uint32_t);
         const auto covered = [&](const auto& operation) { return operation.begin >= begin && operation.end <= end; };
-        if (!std::all_of(native.draws.begin(), native.draws.end(), covered) ||
-            !std::all_of(native.completions.begin(), native.completions.end(), covered))
+        for (const auto& [address, wait] : renderingWaits) {
+            if (wait.begin >= end || wait.end <= begin) continue;
+            if (!covered(wait)) throw std::runtime_error("native AGC: submission splits a rendering wait");
+            if (native) {
+                for (const auto& draw : native->draws)
+                    if (wait.end > draw.begin) throw std::runtime_error("native AGC: rendering wait after a draw requires native lowering");
+                for (const auto& completion : native->completions)
+                    if (wait.end > completion.begin) throw std::runtime_error("native AGC: rendering wait after a release requires native lowering");
+            }
+            waits.push_back(wait);
+        }
+        if (!native && waits.empty())
+            throw std::runtime_error("native AGC: submission was not authored by a lowered native command buffer");
+        if (native && (!std::all_of(native->draws.begin(), native->draws.end(), covered) ||
+            !std::all_of(native->completions.begin(), native->completions.end(), covered)))
             throw std::runtime_error("native AGC: partial submission excludes pending native work");
-        draws = std::move(native.draws);
-        completions = std::move(native.completions);
-        native.draws.clear();
-        native.completions.clear();
+        if (native) {
+            draws = std::move(native->draws);
+            completions = std::move(native->completions);
+            native->draws.clear();
+            native->completions.clear();
+        }
+        for (const auto& wait : waits) renderingWaits.erase(wait.begin);
     }
     try {
+        std::vector<std::shared_ptr<AgcDriver::IRenderingWait>> dependencies;
+        for (const auto& wait : waits)
+            dependencies.push_back(AgcDriver::CaptureNativeRenderingWait(wait.handle, wait.index));
+        for (const auto& dependency : dependencies) dependency->Wait();
+        std::lock_guard gpuLock(runtime.Mutex());
+        runtime.CheckFailure();
         for(const auto& call:draws){
             auto& nativeDevice = runtime.Headless();
             const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){

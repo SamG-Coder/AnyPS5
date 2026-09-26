@@ -36,6 +36,8 @@ public:
     virtual void Fail(std::exception_ptr error) noexcept = 0;
 };
 
+std::shared_ptr<IRenderingWait> CaptureNativeRenderingWait(std::uint32_t handle, std::uint32_t index);
+
 class IVideoOutput {
 public:
     virtual ~IVideoOutput() = default;
