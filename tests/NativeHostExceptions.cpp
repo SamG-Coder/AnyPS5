@@ -22,6 +22,15 @@ int main() {
         return false;
     });
     if (!result.get()) return 3;
+    auto made = std::make_exception_ptr(std::runtime_error("constructed exception"));
+    auto madeResult = std::async(std::launch::async, [made] {
+        try { std::rethrow_exception(made); }
+        catch (const std::runtime_error& error) {
+            return std::string(error.what()) == "constructed exception";
+        }
+        return false;
+    });
+    if (!madeResult.get()) return 5;
     unsigned caught = 0;
     for (unsigned i = 0; i < 100; ++i) {
         try { throw std::invalid_argument("host allocation/free"); }
