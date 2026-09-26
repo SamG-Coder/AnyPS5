@@ -1,6 +1,7 @@
 #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_NATIVEGRAPHICSRUNTIME_HPP
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/DisplayBuffer.hpp"
 #include <memory>
 #include <mutex>
 namespace AgcDriver {
@@ -11,6 +12,7 @@ public:
     VulkanDevice& Presenting(const PresentationWindow& window);
     void ReleaseWindow(void* window);
     void WaitDraws();
+    void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context);
     std::recursive_mutex& Mutex(){return mutex;}
 private:
     std::recursive_mutex mutex;
