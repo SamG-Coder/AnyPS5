@@ -19,6 +19,7 @@ struct NativeShader {
 
 struct NativeCommandBufferState {
     Graphics::NativeGraphicsState graphics;
+    std::vector<ShaderRegister> shaderBindings;
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
@@ -83,13 +84,14 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs && count) throw std::invalid_argument("native AGC: null shader register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
-    for (std::uint32_t i=0;i<count;++i) target.SetContext(regs[i].offset, regs[i].value);
+    std::lock_guard lock(stateMutex); auto& target=state(b).shaderBindings;
+    target.reserve(target.size()+count);
+    for (std::uint32_t i=0;i<count;++i) target.push_back({regs[i].offset,regs[i].value});
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
-    if (values) for (std::uint32_t i=0;i<count;++i) target.SetContext(offset+i, values[i]);
+    std::lock_guard lock(stateMutex); auto& target=state(b).shaderBindings;
+    if (values) { target.reserve(target.size()+count); for (std::uint32_t i=0;i<count;++i) target.push_back({offset+i,values[i]}); }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
