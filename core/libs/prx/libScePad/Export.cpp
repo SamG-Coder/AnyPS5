@@ -161,10 +161,7 @@ int APS5_VABI scePadSetVibration(int handle, const PadVibrationParam* param) {
 }
 
 int APS5_VABI scePadSetVibrationMode(int handle, int mode) {
- (void)handle;
- (void)mode;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+ return Pad::SetVibrationMode(handle, mode);
 }
 
 int APS5_VABI scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse(bool enabled) {

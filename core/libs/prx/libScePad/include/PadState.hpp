@@ -16,6 +16,8 @@ struct PadInputState {
 namespace Pad {
 void Initialize();
 PadData ReadState();
+int SetVibrationMode(int handle, int mode);
+int GetVibrationMode();
 }
 
 extern "C" void PadPublishInput_nid_postfix(const PadInputState& input);
