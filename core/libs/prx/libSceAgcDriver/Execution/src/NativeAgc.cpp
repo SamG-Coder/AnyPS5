@@ -3,7 +3,7 @@
 #include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeDrawCompiler.hpp"
-#include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
+#include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include <mutex>
 #include <cstring>
 #include <memory>
@@ -51,7 +51,6 @@ std::mutex stateMutex;
 std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
 std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
 std::uint64_t nextShaderIdentity = 0;
-std::unique_ptr<AgcDriver::VulkanDevice> nativeDevice;
 std::shared_ptr<const NativeShader> findShaderByProgramAddress(std::uint64_t address) {
     for (const auto& [header, shader] : shaders) {
         if (shader->codeAddress == address) return shader;
@@ -252,7 +251,9 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
         draws=std::move(native.draws);
         native.draws.clear();
     }
-    if(!nativeDevice) nativeDevice=std::make_unique<AgcDriver::VulkanDevice>();
+    auto& runtime=AgcDriver::NativeGraphicsRuntime::Get();
+    std::lock_guard gpuLock(runtime.Mutex());
+    auto& nativeDevice=runtime.Headless();
     for(const auto& call:draws){
         const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
             return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
@@ -267,9 +268,9 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
             {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
             {call.fragmentShader->headerAddress,call.fragmentShader->header}
         }};
-        Graphics::CompileAndEnqueueNativeDraw(*nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+        Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
     }
-    nativeDevice->WaitDraws();
+    nativeDevice.WaitDraws();
     return 0;
 }
 }
