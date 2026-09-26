@@ -39,6 +39,8 @@ struct NativeDrawCall {
 };
 
 struct NativeCommandBufferState {
+    std::uintptr_t storageBegin = 0;
+    std::uintptr_t storageEnd = 0;
     Graphics::NativeGraphicsState graphics;
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
@@ -156,7 +158,10 @@ void reserveTokens(CommandBuffer* buffer, std::uint32_t count) {
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (tokenCapacity(buffer) == 0)
         throw std::runtime_error("native AGC: command token storage exhausted");
-    return states[buffer];
+    auto& native = states[buffer];
+    native.storageBegin = reinterpret_cast<std::uintptr_t>(buffer->bottom);
+    native.storageEnd = reinterpret_cast<std::uintptr_t>(buffer->top);
+    return native;
 }
 NativeCommandBufferState& submittedState(const Packet* packet) {
     if (!packet) throw std::invalid_argument("native AGC: null submission");
@@ -167,9 +172,7 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
     const auto end=begin+bytes;
     NativeCommandBufferState* match=nullptr;
     for (auto& [buffer, native] : states) {
-        const auto lo=reinterpret_cast<std::uintptr_t>(buffer->bottom);
-        const auto hi=reinterpret_cast<std::uintptr_t>(buffer->top);
-        if (begin>=lo && end<=hi) {
+        if (begin >= native.storageBegin && end <= native.storageEnd) {
             if (match) throw std::runtime_error("native AGC: submission ambiguously belongs to multiple command buffers");
             match=&native;
         }

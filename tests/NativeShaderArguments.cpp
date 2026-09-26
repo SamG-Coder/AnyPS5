@@ -32,6 +32,17 @@ bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userDa
     buffer->cursor_down = allocation.insufficient ? buffer->bottom + 1 : buffer->top;
     return true;
 }
+void descriptorLifetime() {
+    static std::array<std::uint32_t, 16> words{};
+    static CommandBuffer descriptor;
+    descriptor = {words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    aps5NativeAgcSetIndexCount(&descriptor, 7);
+    const Packet submission{words.data(), 2, 0, {0, 0, 0}};
+    descriptor = {};
+    check(aps5NativeAgcSubmit(&submission) == 0);
+    check(aps5NativeAgcSubmit(&submission) == 0);
+}
 void drawFailures() {
     std::array<std::uint32_t, 24> words;
     words.fill(0xabcdef01u);
@@ -141,6 +152,7 @@ void scalarStorage() {
 }
 }
 int main() {
+    descriptorLifetime();
     drawFailures();
     scalarStorage();
     rangeStorage();
