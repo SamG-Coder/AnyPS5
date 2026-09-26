@@ -99,10 +99,16 @@ std::string makeKey(const Context& context, const State& state, const std::share
     std::uint64_t shaderBytes = 0;
     for (const auto& shader : shaders) {
         append(key, shader.stage);
-        append(key, shader.program->spirv.size());
-        const auto bytes = std::as_bytes(std::span(shader.program->spirv));
-        if (!bytes.empty()) key.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-        shaderBytes += bytes.size();
+        if (shader.program->generatedIdentity != 0) {
+            append(key, shader.program->generatedIdentity);
+        } else {
+            // Generic/non-generated fallback retains the old content identity.
+            append(key, std::uint64_t{0});
+            append(key, shader.program->spirv.size());
+            const auto bytes = std::as_bytes(std::span(shader.program->spirv));
+            if (!bytes.empty()) key.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            shaderBytes += bytes.size();
+        }
     }
     timing.Mark("shader_code", shaderBytes);
     return key;
