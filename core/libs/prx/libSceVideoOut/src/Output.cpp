@@ -154,16 +154,13 @@ int APS5_VABI sceVideoOutIsOutputSupported(int handle, uint64_t mode, const Vide
     if (result != 0) {
         return result;
     }
-    return (mode == VIDEO_OUT_OUTPUT_MODE_119_88HZ) ? 0 : 1;
+    return 1;
 }
 
 int APS5_VABI sceVideoOutConfigureOutput(int handle, uint64_t mode, const VideoOutOutputOptions* options, void* reservedPtr, uint64_t reserved) {
     const int supported = sceVideoOutIsOutputSupported(handle, mode, options, reservedPtr, reserved);
     if (supported < 0) {
         return supported;
-    }
-    if (supported == 0 && mode == VIDEO_OUT_OUTPUT_MODE_119_88HZ) {
-        throw std::runtime_error(std::string(__func__) + ": VIDEO_OUT_ERROR_UNAVAILABLE_OUTPUT_MODE");
     }
     auto cfg = VideoOutDriver::Get().GetConfig(handle);
     if (cfg == nullptr) {

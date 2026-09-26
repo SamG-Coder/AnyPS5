@@ -27,3 +27,11 @@ target_include_directories(video_out_flip_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CM
 target_link_libraries(video_out_flip_tests PRIVATE libSceVideoOut libSceAgcDriver libkernel libc)
 set_target_properties(video_out_flip_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(video_out_flip_tests)
+if(BUILD_TESTING)
+    set_target_properties(video_out_flip_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME video_out_rates COMMAND video_out_flip_tests rates)
+    if(WIN32)
+        set_tests_properties(video_out_rates PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()

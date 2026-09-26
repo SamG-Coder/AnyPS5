@@ -337,12 +337,13 @@ void VideoOutDriver::triggerEvents(VideoOutConfig& cfg, int eventKind, void* tri
     }
 }
 
-void VideoOutDriver::vblankEnd() {
+void VideoOutDriver::vblankEnd(bool defaultRateTick) {
     std::lock_guard lock(mutex);
     for (const auto& cfg : contexts) {
         if (!cfg) continue;
         std::lock_guard cfgLock(cfg->mutex);
         if (!cfg->opened || cfg->failure) continue;
+        if (!defaultRateTick && cfg->outputMode != VIDEO_OUT_OUTPUT_MODE_119_88HZ) continue;
         require(cfg->vblankStatus.count != std::numeric_limits<uint64_t>::max(), "vblank counter overflow");
         ++cfg->vblankStatus.count;
         cfg->vblankStatus.processTime = sceKernelGetProcessTime();
@@ -509,7 +510,7 @@ void VideoOutDriver::presentLoop(std::stop_token token) {
 }
 
 void VideoOutDriver::vblankLoop(std::stop_token token) {
-    using Frame = std::chrono::duration<int64_t, std::ratio<1001, 60000>>;
+    using Frame = std::chrono::duration<int64_t, std::ratio<1001, 120000>>;
     const auto start = std::chrono::steady_clock::now();
     try {
         for (int64_t frame = 1; !token.stop_requested(); ++frame) {
@@ -519,7 +520,7 @@ void VideoOutDriver::vblankLoop(std::stop_token token) {
                 flipQueue->changed.wait_until(lock, next, [&] { return token.stop_requested() || flipQueue->failure; });
                 if (token.stop_requested() || flipQueue->failure) return;
             }
-            vblankEnd();
+            vblankEnd((frame & 1) == 0);
         }
     } catch (...) {
         AgcDriverReportFailure_nid_postfix(std::current_exception());
