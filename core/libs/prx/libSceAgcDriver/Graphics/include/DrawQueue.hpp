@@ -2,7 +2,6 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_DRAWQUEUE_HPP
 
 #include "prx/libSceAgcDriver/Graphics/include/ShaderResources.hpp"
-#include <functional>
 
 namespace AgcDriver::Graphics {
 
@@ -16,7 +15,6 @@ public:
     void Wait();
     void WaitGpu();
     void Collect();
-    void AfterGpu(std::function<void()> callback);
     void RecordMemoryBarrier(const Context& context);
 
 private:
@@ -27,7 +25,6 @@ private:
     struct Batch {
         std::vector<Entry> entries;
         std::unique_ptr<CommandBatch> commands;
-        std::vector<std::function<void()>> completions;
         bool hasBarrier = false;
     };
     void retire(Batch batch);
