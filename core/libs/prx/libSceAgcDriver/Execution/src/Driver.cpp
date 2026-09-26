@@ -20,6 +20,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <unordered_map>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -46,11 +47,17 @@ struct ShaderSnapshot {
     std::vector<std::byte> header;
 };
 
+struct NativeDrawRecord {
+    NativeDrawHint hint;
+    std::vector<std::uint32_t> words;
+};
+
 struct DecodedPacket {
     std::size_t offset;
     std::size_t count;
     std::uint32_t header;
     std::uint32_t opcode;
+    std::optional<NativeDrawHint> nativeDraw;
 };
 
 struct Submission {
@@ -125,7 +132,7 @@ public:
             submission.commands.assign(descriptor.addr, descriptor.addr + descriptor.dw_num);
         }
         submission.copied = FrameTiming::Clock::now();
-        submission.plan = decode(submission.commands, queue);
+        submission.plan = decode(submission.commands, queue, descriptor.addr);
         submission.validated = FrameTiming::Clock::now();
         {
             std::lock_guard lock(mutex);
@@ -158,6 +165,15 @@ public:
             ++accepted;
         }
         changed.notify_all();
+    }
+
+    void RegisterNativeDraw(const NativeDrawHint& hint) {
+        require(hint.packet != nullptr && hint.words != 0, "invalid native draw hint");
+        GuestMemory::CheckRange(hint.packet, static_cast<std::size_t>(hint.words) * sizeof(std::uint32_t), alignof(std::uint32_t));
+        NativeDrawRecord record{hint, {hint.packet, hint.packet + hint.words}};
+        std::lock_guard lock(mutex);
+        rethrowFailure();
+        nativeDrawHints.insert_or_assign(hint.packet, std::move(record));
     }
 
     void WaitIdle() {
@@ -301,6 +317,7 @@ private:
     std::condition_variable changed;
     std::deque<Submission> pending;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
+    std::unordered_map<const std::uint32_t*, NativeDrawRecord> nativeDrawHints;
     std::uint64_t nextShaderIdentity = 0;
     std::map<std::uint32_t, QueueState> queues;
     std::map<std::uint32_t, std::shared_ptr<IVideoOutput>> outputs;
@@ -330,7 +347,7 @@ private:
         }
     }
 
-    static std::vector<DecodedPacket> decode(std::span<const std::uint32_t> commands, std::uint32_t queue) {
+    std::vector<DecodedPacket> decode(std::span<const std::uint32_t> commands, std::uint32_t queue, const std::uint32_t* original) {
         std::vector<DecodedPacket> plan;
         plan.reserve(commands.size() / 3u + 1u);
         for (std::size_t cursor = 0; cursor < commands.size();) {
@@ -343,7 +360,17 @@ private:
             } catch (const std::exception& error) {
                 throw std::runtime_error("AGC driver: " + Pm4::Name(header) + " at DWORD " + std::to_string(cursor) + ": " + error.what());
             }
-            plan.push_back({cursor, count, header, (header >> 8u) & 0xffu});
+            std::optional<NativeDrawHint> nativeDraw;
+            if (original != nullptr) {
+                const auto* originalPacket = original + cursor;
+                const auto found = nativeDrawHints.find(originalPacket);
+                if (found != nativeDrawHints.end() &&
+                    found->second.words.size() == count &&
+                    std::equal(found->second.words.begin(), found->second.words.end(), commands.begin() + static_cast<std::ptrdiff_t>(cursor))) {
+                    nativeDraw = found->second.hint;
+                }
+            }
+            plan.push_back({cursor, count, header, (header >> 8u) & 0xffu, nativeDraw});
             cursor += count;
         }
         return plan;
@@ -396,9 +423,9 @@ private:
         timing.Mark("dispatch_and_resource_release");
     }
 
-    void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
+    void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission, std::optional<Pm4::DrawParameters> nativeParameters = std::nullopt) {
         PerformanceTimer timing("Driver.Draw");
-        auto drawParameters = Pm4::ResolveValidatedDraw(packet, queue);
+        auto drawParameters = nativeParameters ? *nativeParameters : Pm4::ResolveValidatedDraw(packet, queue);
         if (!drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return;
         const auto graphics = Graphics::DecodeState(queue);
         struct Program {
@@ -635,7 +662,26 @@ private:
                     }
                     dispatch(queue, direct, submission);
                 } else if (opcode == 0x27 || opcode == 0x35 || opcode == 0x2d) {
-                    draw(queue, packet, submission);
+                    if (decoded.nativeDraw) {
+                        auto native = Pm4::DrawParameters{
+                            decoded.nativeDraw->indexAddress,
+                            decoded.nativeDraw->indexCount,
+                            decoded.nativeDraw->indexSize,
+                            queue.instanceCount,
+                            decoded.nativeDraw->flags,
+                            decoded.nativeDraw->indexed,
+                            0,
+                            0
+                        };
+                        if (native.indexed && decoded.nativeDraw->indexOffset != 0) {
+                            const auto byteOffset = static_cast<std::uint64_t>(decoded.nativeDraw->indexOffset) * native.indexSize;
+                            require(byteOffset <= std::numeric_limits<std::uint64_t>::max() - native.indexAddress, "native draw index offset overflow");
+                            native.indexAddress += byteOffset;
+                        }
+                        draw(queue, packet, submission, native);
+                    } else {
+                        draw(queue, packet, submission);
+                    }
                 } else if (opcode != 0x42 && opcode != 0x46 && opcode != 0x58) {
                     std::lock_guard gpuLock(gpuMutex);
                     const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
