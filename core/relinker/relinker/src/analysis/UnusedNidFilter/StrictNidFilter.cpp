@@ -2,6 +2,7 @@
 #include <relinker/analysis/UnusedNidFilter/StrictReachability.hpp>
 #include <relinker/analysis/UnusedNidFilter/EhFrameReader.hpp>
 #include <relinker/parsing/ElfReader.hpp>
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -174,9 +175,30 @@ private:
 
 class StrictNidFilter : public IUnusedNidFilter {
 public:
+    explicit StrictNidFilter(std::vector<NativeFunctionBinding> bindings) : bindings(std::move(bindings)) {}
+
     std::vector<NidReference> Filter(const std::vector<NidReference>& nidRefs, const std::vector<std::uint8_t>& elfBytes, const std::vector<std::uint8_t>& textSection, VirtualAddress textVAddr) override {
         const StrictImage image(elfBytes);
-        const auto input = image.Build(nidRefs, textSection, textVAddr);
+        auto input = image.Build(nidRefs, textSection, textVAddr);
+        if (!bindings.empty()) {
+            ValidateNativeFunctionBindings(elfBytes, ElfReader(elfBytes).ReadProgramHeaders(), bindings);
+            for (const auto& binding : bindings) {
+                const auto function = std::find_if(input.Functions.begin(), input.Functions.end(),
+                    [&](const auto& region) { return region.Begin == binding.address; });
+                if (function == input.Functions.end())
+                    throw RelinkerException("Strict filter: native replacement has no known function boundary", binding.address);
+                if (binding.expected.size() > function->End - function->Begin)
+                    throw RelinkerException("Strict filter: native prologue exceeds its function boundary", binding.address);
+                const auto rejectOverlap = [&](VirtualAddress slot) {
+                    if ((slot >= binding.address && slot - binding.address < binding.expected.size()) ||
+                        (slot < binding.address && binding.address - slot < 8))
+                        throw RelinkerException("Native function prologue overlaps an original loader relocation", binding.address);
+                };
+                for (const auto slot : input.ImportSlots) rejectOverlap(slot);
+                for (const auto& [slot, target] : input.Pointers) rejectOverlap(slot);
+                input.NativeFunctionEntries.insert(binding.address);
+            }
+        }
         const auto analysis = UnusedNidFilter::AnalyzeStrictReachability(input);
         std::vector<NidReference> result;
         for (const auto& reference : nidRefs) {
@@ -186,12 +208,15 @@ public:
         std::cout << "Function graph: " << analysis.LiveRegions << "/" << analysis.TotalRegions << " live regions; address-taken roots=" << analysis.AddressTakenRoots << "; unwind functions=" << input.Functions.size() << "\n";
         return result;
     }
+
+private:
+    std::vector<NativeFunctionBinding> bindings;
 };
 
 }
 
-std::shared_ptr<IUnusedNidFilter> MakeStrictUnusedNidFilter() {
-    return std::make_shared<StrictNidFilter>();
+std::shared_ptr<IUnusedNidFilter> MakeStrictUnusedNidFilter(std::vector<NativeFunctionBinding> bindings) {
+    return std::make_shared<StrictNidFilter>(std::move(bindings));
 }
 
 }

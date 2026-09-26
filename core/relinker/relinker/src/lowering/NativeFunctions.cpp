@@ -202,31 +202,15 @@ std::vector<NativeFunctionBinding> ReadNativeFunctionBindings(const std::filesys
     return result;
 }
 
-void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& result,
-                          std::span<const NativeFunctionBinding> bindings) {
+void ValidateNativeFunctionBindings(const std::vector<std::uint8_t>& source,
+                                    const std::vector<ProgramHeader>& headers,
+                                    std::span<const NativeFunctionBinding> bindings) {
     if (bindings.empty()) return;
     if (bindings.size() > maxBindings) throw RelinkerException("Too many native function bindings");
-    std::uint64_t last = 0;
-    for (const auto& header : result.OriginalHeaders) {
-        if (header.Type != 1) continue;
-        if (header.MemorySize > UINT64_MAX - header.MappedAddress) throw RelinkerException("Native load address overflow");
-        last = std::max(last, header.MappedAddress + header.MemorySize);
-    }
-    if (last == 0) throw RelinkerException("Native lowering requires a loadable image");
-    const auto nativeBase = align(last, page), nativeOffset = align(source.size(), page);
-    const auto nativeBytes = bindings.size() * 8u;
-    if (nativeBytes > SIZE_MAX - nativeOffset || align(nativeBytes, page) > UINT64_MAX - nativeBase)
-        throw RelinkerException("Native image size overflow");
-    rejectInteriorBranches(source, result.OriginalHeaders, bindings);
-    // Work on copies so a failed verification never produces a partially lowered image.
-    auto bytes = source;
-    auto dynamic = result.DynamicSection;
-    auto headers = result.OriginalHeaders;
     std::vector<std::pair<VirtualAddress, std::size_t>> written;
     std::map<std::string, std::string> symbolOwners;
     Codegen::X64InstructionDecoder decoder;
-    for (std::size_t index = 0; index < bindings.size(); ++index) {
-        const auto& binding = bindings[index];
+    for (const auto& binding : bindings) {
         validateName(binding.symbol, false);
         validateName(binding.library, true);
         if (binding.expected.size() < 6 || binding.expected.size() > 64 || binding.expected.size() > UINT64_MAX - binding.address)
@@ -245,6 +229,34 @@ void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& resul
                 throw RelinkerException("Native prologue splits an instruction", binding.address + cursor);
             cursor += length;
         }
+        written.emplace_back(binding.address, binding.expected.size());
+    }
+    rejectInteriorBranches(source, headers, bindings);
+}
+
+void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& result,
+                          std::span<const NativeFunctionBinding> bindings) {
+    if (bindings.empty()) return;
+    if (bindings.size() > maxBindings) throw RelinkerException("Too many native function bindings");
+    std::uint64_t last = 0;
+    for (const auto& header : result.OriginalHeaders) {
+        if (header.Type != 1) continue;
+        if (header.MemorySize > UINT64_MAX - header.MappedAddress) throw RelinkerException("Native load address overflow");
+        last = std::max(last, header.MappedAddress + header.MemorySize);
+    }
+    if (last == 0) throw RelinkerException("Native lowering requires a loadable image");
+    const auto nativeBase = align(last, page), nativeOffset = align(source.size(), page);
+    const auto nativeBytes = bindings.size() * 8u;
+    if (nativeBytes > SIZE_MAX - nativeOffset || align(nativeBytes, page) > UINT64_MAX - nativeBase)
+        throw RelinkerException("Native image size overflow");
+    ValidateNativeFunctionBindings(source, result.OriginalHeaders, bindings);
+    // Work on copies so a failed verification never produces a partially lowered image.
+    auto bytes = source;
+    auto dynamic = result.DynamicSection;
+    auto headers = result.OriginalHeaders;
+    for (std::size_t index = 0; index < bindings.size(); ++index) {
+        const auto& binding = bindings[index];
+        const auto offset = locate(source, headers, binding);
         rejectRelocationOverlap(dynamic.RelaData, binding);
         rejectRelocationOverlap(dynamic.RelaPltData, binding);
         const auto slot = nativeBase + index * 8u;
@@ -256,7 +268,6 @@ void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& resul
         bytes[offset + 1] = 0x25; // jmp qword ptr [rip+disp32]; preserve source calling convention
         for (unsigned byte = 0; byte < 4; ++byte) bytes[offset + 2 + byte] = static_cast<std::uint8_t>(displacement >> (byte * 8));
         addImport(dynamic, binding, slot);
-        written.emplace_back(binding.address, binding.expected.size());
     }
     bytes.resize(static_cast<std::size_t>(nativeOffset + nativeBytes), 0);
     headers.push_back({1, 6, nativeOffset, nativeBase, nativeBase, nativeBytes, align(nativeBytes, page), page});

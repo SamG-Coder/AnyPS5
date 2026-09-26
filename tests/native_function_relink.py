@@ -24,6 +24,87 @@ def image():
     return data
 
 
+def strict_image():
+    data = bytearray(0x3000)
+    data[:16] = b"\x7fELF\x02\x01\x01" + bytes(9)
+    struct.pack_into("<HHIQQQIHHHHHH", data, 16,
+                     3, 62, 1, 0x1000, 64, 0, 0, 64, 56, 5, 64, 0, 0)
+    data[0x1000:0x1080] = b"\xcc" * 0x80
+    data[0x1000:0x100d] = b"\x55\xbf\x13\x00\x00\x00\xe8\x35\x00\x00\x00\x5d\xc3"
+    data[0x1040:0x1047] = b"\xff\x15" + struct.pack("<i", 0x2800 - 0x1046) + b"\xc3"
+    strings = b"\0-HOOCn0JY48#A#A\0libSceAgc\0"
+    library = strings.index(b"libSceAgc")
+    data[0x2600:0x2600 + len(strings)] = strings
+    struct.pack_into("<IBBHQQ", data, 0x2698, 1, 0x12, 0, 0, 0, 0)
+    struct.pack_into("<II", data, 0x26c0, 1, 2)
+    struct.pack_into("<QQq", data, 0x2700, 0x2800, (1 << 32) | 6, 0)
+    tags = [(5, 0x2600), (10, len(strings)), (6, 0x2680), (11, 24),
+            (0x6100002f, 0x2700), (0x61000031, 24), (0x61000033, 24), (4, 0x26c0),
+            (0x61000015, library), (0x6100000f, library), (0, 0)]
+    headers = [
+        (1, 5, 0x1000, 0x1000, 0x1000, 0x80, 0x80, 4096),
+        (1, 6, 0x2000, 0x2000, 0x2000, 0x700, 0x700, 4096),
+        (1, 6, 0x2800, 0x2800, 0x2800, 0x800, 0x800, 8),
+        (2, 6, 0x2400, 0x2400, 0x2400, len(tags) * 16, len(tags) * 16, 8),
+        (0x6474e550, 4, 0x2900, 0x2900, 0x2900, 32, 32, 8),
+    ]
+    for i, header in enumerate(headers):
+        struct.pack_into("<IIQQQQQQ", data, 64 + i * 56, *header)
+    for i, tag in enumerate(tags):
+        struct.pack_into("<qQ", data, 0x2400 + i * 16, *tag)
+    struct.pack_into("<BBBBQIQQ", data, 0x2900, 1, 0, 3, 0, 0x2920, 1, 0x1040, 0x2940)
+    struct.pack_into("<II5B", data, 0x2920, 9, 0, 1, 0, 1, 0x78, 16)
+    struct.pack_into("<IIQQ", data, 0x2940, 20, 0x24, 0x1040, 0x10)
+    return data
+
+
+def strict_replacement(relinker, work, library, windows):
+    source = work / "strict.elf"
+    original = strict_image()
+    source.write_bytes(original)
+    manifest = work / "strict-bindings.txt"
+    prefix = original[0x1040:0x1046].hex()
+    manifest.write_text(f"0x1040 native_fixture_add {library} {prefix}\n")
+    output = work / ("strict.exe" if windows else "strict")
+    platform = ["--windows"] if windows else []
+    base = [relinker, *platform, "unused-filter=2", "--rpath", work]
+    result = run([*base, source, output])
+    if result.returncode != 2 or "AGC import has no native lowering" not in result.stderr:
+        raise AssertionError(("live AGC import accepted", result.stdout, result.stderr))
+    result = run([*base, "--native-functions", manifest, source, output])
+    if result.returncode or "Strict filtering total: 1 -> 0" not in result.stdout:
+        raise AssertionError(("replacement import filtering failed", result.stdout, result.stderr))
+    if not windows:
+        output.chmod(0o700)
+    executed = run([output], cwd=work)
+    if executed.returncode != 42:
+        raise AssertionError(("strict replacement execution failed", executed.returncode, executed.stderr))
+    emitted = output.read_bytes()
+    invalid = bytearray(original)
+    invalid[0x1040] = 0x90
+    variants = [(invalid, "prologue does not match")]
+    invalid = bytearray(original)
+    invalid[0x1006:0x100c] = b"\xff\x15" + struct.pack("<i", 0x2800 - 0x100c)
+    variants.append((invalid, "AGC import has no native lowering"))
+    invalid = bytearray(original)
+    struct.pack_into("<Q", invalid, 0x2700, 0x1040)
+    variants.append((invalid, "overlaps an original loader relocation"))
+    invalid = bytearray(original)
+    struct.pack_into("<Q", invalid, 0x2808, 0x1046)
+    variants.append((invalid, "reachable target enters a replaced function body"))
+    invalid = bytearray(original)
+    struct.pack_into("<Q", invalid, 0x2950, 5)
+    variants.append((invalid, "native prologue exceeds its function boundary"))
+    invalid = bytearray(original)
+    struct.pack_into("<I", invalid, 0x290c, 0)
+    variants.append((invalid, "native replacement has no known function boundary"))
+    for invalid, expected in variants:
+        source.write_bytes(invalid)
+        result = run([*base, "--native-functions", manifest, source, output])
+        if result.returncode != 2 or expected not in result.stderr or output.read_bytes() != emitted:
+            raise AssertionError(("invalid strict replacement accepted", expected, result.stdout, result.stderr))
+
+
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], capture_output=True, text=True, timeout=30, **kwargs)
 
@@ -60,6 +141,7 @@ def windows_main(relinker, compiler):
                       "--rpath", work, source, output])
         if result.returncode != 2 or output.read_bytes() != emitted:
             raise AssertionError(("invalid PE lowering modified output", result.stdout, result.stderr))
+        strict_replacement(relinker, work, "native_fixture.prx", True)
     print("PE loader execution verified: original=7, native System V replacement=42")
 
 
@@ -133,6 +215,7 @@ def main():
         result = run([relinker, "--windows", "--native-functions", manifest, source, work / "ported.exe"])
         if result.returncode or (work / "ported.exe").read_bytes()[:2] != b"MZ":
             raise AssertionError(("PE native import lowering", result.stdout, result.stderr))
+        strict_replacement(relinker, work, "native_fixture.so", False)
     print("Native entry rebinding executed: original=7, native=42; no interpreter or runtime code generation")
 
 

@@ -53,6 +53,9 @@ int main(const int argc, char* argv[]) {
             std::cout << "OK: " << result.ReplacedCount << " instructions replaced\n";
         }
 
+        const auto bindings = args.nativeFunctionsPath.empty()
+            ? std::vector<Relinker::NativeFunctionBinding>{}
+            : Relinker::ReadNativeFunctionBindings(args.nativeFunctionsPath);
         auto elfReader = std::make_shared<Relinker::ElfReader>(sourceBytes);
 
         const auto pipeline = std::make_shared<Relinker::RelinkerPipeline>(
@@ -61,7 +64,7 @@ int main(const int argc, char* argv[]) {
             Relinker::MakeCallSiteResolver(),
             std::make_shared<Relinker::ValidationPolicy>(),
             std::make_shared<Relinker::SysVDynamicSectionBuilder>(),
-            args.unusedFilterLevel == 2 ? Relinker::MakeStrictUnusedNidFilter() : Relinker::MakeUnusedNidFilter(),
+            args.unusedFilterLevel == 2 ? Relinker::MakeStrictUnusedNidFilter(bindings) : Relinker::MakeUnusedNidFilter(),
             args.unusedFilterLevel
         );
 
@@ -73,8 +76,7 @@ int main(const int argc, char* argv[]) {
             for (std::size_t index = 0; index < patch.Bytes.size(); ++index) sourceBytes[patch.Offset + index] = patch.Bytes[index];
         }
 
-        if (!args.nativeFunctionsPath.empty()) {
-            const auto bindings = Relinker::ReadNativeFunctionBindings(args.nativeFunctionsPath);
+        if (!bindings.empty()) {
             Relinker::LowerNativeFunctions(sourceBytes, result, bindings);
             std::cout << "Native function entries rebound: " << bindings.size() << '\n';
         }

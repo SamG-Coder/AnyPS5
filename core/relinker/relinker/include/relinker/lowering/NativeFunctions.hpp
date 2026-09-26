@@ -19,6 +19,9 @@ struct NativeFunctionBinding {
 // A manifest describes audited ABI-compatible native replacements. This is an
 // offline machine-code transformation, not an instruction interpreter or JIT.
 std::vector<NativeFunctionBinding> ReadNativeFunctionBindings(const std::filesystem::path& path);
+void ValidateNativeFunctionBindings(const std::vector<std::uint8_t>& source,
+                                    const std::vector<ProgramHeader>& headers,
+                                    std::span<const NativeFunctionBinding> bindings);
 void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& result,
                           std::span<const NativeFunctionBinding> bindings);
 
