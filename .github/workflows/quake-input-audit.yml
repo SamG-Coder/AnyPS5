@@ -24,8 +24,13 @@ jobs:
           unzip -p quake.zip PPSA99007/eboot.bin > input/eboot.bin
           test -s input/eboot.bin
           printf '%s\n' 'Source: blackbearreloaded/ps5-yamagi-quake2 v0.2.0-alpha.1; GPL-3.0-or-later. Original release: https://github.com/blackbearreloaded/ps5-yamagi-quake2/releases/tag/v0.2.0-alpha.1' > input/ORIGIN.txt
-          readelf --wide --all input/eboot.bin > input/elf.txt
-          objdump --disassemble input/eboot.bin > input/disassembly.txt
+          file input/eboot.bin > input/format.txt
+          od -Ax -tx1 -N256 input/eboot.bin >> input/format.txt
+          if readelf --wide --all input/eboot.bin > input/elf.txt 2>&1; then
+            objdump --disassemble input/eboot.bin > input/disassembly.txt
+          else
+            echo 'Packaged homebrew container requires extraction before ELF analysis.' >> input/format.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: quake-native-input
