@@ -48,6 +48,7 @@ struct State {
     VkRect2D scissor;
     VkCullModeFlags cullMode;
     VkFrontFace frontFace;
+    bool provokingVertexLast = false;
     VkPipelineColorBlendAttachmentState blend;
     std::array<float, 4> blendConstants;
 };

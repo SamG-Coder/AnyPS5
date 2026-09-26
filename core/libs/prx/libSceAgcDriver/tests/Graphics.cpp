@@ -137,6 +137,30 @@ void hardwareScreenOffsetTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void ProvokingVertexTests() {
+    auto queue = makeState();
+    for (const auto primitive : {2u, 4u, 5u, 6u}) {
+        queue.userConfig[0x242] = primitive;
+        for (const auto mode : {0u, 0x240u}) {
+            for (unsigned cull = 0; cull < 8; ++cull) {
+                queue.context[0x205] = mode | cull;
+                const auto first = AgcDriver::Graphics::DecodeState(queue);
+                queue.context[0x205] |= 0x80000u;
+                const auto last = AgcDriver::Graphics::DecodeState(queue);
+                Require(!first.provokingVertexLast && last.provokingVertexLast, "provoking vertex selection was lost");
+                Require(first.topology == last.topology && first.cullMode == last.cullMode && first.frontFace == last.frontFace, "provoking vertex changed primitive assembly");
+            }
+        }
+    }
+    queue.context[0x205] = 0x80248;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "polygon mode");
+    queue.context[0x205] = 0x80a40;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "depth bias");
+    queue.context[0x205] = 0x80240;
+    queue.userConfig[0x242] = 17;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "generated primitives");
+}
+
 void ScanConversionTests() {
     auto queue = makeState();
     queue.context[0x94] = 0x80010002;
@@ -1149,6 +1173,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "provoking") {
+            ProvokingVertexTests();
+            std::cout << "Provoking vertex tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "scan") {
             ScanConversionTests();
             std::cout << "Scan conversion tests passed\n";
@@ -1186,6 +1215,7 @@ int main(int argc, char** argv) {
             expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
         }
         stateTests();
+        ProvokingVertexTests();
         ScanConversionTests();
         hardwareScreenOffsetTests();
         DepthClipTests();

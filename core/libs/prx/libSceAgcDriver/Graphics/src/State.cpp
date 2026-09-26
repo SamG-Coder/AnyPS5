@@ -177,7 +177,9 @@ State DecodeState(const QueueState& queue) {
     zero(cx, 0x204, ~0x01080000u, "PA_CL_CLIP_CNTL flags");
     result.negativeOneToOne = (read(cx, 0x204) & 0x80000u) == 0;
     const auto raster = read(cx, 0x205);
-    Require((raster & ~0x7u) == 0 || (raster & ~0x7u) == 0x240u, "polygon mode, depth bias, provoking vertex or nonstandard rasterization is unsupported");
+    Require((raster & ~0x80007u) == 0 || (raster & ~0x80007u) == 0x240u, "polygon mode, depth bias or nonstandard rasterization is unsupported");
+    result.provokingVertexLast = (raster & 0x80000u) != 0;
+    Require(!result.provokingVertexLast || (result.stages.path == ShaderPath::Vertex && !result.rectList), "last provoking vertex for generated primitives is unsupported");
     result.cullMode = ((raster & 1u) != 0 ? VK_CULL_MODE_FRONT_BIT : 0u) | ((raster & 2u) != 0 ? VK_CULL_MODE_BACK_BIT : 0u);
     if (result.rectList) result.cullMode = VK_CULL_MODE_NONE;
     result.frontFace = (raster & 4u) != 0 ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;

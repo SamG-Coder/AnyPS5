@@ -80,6 +80,7 @@ struct VulkanDevice::State {
     bool meshShader = false;
     bool fragmentShaderBarycentric = false;
     bool depthClipControl = false;
+    bool provokingVertexLast = false;
     bool depthRangeUnrestricted = false;
     bool samplerAnisotropy = false;
     bool textureCompressionBC = false;
@@ -367,6 +368,17 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     state->depthRangeUnrestricted = hasExtension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     if (state->depthRangeUnrestricted) deviceExtensions.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     VkPhysicalDeviceDepthClipControlFeaturesEXT depthClipFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
+    VkPhysicalDeviceProvokingVertexFeaturesEXT provokingFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT};
+    if (hasExtension(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &provokingFeatures};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+        VkPhysicalDeviceProvokingVertexPropertiesEXT provokingProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_PROPERTIES_EXT};
+        VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &provokingProperties};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceProperties2>("vkGetPhysicalDeviceProperties2")(selected, &properties);
+        state->provokingVertexLast = provokingFeatures.provokingVertexLast && provokingProperties.provokingVertexModePerPipeline;
+        provokingFeatures.transformFeedbackPreservesProvokingVertex = VK_FALSE;
+        if (state->provokingVertexLast) deviceExtensions.push_back(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME);
+    }
     if (hasExtension(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME)) {
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &depthClipFeatures};
         state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
@@ -413,6 +425,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         deviceInfo.pNext = &depthClipFeatures;
     }
     byteFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
+    if (state->provokingVertexLast) {
+        provokingFeatures.pNext = byteFeatures.pNext;
+        byteFeatures.pNext = &provokingFeatures;
+    }
     if (state->fragmentShaderBarycentric) {
         barycentricFeatures.pNext = byteFeatures.pNext;
         byteFeatures.pNext = &barycentricFeatures;
@@ -732,7 +748,8 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->drawQueue.get(),
         state->graphicsPipelines.get(),
         state->descriptorCache,
-        state->samplerCache
+        state->samplerCache,
+        state->provokingVertexLast
     };
 }
 
