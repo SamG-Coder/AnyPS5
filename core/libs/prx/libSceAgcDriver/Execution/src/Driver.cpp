@@ -398,7 +398,7 @@ private:
 
     void draw(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
         PerformanceTimer timing("Driver.Draw");
-        auto drawParameters = Pm4::ResolveDraw(packet, queue);
+        auto drawParameters = Pm4::ResolveValidatedDraw(packet, queue);
         if (!drawParameters.indexed && (drawParameters.indexCount == 0 || drawParameters.instanceCount == 0)) return;
         const auto graphics = Graphics::DecodeState(queue);
         struct Program {
