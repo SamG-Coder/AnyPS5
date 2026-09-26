@@ -9,7 +9,8 @@ extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister*, ShaderRegister*, con
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults();
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults2(std::uint32_t);
 static void Require(bool value) { if (!value) std::abort(); }
-int main() {
+extern "C" int APS5_VABI aps5NativeAgcLinkShaders(ShaderRegister*, ShaderRegister*, const void*, const Shader*, const Shader*, std::uint32_t);
+static void Exercise(decltype(&sceAgcLinkShaders) linkShaders) {
     using namespace ShaderRegs;
     auto* defaults = static_cast<unsigned char*>(sceAgcGetRegisterDefaults());
     Require(defaults && defaults == sceAgcGetRegisterDefaults());
@@ -42,7 +43,7 @@ int main() {
     std::array<ShaderRegister, 4> primitive{};
     context.back() = {0xdeadbeef, 0xcafebabe};
     primitive.back() = context.back();
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
     Require(context[0].offset == VGT_SHADER_STAGES_EN && context[0].value == VGT_SHADER_STAGES_NGG_BIT);
     Require(context[1].offset == VGT_GS_OUT_PRIM_TYPE && context[1].value == 2);
     for (unsigned i = 0; i < 32; ++i)
@@ -54,13 +55,13 @@ int main() {
     const auto savedContext = context;
     const auto savedPrimitive = primitive;
     special.vgt_gs_out_prim_type = {};
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
     Require(context[1].offset == VGT_GS_OUT_PRIM_TYPE && context[1].value == 2);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
     Require(std::memcmp(primitive.data(), savedPrimitive.data(), sizeof(primitive)) == 0);
     special.vgt_shader_stages_en.value |= VGT_SHADER_STAGES_GS_BIT;
     bool missingGeometryOutputRejected = false;
-    try { sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
+    try { linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
     catch (const std::runtime_error&) { missingGeometryOutputRejected = true; }
     Require(missingGeometryOutputRejected);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
@@ -68,18 +69,18 @@ int main() {
     special.vgt_shader_stages_en.value &= ~VGT_SHADER_STAGES_GS_BIT;
     special.vgt_gs_out_prim_type = {VGT_GS_OUT_PRIM_TYPE, 0};
     pixel.num_input_semantics = 33;
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == GRAPHICS5_ERROR_INVALID_SHADER_PROGRAM);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == GRAPHICS5_ERROR_INVALID_SHADER_PROGRAM);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
     Require(std::memcmp(primitive.data(), savedPrimitive.data(), sizeof(primitive)) == 0);
     pixel.num_input_semantics = 0;
     special.ge_cntl.offset = 0;
     bool rejected = false;
-    try { sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
+    try { linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4); }
     catch (const std::runtime_error&) { rejected = true; }
     Require(rejected);
     Require(std::memcmp(context.data(), savedContext.data(), sizeof(context)) == 0);
     special.ge_cntl.offset = GE_CNTL;
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, nullptr, 2) == 0);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, nullptr, 2) == 0);
     Require(context[1].value == 1 && primitive[2].value == 2);
     ShaderSemantic output{};
     output.semantic = 9;
@@ -91,10 +92,12 @@ int main() {
     input.is_flat_shaded = 1;
     pixel.input_semantics = &input;
     pixel.num_input_semantics = 1;
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
     Require(context[2].offset == SPI_PS_INPUT_CNTL_0 && context[2].value == (5 | 0x400));
     input.semantic = 10;
     input.default_value = 2;
-    Require(sceAgcLinkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
+    Require(linkShaders(context.data(), primitive.data(), nullptr, &vertex, &pixel, 4) == 0);
     Require(context[2].value == 0x220);
 }
+
+int main() { Exercise(&sceAgcLinkShaders); Exercise(&aps5NativeAgcLinkShaders); }

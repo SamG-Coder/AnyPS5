@@ -28,3 +28,8 @@ extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister* context, ShaderRegist
     std::copy(primitiveValues.begin(), primitiveValues.end(), primitive);
     return 0;
 }
+
+extern "C" int APS5_VABI aps5NativeAgcLinkShaders(ShaderRegister* context, ShaderRegister* primitive,
+    const void* reserved, const Shader* vertex, const Shader* pixel, std::uint32_t primitiveType) {
+    return sceAgcLinkShaders(context, primitive, reserved, vertex, pixel, primitiveType);
+}
