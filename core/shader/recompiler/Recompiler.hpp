@@ -273,6 +273,9 @@ struct RecompileResult {
     std::int32_t instanceOffsetSgpr = -1;
     std::vector<std::uint32_t> parameterExports;
     std::vector<FragmentParameter> fragmentParameters;
+    // Identity of the generated SPIR-V specialization. Nonzero results from
+    // the cache may use this instead of re-hashing/copying the SPIR-V bytes.
+    std::uint64_t generatedIdentity = 0;
     bool cacheHit = false;
 };
 
