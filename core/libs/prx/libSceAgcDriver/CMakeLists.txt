@@ -253,6 +253,11 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(agc_vertex_entry_tests tests/VertexEntry.cpp)
+    target_link_libraries(agc_vertex_entry_tests PRIVATE shader_recompiler_agc_driver libc)
+    set_target_properties(agc_vertex_entry_tests PROPERTIES CXX_EXTENSIONS OFF)
+    configure_windows_unwind(agc_vertex_entry_tests)
+    add_test(NAME agc_vertex_entry COMMAND agc_vertex_entry_tests)
     add_executable(agc_shader_clause_tests tests/ShaderClause.cpp)
     add_executable(agc_sampler_tests tests/Sampler.cpp tests/GuestSamplerResource.cpp
             Graphics/src/GuestSamplerResource.cpp Graphics/src/Sampler.cpp)
@@ -271,7 +276,7 @@ if(BUILD_TESTING)
     configure_windows_unwind(agc_shader_clause_tests)
     add_test(NAME agc_shader_clause COMMAND agc_shader_clause_tests)
     if(WIN32)
-        set_tests_properties(agc_shader_clause agc_shader_legacy_multiply agc_sampler PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_vertex_entry agc_shader_clause agc_shader_legacy_multiply agc_sampler PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

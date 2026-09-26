@@ -326,6 +326,9 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
             entryIr.SetVectorReg(static_cast<VectorReg>(reg), builtin(StageInputKind::PackedAncillary));
         }
     } else if (options.stage == ShaderStageKind::Vertex) {
+        if (options.userDataBaseRegister == 8u) {
+            entryIr.SetScalarReg(static_cast<ScalarReg>(3), entryIr.Constant(options.waveSize));
+        }
         entryIr.SetVectorReg(static_cast<VectorReg>(5), builtin(StageInputKind::VertexIndex));
         entryIr.SetVectorReg(static_cast<VectorReg>(8), builtin(StageInputKind::InstanceIndex));
     }
