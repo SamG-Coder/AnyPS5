@@ -33,6 +33,8 @@ private:
     std::optional<std::uint32_t> blendConstant[4];
     std::optional<std::uint32_t> psInputControl, psInputEnable, psInputAddress, dbShaderControl, shaderColorFormat;
     std::optional<std::uint32_t> interpolants[32];
+    std::optional<std::uint32_t> depthControl, depthRenderControl, depthView, depthInfo, depthSize;
+    std::optional<std::uint32_t> depthReadBase, depthReadBaseExt, depthWriteBase, depthWriteBaseExt;
 };
 }
 #endif
