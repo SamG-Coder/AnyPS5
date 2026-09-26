@@ -1,6 +1,7 @@
 #include "BdaTests.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetTransfer.hpp"
 #include <array>
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -55,8 +56,10 @@ void RunColorTargetLayoutTests() {
     }
     reject([&] { layout.Detile(std::span(tiled).first(4), restored); });
     reject([&] { layout.Tile(std::span(linear).first(4), tiled); });
-    alignas(65536) static std::array<std::byte, 65536> guest{};
-    guest.fill(std::byte{0x6b});
+    static std::array<std::byte, 131072> backing{};
+    const auto aligned = (reinterpret_cast<std::uintptr_t>(backing.data()) + 65535u) & ~std::uintptr_t{65535u};
+    const auto guest = std::span(reinterpret_cast<std::byte*>(aligned), 65536);
+    std::fill(guest.begin(), guest.end(), std::byte{0x6b});
     ColorTarget target{reinterpret_cast<std::uintptr_t>(guest.data()), {2, 2}, VK_FORMAT_R8G8B8A8_UNORM, guest.size(), 0xe4, ColorTileMode::RenderTarget};
     std::array<std::byte, 16> pixels{};
     pixels.fill(std::byte{0x32});

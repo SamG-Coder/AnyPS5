@@ -142,12 +142,14 @@ void ShaderStageTests() {
     for (const auto routing : {0x2000u, 0x2010u, 0x02002000u, 0x02002010u}) {
         for (const auto vertexWave32 : {false, true}) {
             for (const auto fragmentWave32 : {false, true}) {
-                queue.context[0x2d5] = routing | (vertexWave32 ? 0x00400000u : 0u);
-                queue.context[0x1b6] = fragmentWave32 ? 0x8000u : 0u;
-                const auto state = AgcDriver::Graphics::DecodeState(queue);
-                Require(state.stages.path == AgcDriver::Graphics::ShaderPath::Vertex, "vertex routing changed");
-                Require(state.stages.vertexWaveSize == (vertexWave32 ? 32u : 64u), "incorrect vertex wave size");
-                Require(state.stages.fragmentWaveSize == (fragmentWave32 ? 32u : 64u), "incorrect fragment wave size");
+                for (std::uint32_t primitiveGroups = 0; primitiveGroups < 16; ++primitiveGroups) {
+                    queue.context[0x2d5] = routing | (vertexWave32 ? 0x00400000u : 0u) | (primitiveGroups << 15u);
+                    queue.context[0x1b6] = fragmentWave32 ? 0x8000u : 0u;
+                    const auto state = AgcDriver::Graphics::DecodeState(queue);
+                    Require(state.stages.path == AgcDriver::Graphics::ShaderPath::Vertex, "vertex routing changed");
+                    Require(state.stages.vertexWaveSize == (vertexWave32 ? 32u : 64u), "incorrect vertex wave size");
+                    Require(state.stages.fragmentWaveSize == (fragmentWave32 ? 32u : 64u), "incorrect fragment wave size");
+                }
             }
         }
     }
@@ -181,7 +183,7 @@ void ShaderStageTests() {
         queue.context[0x2d5] = value;
         expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "reserved");
     }
-    for (const auto bit : {1u, 8u, 0x40u, 0x100u, 0x200u, 0x400u, 0x1000u, 0x4000u, 0x8000u, 0x80000u, 0x200000u, 0x800000u, 0x1000000u}) {
+    for (const auto bit : {1u, 8u, 0x40u, 0x100u, 0x200u, 0x400u, 0x1000u, 0x4000u, 0x80000u, 0x200000u, 0x800000u, 0x1000000u}) {
         queue.context[0x2d5] = 0x2000u | bit;
         expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "unsupported vertex");
     }
@@ -1118,8 +1120,13 @@ void validationTests() {
 
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "stages") {
+            ShaderStageTests();
+            std::cout << "Shader stage tests passed\n";
+            return 0;
+        }
         {
             const AgcDriver::Graphics::Context context{};
             const AgcDriver::Graphics::State state{};
