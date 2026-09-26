@@ -142,13 +142,10 @@ void TranslationContext::writeImageComponents(const RdnaOperand& dst, IrValue* v
     }
 }
 
-TranslationContext::BufferAddress TranslationContext::readBufferAddress(const RdnaInstruction& inst, std::uint32_t sourceOffset) {
-    std::uint32_t cursor = sourceOffset;
-    const auto next = [&]() { return readU32(sourceAt(inst, cursor++)); };
-    const IrU32 index = inst.idxen ? next() : IrU32(ir.Constant(0u));
-    const IrU32 offset = inst.offen ? next() : IrU32(ir.Constant(0u));
-    const IrU32 soffset = next();
-    return BufferAddress{index, offset, soffset};
+TranslationContext::BufferAddress TranslationContext::readBufferAddress(const RdnaInstruction& inst) {
+    const IrU32 index = inst.idxen ? readU32(inst.source0) : IrU32(ir.Constant(0u));
+    const IrU32 offset = inst.offen ? readU32(offsetOperand(inst.source0, inst.idxen ? 1u : 0u)) : IrU32(ir.Constant(0u));
+    return BufferAddress{index, offset, readU32(inst.source2)};
 }
 
 IrU32 TranslationContext::widenSubdword(IrValue* value, std::uint32_t bits, bool sign) {
