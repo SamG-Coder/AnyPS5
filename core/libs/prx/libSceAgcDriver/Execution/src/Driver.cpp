@@ -586,12 +586,12 @@ private:
             resetGraphics = false;
         }
         auto& queue = queues[submission.queue];
-        for (std::size_t cursor = 0; cursor < submission.commands.size();) {
+        for (const auto& decoded : submission.plan) {
             if (frameTiming == nullptr) includeSubmission(submission, false);
-            const auto header = submission.commands[cursor];
-            const auto count = static_cast<std::size_t>((header >> 16u) & 0x3fffu) + 2;
-            const auto packet = std::span(submission.commands).subspan(cursor, count);
-            const auto opcode = (header >> 8u) & 0xffu;
+            const auto cursor = decoded.offset;
+            const auto header = decoded.header;
+            const auto packet = std::span(submission.commands).subspan(cursor, decoded.count);
+            const auto opcode = decoded.opcode;
             {
                 PerformanceContext timingContext(frameTiming.get());
                 PerformanceTimer timing("Driver.Packet");
@@ -650,7 +650,6 @@ private:
                 const auto completedFrame = std::exchange(frameTiming, nullptr);
                 submission.flips.at(cursor)->GpuReady(completedFrame);
             }
-            cursor += count;
         }
     }
 
