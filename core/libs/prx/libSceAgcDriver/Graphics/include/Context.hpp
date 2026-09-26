@@ -65,6 +65,7 @@ struct Context {
     mutable std::shared_ptr<DescriptorCache> descriptorCache;
     mutable std::shared_ptr<SamplerCache> samplerCache;
     bool provokingVertexLast = false;
+    bool nonSeamlessCubeMap = false;
 
     template<typename TFunction>
     TFunction Function(const char* name) const {

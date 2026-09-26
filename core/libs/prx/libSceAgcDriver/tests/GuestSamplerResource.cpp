@@ -24,7 +24,7 @@ struct Fields {
     std::uint32_t filterMode = 0;
     bool disableDegamma = false;
     std::uint32_t minLodRaw = 0;
-    std::uint32_t maxLodRaw = 0x3c00;
+    std::uint32_t maxLodRaw = 0xc00;
     std::uint32_t perfMip = 0;
     std::uint32_t perfZ = 0;
     std::uint32_t lodBiasRaw = 0;
@@ -82,7 +82,7 @@ void RunGuestSamplerResourceTests() {
     Require(result.mipmapMode == VK_SAMPLER_MIPMAP_MODE_LINEAR, "linear mip filter must decode to linear mipmap mode");
     Require(result.addressModeU == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, "clamp mode 2 must decode to clamp-to-edge");
     Require(!result.anisotropyEnable && result.maxAnisotropy == 1.0f, "non-anisotropic filter must leave anisotropy disabled");
-    Require(nearlyEqual(result.maxLod, static_cast<float>(0x3c00) / 256.0f), "max LOD decoded incorrectly");
+    Require(nearlyEqual(result.maxLod, static_cast<float>(base.maxLodRaw) / 256.0f), "max LOD decoded incorrectly");
     Require(result.borderColor == VK_BORDER_COLOR_INT_TRANSPARENT_BLACK, "border color type 0 must decode to transparent black");
 
     Fields nearest = base;
@@ -165,9 +165,10 @@ void RunGuestSamplerResourceTests() {
     badTrunc.truncCoord = true;
     rejectFields(badTrunc, "coordinate truncation");
 
-    Fields badCubeWrap = base;
-    badCubeWrap.disableCubeWrap = true;
-    rejectFields(badCubeWrap, "seamless cube filtering");
+    Require(!DecodeSamplerResource(pack(base)).nonSeamlessCubeMap, "default sampler disabled seamless cube filtering");
+    Fields cubeWrap = base;
+    cubeWrap.disableCubeWrap = true;
+    Require(DecodeSamplerResource(pack(cubeWrap)).nonSeamlessCubeMap, "sampler lost non-seamless cube filtering");
 
     Fields badFilterMode = base;
     badFilterMode.filterMode = 1;

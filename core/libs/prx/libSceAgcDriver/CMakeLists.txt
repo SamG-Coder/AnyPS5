@@ -251,6 +251,13 @@ endif()
 
 if(BUILD_TESTING)
     add_executable(agc_shader_clause_tests tests/ShaderClause.cpp)
+    add_executable(agc_sampler_tests tests/Sampler.cpp tests/GuestSamplerResource.cpp
+            Graphics/src/GuestSamplerResource.cpp Graphics/src/Sampler.cpp)
+    target_include_directories(agc_sampler_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)
+    target_link_libraries(agc_sampler_tests PRIVATE libc)
+    set_target_properties(agc_sampler_tests PROPERTIES CXX_EXTENSIONS OFF)
+    configure_windows_unwind(agc_sampler_tests)
+    add_test(NAME agc_sampler COMMAND agc_sampler_tests)
     add_executable(agc_shader_legacy_multiply_tests tests/ShaderLegacyMultiply.cpp)
     target_link_libraries(agc_shader_legacy_multiply_tests PRIVATE shader_recompiler_agc_driver libc)
     set_target_properties(agc_shader_legacy_multiply_tests PROPERTIES CXX_EXTENSIONS OFF)
@@ -261,7 +268,7 @@ if(BUILD_TESTING)
     configure_windows_unwind(agc_shader_clause_tests)
     add_test(NAME agc_shader_clause COMMAND agc_shader_clause_tests)
     if(WIN32)
-        set_tests_properties(agc_shader_clause agc_shader_legacy_multiply PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_shader_clause agc_shader_legacy_multiply agc_sampler PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

@@ -81,6 +81,7 @@ struct VulkanDevice::State {
     bool fragmentShaderBarycentric = false;
     bool depthClipControl = false;
     bool provokingVertexLast = false;
+    bool nonSeamlessCubeMap = false;
     bool depthRangeUnrestricted = false;
     bool samplerAnisotropy = false;
     bool textureCompressionBC = false;
@@ -368,6 +369,13 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
     state->depthRangeUnrestricted = hasExtension(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     if (state->depthRangeUnrestricted) deviceExtensions.push_back(VK_EXT_DEPTH_RANGE_UNRESTRICTED_EXTENSION_NAME);
     VkPhysicalDeviceDepthClipControlFeaturesEXT depthClipFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_CLIP_CONTROL_FEATURES_EXT};
+    VkPhysicalDeviceNonSeamlessCubeMapFeaturesEXT cubeFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_NON_SEAMLESS_CUBE_MAP_FEATURES_EXT};
+    if (hasExtension(VK_EXT_NON_SEAMLESS_CUBE_MAP_EXTENSION_NAME)) {
+        VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &cubeFeatures};
+        state->InstanceFunction<PFN_vkGetPhysicalDeviceFeatures2>("vkGetPhysicalDeviceFeatures2")(selected, &features);
+        state->nonSeamlessCubeMap = cubeFeatures.nonSeamlessCubeMap == VK_TRUE;
+        if (state->nonSeamlessCubeMap) deviceExtensions.push_back(VK_EXT_NON_SEAMLESS_CUBE_MAP_EXTENSION_NAME);
+    }
     VkPhysicalDeviceProvokingVertexFeaturesEXT provokingFeatures{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT};
     if (hasExtension(VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME)) {
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &provokingFeatures};
@@ -425,6 +433,10 @@ VulkanDevice::VulkanDevice(const PresentationWindow* window) : state(std::make_u
         deviceInfo.pNext = &depthClipFeatures;
     }
     byteFeatures.pNext = const_cast<void*>(deviceInfo.pNext);
+    if (state->nonSeamlessCubeMap) {
+        cubeFeatures.pNext = byteFeatures.pNext;
+        byteFeatures.pNext = &cubeFeatures;
+    }
     if (state->provokingVertexLast) {
         provokingFeatures.pNext = byteFeatures.pNext;
         byteFeatures.pNext = &provokingFeatures;
@@ -749,7 +761,8 @@ Graphics::Context VulkanDevice::graphicsContext() const {
         state->graphicsPipelines.get(),
         state->descriptorCache,
         state->samplerCache,
-        state->provokingVertexLast
+        state->provokingVertexLast,
+        state->nonSeamlessCubeMap
     };
 }
 
