@@ -9,6 +9,7 @@ static const std::unordered_map<std::string, std::string>& nativeMap() {
 
         {"sceAgcInit", "aps5NativeAgcInit"},
         {"sceAgcCbReleaseMem", "aps5NativeAgcReleaseMem"},
+        {"sceAgcDcbSetFlip", "aps5NativeAgcSetFlip"},
         {"sceAgcDriverGetWaitRenderingPacketSizeInDwords", "aps5NativeAgcGetWaitRenderingSize"},
         {"sceAgcDriverWaitUntilSafeForRendering", "aps5NativeAgcWaitUntilSafeForRendering"},
         {"sceAgcSuspendPoint", "aps5NativeAgcSuspendPoint"},

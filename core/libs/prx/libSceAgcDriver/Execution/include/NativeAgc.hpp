@@ -20,6 +20,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetNumInstances(CommandBuffer*, std::uint3
 std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t,
     std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t,
     std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetFlip(CommandBuffer*, std::uint32_t, std::int32_t, std::uint32_t, std::int64_t);
 std::uint32_t APS5_VABI aps5NativeAgcGetWaitRenderingSize();
 std::uint32_t APS5_VABI aps5NativeAgcWaitUntilSafeForRendering(std::uint32_t**, std::uint32_t, std::uint32_t, std::uint32_t, int);
 int APS5_VABI aps5NativeAgcSubmit(const Packet*);

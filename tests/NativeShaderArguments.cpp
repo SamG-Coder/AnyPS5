@@ -3,6 +3,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include <thread>
+#include <functional>
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -91,6 +92,79 @@ void renderingDependency() {
     const Packet full{words.data(), 12, 0, {0, 0, 0}};
     check(aps5NativeAgcSubmit(&full) == 0);
     check(output->captures == 1 && output->dependency->waited && marker.value == 42);
+}
+class FlipProbe final : public AgcDriver::IFlipRequest, public AgcDriver::IRenderingWait {
+public:
+    explicit FlipProbe(Label& marker) : marker(marker) {}
+    void Wait() override {
+        check(reserved && marker.value == 17);
+        if (failWait) throw std::runtime_error("flip wait failure");
+        waited = true;
+    }
+    void GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>& timing) override {
+        check(timing != nullptr && waited && marker.value == 42);
+        bool unlocked = false;
+        std::thread other([&] {
+            auto& mutex = AgcDriver::NativeGraphicsRuntime::Get().Mutex();
+            unlocked = mutex.try_lock();
+            if (unlocked) mutex.unlock();
+        });
+        other.join();
+        check(unlocked);
+        ready = true;
+        readyHook();
+    }
+    void Fail(std::exception_ptr error) noexcept override { failed = error != nullptr; }
+    Label& marker;
+    bool captured = false, reserved = false, waited = false, ready = false, failed = false, failWait = false;
+    std::function<void()> readyHook;
+};
+class FlipOutput final : public AgcDriver::IVideoOutput {
+public:
+    explicit FlipOutput(Label& marker) : probe(std::make_shared<FlipProbe>(marker)) {}
+    std::shared_ptr<AgcDriver::IRenderingWait> CaptureRenderingWait(std::uint32_t index) override {
+        check(index == 2 && !probe->reserved);
+        probe->captured = true;
+        return probe;
+    }
+    std::shared_ptr<AgcDriver::IFlipRequest> Reserve(const AgcDriver::FlipInfo& info) override {
+        check(probe->captured && info.handle == 78 && info.index == 2 && info.mode == 1 && info.argument == -0x123456789abcdefLL);
+        probe->reserved = true;
+        return probe;
+    }
+    void Fail(std::exception_ptr error) noexcept override { probe->Fail(error); }
+    std::shared_ptr<FlipProbe> probe;
+};
+void terminalFlip(bool failWait) {
+    static std::array<std::uint32_t, 24> words{};
+    auto* cursor = words.data();
+    Label marker{17};
+    const auto output = std::make_shared<FlipOutput>(marker);
+    output->probe->failWait = failWait;
+    output->probe->readyHook = [weak = std::weak_ptr<FlipOutput>(output)] {
+        AgcDriverUnregisterVideoOutput_nid_postfix(78, weak.lock());
+    };
+    AgcDriverRegisterVideoOutput_nid_postfix(78, output);
+    aps5NativeAgcWaitUntilSafeForRendering(&cursor, 4, 0, 78, 2);
+    CommandBuffer command{words.data(), words.data() + words.size(), cursor,
+        words.data() + words.size(), nullptr, nullptr, 0};
+    aps5NativeAgcReleaseMem(&command, 0x28, 0x30c, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    check(aps5NativeAgcSetFlip(&command, 78, 2, 1, -0x123456789abcdefLL) == words.data() + 12);
+    check(command.cursor_up == words.data() + 18 && !output->probe->reserved);
+    rejects([&] { aps5NativeAgcReleaseMem(&command, 0x28, 0, 0, 0, &marker, 1, 43, 0, 0, 0, 0); });
+    check(command.cursor_up == words.data() + 18);
+    const Packet partial{words.data(), 17, 0, {0, 0, 0}};
+    rejects([&] { aps5NativeAgcSubmit(&partial); });
+    check(!output->probe->reserved && marker.value == 17);
+    const Packet complete{words.data(), 18, 0, {0, 0, 0}};
+    if (failWait) {
+        rejects([&] { aps5NativeAgcSubmit(&complete); });
+        check(output->probe->failed && !output->probe->ready && marker.value == 17);
+        AgcDriverUnregisterVideoOutput_nid_postfix(78, output);
+    } else {
+        check(aps5NativeAgcSubmit(&complete) == 0);
+        check(output->probe->ready && !output->probe->failed && marker.value == 42);
+    }
 }
 void terminalCompletion() {
     static std::array<std::uint32_t, 32> words{};
@@ -272,7 +346,9 @@ void scalarStorage() {
     check(buffer.cursor_up == cursor);
 }
 }
-int main() {
+int main(int argc, char**) {
+    if (argc > 1) { terminalFlip(true); return 0; }
+    terminalFlip(false);
     renderingDependency();
     terminalCompletion();
     descriptorLifetime();

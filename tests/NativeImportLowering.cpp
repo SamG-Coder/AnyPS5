@@ -37,6 +37,7 @@ void libraries() {
     rejects([&] { Relinker::ImportLibraries bad(badTags, strings); });
     check(Relinker::AgcImportLowering::NativeSymbol("0MtUJ3BpGhE#I#J", "libSceAgcDriver") == "aps5NativeAgcGetWaitRenderingSize", "Quake wait-size import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("u8BkdHb1+Po#I#J", "libSceAgcDriver") == "aps5NativeAgcWaitUntilSafeForRendering", "Quake rendering-wait import did not lower");
+    check(Relinker::AgcImportLowering::NativeSymbol("YUeqkyT7mEQ#H#I", "libSceAgc") == "aps5NativeAgcSetFlip", "Quake flip import did not lower");
     const auto hashed = Nid::ComputeNid("sceAgcDcbDrawIndex", "libSceAgc");
     check(Relinker::AgcImportLowering::NativeSymbol(hashed + "#H#I", "libSceAgc") == "aps5NativeAgcDrawIndex", "qualified hashed import did not lower");
     check(Relinker::AgcImportLowering::NativeSymbol("sceAgcCreateShader", "libSceAgc") == "aps5NativeAgcCreateShader", "named import did not lower");

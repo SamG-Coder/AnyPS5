@@ -8,6 +8,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <mutex>
 #include <algorithm>
 #include <cstring>
@@ -29,6 +30,12 @@ struct NativeShader {
     std::vector<ShaderSemantic> inputSemantics;
     std::vector<ShaderSemantic> outputSemantics;
     std::optional<ShaderUserData> userDataInfo;
+};
+
+struct NativeFlip {
+    std::uintptr_t begin;
+    std::uintptr_t end;
+    AgcDriver::FlipInfo info;
 };
 
 struct NativeCompletion {
@@ -64,6 +71,7 @@ struct NativeCommandBufferState {
     std::uint32_t instances = 1;
     std::vector<NativeDrawCall> draws;
     std::vector<NativeCompletion> completions;
+    std::vector<NativeFlip> flips;
 };
 struct NativeRenderingWait {
     std::uintptr_t begin;
@@ -127,6 +135,7 @@ void writeUserConfiguration(Graphics::NativeGraphicsState& graphics, std::uint8_
 }
 void appendDraw(NativeCommandBufferState& s, CommandBuffer* buffer, std::uint32_t words,
                 std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
+    if (!s.flips.empty()) throw std::runtime_error("native AGC: drawing after a flip requires native lowering");
     if (!s.completions.empty()) throw std::runtime_error("native AGC: drawing after a terminal release requires native lowering");
     if (!s.vertexShader || !s.fragmentShader) throw std::runtime_error("native AGC: draw is missing native vertex or fragment shader");
     if (!s.graphics.ReadyForDraw()) throw std::runtime_error("native AGC: draw graphics state is incomplete");
@@ -403,11 +412,22 @@ std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer* buffer, std::uin
     reserveTokens(buffer, 8);
     std::lock_guard lock(stateMutex);
     auto& target = state(buffer);
+    if (!target.flips.empty()) throw std::runtime_error("native AGC: release after a flip requires native lowering");
     const auto begin = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
     target.completions.push_back({begin, begin + 8 * sizeof(std::uint32_t),
         dataSelect == 1 ? reinterpret_cast<volatile std::uint32_t*>(address) : nullptr,
         static_cast<std::uint32_t>(data)});
     return opaque(buffer, 8);
+}
+std::uint32_t* APS5_VABI aps5NativeAgcSetFlip(CommandBuffer* buffer, std::uint32_t handle,
+    std::int32_t index, std::uint32_t mode, std::int64_t argument) {
+    AgcDriver::NativeGraphicsRuntime::Get().CheckFailure();
+    reserveTokens(buffer, AgcDriver::FlipPacketWords);
+    std::lock_guard lock(stateMutex);
+    auto& target = state(buffer);
+    const auto begin = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
+    target.flips.push_back({begin, begin + AgcDriver::FlipPacketWords * 4, {handle, index, mode, argument}});
+    return opaque(buffer, AgcDriver::FlipPacketWords);
 }
 std::uint32_t APS5_VABI aps5NativeAgcGetWaitRenderingSize() {
     return AgcDriver::RenderingWaitPacketWords;
@@ -434,6 +454,7 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
     std::vector<NativeRenderingWait> waits;
     std::vector<NativeDrawCall> draws;
     std::vector<NativeCompletion> completions;
+    std::vector<NativeFlip> flips;
     {
         std::lock_guard lock(stateMutex);
         auto* native = submittedState(packet);
@@ -446,6 +467,8 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
             if (native) {
                 for (const auto& draw : native->draws)
                     if (wait.end > draw.begin) throw std::runtime_error("native AGC: rendering wait after a draw requires native lowering");
+                for (const auto& flip : native->flips)
+                    if (wait.end > flip.begin) throw std::runtime_error("native AGC: rendering wait after a flip requires native lowering");
                 for (const auto& completion : native->completions)
                     if (wait.end > completion.begin) throw std::runtime_error("native AGC: rendering wait after a release requires native lowering");
             }
@@ -454,45 +477,56 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
         if (!native && waits.empty())
             throw std::runtime_error("native AGC: submission was not authored by a lowered native command buffer");
         if (native && (!std::all_of(native->draws.begin(), native->draws.end(), covered) ||
-            !std::all_of(native->completions.begin(), native->completions.end(), covered)))
+            !std::all_of(native->completions.begin(), native->completions.end(), covered) ||
+            !std::all_of(native->flips.begin(), native->flips.end(), covered)))
             throw std::runtime_error("native AGC: partial submission excludes pending native work");
         if (native) {
             draws = std::move(native->draws);
             completions = std::move(native->completions);
+            flips = std::move(native->flips);
             native->draws.clear();
             native->completions.clear();
+            native->flips.clear();
         }
         for (const auto& wait : waits) renderingWaits.erase(wait.begin);
     }
+    std::vector<std::shared_ptr<AgcDriver::IFlipRequest>> requests;
     try {
+        requests.reserve(flips.size());
         std::vector<std::shared_ptr<AgcDriver::IRenderingWait>> dependencies;
         for (const auto& wait : waits)
             dependencies.push_back(AgcDriver::CaptureNativeRenderingWait(wait.handle, wait.index));
+        for (const auto& flip : flips) requests.push_back(AgcDriver::ReserveNativeFlip(flip.info));
         for (const auto& dependency : dependencies) dependency->Wait();
-        std::lock_guard gpuLock(runtime.Mutex());
-        runtime.CheckFailure();
-        for(const auto& call:draws){
-            auto& nativeDevice = runtime.Headless();
-            const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
-                return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
-            };
-            std::array<Graphics::NativeShaderProgram,2> programs{{
-                {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,0x8cu,8,call.vertexArguments.values,call.vertexArguments.missing},
-                {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,0x0cu,0,call.fragmentArguments.values,call.fragmentArguments.missing}
-            }};
-            std::array<ShaderRecompiler::MemoryRegion,4> memory{{
-                {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},
-                {call.vertexShader->headerAddress,call.vertexShader->header},
-                {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
-                {call.fragmentShader->headerAddress,call.fragmentShader->header}
-            }};
-            Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+        {
+            std::lock_guard gpuLock(runtime.Mutex());
+            runtime.CheckFailure();
+            for(const auto& call:draws){
+                auto& nativeDevice = runtime.Headless();
+                const auto makeBinary=[](const NativeShader& shader, ShaderRecompiler::ShaderStage stage){
+                    return ShaderRecompiler::ShaderBinary{stage,shader.codeAddress,shader.code,shader.headerAddress,shader.header,shader.identity};
+                };
+                std::array<Graphics::NativeShaderProgram,2> programs{{
+                    {makeBinary(*call.vertexShader,ShaderRecompiler::ShaderStage::Vertex),ShaderRecompiler::ProgramRole::Main,0x8cu,8,call.vertexArguments.values,call.vertexArguments.missing},
+                    {makeBinary(*call.fragmentShader,ShaderRecompiler::ShaderStage::Fragment),ShaderRecompiler::ProgramRole::Fragment,0x0cu,0,call.fragmentArguments.values,call.fragmentArguments.missing}
+                }};
+                std::array<ShaderRecompiler::MemoryRegion,4> memory{{
+                    {call.vertexShader->codeAddress,std::as_bytes(std::span(call.vertexShader->code))},
+                    {call.vertexShader->headerAddress,call.vertexShader->header},
+                    {call.fragmentShader->codeAddress,std::as_bytes(std::span(call.fragmentShader->code))},
+                    {call.fragmentShader->headerAddress,call.fragmentShader->header}
+                }};
+                Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
+            }
+            runtime.WaitDraws();
+            for (const auto& completion : completions)
+                if (completion.address) *completion.address = completion.value;
         }
-        runtime.WaitDraws();
-        for (const auto& completion : completions)
-            if (completion.address) *completion.address = completion.value;
+        for (const auto& request : requests) request->GpuReady(std::make_shared<AgcDriver::FrameTiming>(0));
     } catch (...) {
-        runtime.ReportFailure(std::current_exception());
+        const auto failure = std::current_exception();
+        for (const auto& request : requests) request->Fail(failure);
+        AgcDriverReportFailure_nid_postfix(failure);
         throw;
     }
     return 0;

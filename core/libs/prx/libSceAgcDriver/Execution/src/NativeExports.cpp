@@ -29,6 +29,19 @@ std::shared_ptr<IRenderingWait> CaptureNativeRenderingWait(std::uint32_t handle,
     if (!wait) throw std::runtime_error("native graphics: null rendering wait");
     return wait;
 }
+std::shared_ptr<IFlipRequest> ReserveNativeFlip(const FlipInfo& info) {
+    std::shared_ptr<IVideoOutput> output;
+    {
+        std::lock_guard lock(outputsMutex);
+        NativeGraphicsRuntime::Get().CheckFailure();
+        const auto found = outputs->find(info.handle);
+        if (found == outputs->end()) throw std::invalid_argument("native graphics: unregistered flip output");
+        output = found->second;
+    }
+    auto request = output->Reserve(info);
+    if (!request) throw std::runtime_error("native graphics: null flip reservation");
+    return request;
+}
 void Submit(const Packet* packet, std::uint32_t queue) {
     NativeGraphicsRuntime::Get().CheckFailure();
     if (queue != 0) throw std::runtime_error("native graphics: compute submission has no native lowering");
