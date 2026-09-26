@@ -158,21 +158,13 @@ void DisplayWindow::applyAspectRatio(void* hwnd, std::uintptr_t edge, void* rect
 #endif
 }
 
-std::intptr_t DisplayWindow::windowProc(void* hwnd, unsigned int message, std::uintptr_t wParam, std::intptr_t lParam, std::uintptr_t subclassId, std::uintptr_t referenceData) {
 #ifdef _WIN32
+std::intptr_t __stdcall DisplayWindow::windowProc(void* hwnd, unsigned int message, std::uintptr_t wParam, std::intptr_t lParam, std::uintptr_t subclassId, std::uintptr_t referenceData) {
     static_cast<void>(subclassId);
     if (message == WM_SIZING) {
         reinterpret_cast<const DisplayWindow*>(referenceData)->applyAspectRatio(hwnd, wParam, reinterpret_cast<void*>(lParam));
         return TRUE;
     }
     return DefSubclassProc(static_cast<HWND>(hwnd), message, static_cast<WPARAM>(wParam), static_cast<LPARAM>(lParam));
-#else
-    static_cast<void>(hwnd);
-    static_cast<void>(message);
-    static_cast<void>(wParam);
-    static_cast<void>(lParam);
-    static_cast<void>(subclassId);
-    static_cast<void>(referenceData);
-    return 0;
-#endif
 }
+#endif
