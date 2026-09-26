@@ -159,6 +159,33 @@ void vectorInstructionLengths() {
         require(decoder.Decode(instruction.data(), instruction.size()) == instruction.size(), "Vector immediate or VZEROUPPER was decoded with the wrong length");
 }
 
+void nativeReplacementReachability() {
+    auto input = fixture();
+    input.Functions = {{0x1000, 0x1010, {}}, {0x1020, 0x1030, {}}};
+    ripOperand(input, 0, {0xff, 0x15}, 0x2008);
+    emit(input, 6, {0xe8, 0x15, 0, 0, 0, 0xc3});
+    ripOperand(input, 32, {0xff, 0x15}, 0x2000);
+    emit(input, 38, {0xc3});
+    require(AnalyzeStrictReachability(input).ImportSlots.size() == 2, "Original function imports missing");
+    input.NativeFunctionEntries.insert(0x1020);
+    const auto lowered = AnalyzeStrictReachability(input);
+    require(lowered.ImportSlots == std::set<std::uint64_t>{0x2008}, "Replaced function retained its old imports");
+    require(lowered.Instructions.contains(0x1020) && !lowered.Instructions.contains(0x1026),
+            "Native function entry/body reachability was not separated");
+    auto invalid = input;
+    invalid.NativeFunctionEntries.insert(0x1040);
+    requireFailure([&] { AnalyzeStrictReachability(invalid); }, "Replacement without function bounds accepted");
+    invalid = input;
+    invalid.Text[7] = 0x16;
+    requireFailure([&] { AnalyzeStrictReachability(invalid); }, "Direct entry into replaced body accepted");
+    invalid = input;
+    invalid.Pointers.emplace(0x3000, 0x1021);
+    requireFailure([&] { AnalyzeStrictReachability(invalid); }, "Address-taken replaced interior accepted");
+    input.Pointers.emplace(0x3000, 0x1020);
+    require(AnalyzeStrictReachability(input).ImportSlots == std::set<std::uint64_t>{0x2008},
+            "Address-taken replacement entry retained old imports");
+}
+
 void populationCountInstructions() {
     const Codegen::X64InstructionDecoder decoder;
     const std::vector<std::vector<std::uint8_t>> instructions{
@@ -313,6 +340,7 @@ int main() {
         relativeTableAndWholeFunction();
         vectorInstructionLengths();
         populationCountInstructions();
+        nativeReplacementReachability();
         exceptionLandingPads();
         filterCallbackDataImports();
         filterAndPltCompaction();

@@ -49,6 +49,8 @@ public:
             if (input.ImportSlots.contains(target)) result.ImportSlots.insert(target);
             if (!isCode(target)) return;
             const auto begin = owner(target).Begin;
+            if (input.NativeFunctionEntries.contains(begin) && target != begin)
+                throw RelinkerException("Strict filter: reachable target enters a replaced function body", target);
             if (live.insert(begin).second) pending.push_back(begin);
         };
         for (const auto entry : input.Entries) {
@@ -125,6 +127,9 @@ private:
     void buildRegions() {
         auto functions = input.Functions;
         std::sort(functions.begin(), functions.end(), [](const auto& left, const auto& right) { return left.Begin < right.Begin; });
+        for (const auto entry : input.NativeFunctionEntries)
+            if (std::none_of(functions.begin(), functions.end(), [&](const auto& function) { return function.Begin == entry; }))
+                throw RelinkerException("Strict filter: native replacement has no known function boundary", entry);
         auto previousEnd = input.TextVaddr;
         const auto textEnd = input.TextVaddr + input.Text.size();
         for (const auto& function : functions) {
@@ -145,6 +150,11 @@ private:
 
     void buildEdges() {
         for (auto& [begin, region] : regions) {
+            if (input.NativeFunctionEntries.contains(begin)) {
+                region.Edges.clear();
+                region.Instructions.push_back(begin);
+                continue;
+            }
             Codegen::ControlFlowKind lastFlow = Codegen::ControlFlowKind::Sequential;
             for (auto address = begin; address < region.End;) {
                 if (isZeroPadding(address, region.End)) {

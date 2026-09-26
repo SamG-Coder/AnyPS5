@@ -25,6 +25,7 @@ struct StrictReachabilityInput {
     std::map<VirtualAddress, VirtualAddress> Pointers;
     std::set<VirtualAddress> ImportSlots;
     std::vector<StrictCodeRegion> Functions;
+    std::set<VirtualAddress> NativeFunctionEntries;
     std::vector<StrictDataRegion> Data;
 };
 
