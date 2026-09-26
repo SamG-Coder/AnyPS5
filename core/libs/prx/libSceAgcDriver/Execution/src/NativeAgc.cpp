@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
 #include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
+#include "prx/libSceAgc/Shader/include/ShaderConstants.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include <mutex>
 #include <cstring>
@@ -19,7 +20,9 @@ struct NativeShader {
 
 struct NativeCommandBufferState {
     Graphics::NativeGraphicsState graphics;
-    std::vector<ShaderRegister> shaderBindings;
+    std::shared_ptr<const NativeShader> vertexShader;
+    std::shared_ptr<const NativeShader> fragmentShader;
+    std::shared_ptr<const NativeShader> computeShader;
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
@@ -29,6 +32,26 @@ std::mutex stateMutex;
 std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
 std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
 std::uint64_t nextShaderIdentity = 0;
+std::shared_ptr<const NativeShader> findShaderByProgramAddress(std::uint64_t address) {
+    for (const auto& [header, shader] : shaders) {
+        if (shader->codeAddress == address) return shader;
+    }
+    throw std::runtime_error("native AGC: shader program address does not reference a native shader");
+}
+void bindShaderRegister(NativeCommandBufferState& target, std::uint32_t offset, std::uint32_t value, const std::optional<std::uint32_t>& nextValue) {
+    const auto bind=[&](std::shared_ptr<const NativeShader>& slot) {
+        if (!nextValue) throw std::runtime_error("native AGC: incomplete shader program address");
+        const auto address=(static_cast<std::uint64_t>(*nextValue & 0xffu)<<40u)|(static_cast<std::uint64_t>(value)<<8u);
+        slot=findShaderByProgramAddress(address);
+    };
+    switch(offset) {
+        case ShaderRegs::SPI_SHADER_PGM_LO_PS: bind(target.fragmentShader); return;
+        case ShaderRegs::SPI_SHADER_PGM_LO_ES:
+        case ShaderRegs::SPI_SHADER_PGM_LO_LS: bind(target.vertexShader); return;
+        case ShaderRegs::COMPUTE_PGM_LO: bind(target.computeShader); return;
+        default: throw std::runtime_error("native AGC: shader register has no native lowering");
+    }
+}
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (!buffer) throw std::invalid_argument("native AGC: null command buffer");
     return states[buffer];
@@ -84,14 +107,25 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs && count) throw std::invalid_argument("native AGC: null shader register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b).shaderBindings;
-    target.reserve(target.size()+count);
-    for (std::uint32_t i=0;i<count;++i) target.push_back({regs[i].offset,regs[i].value});
+    std::lock_guard lock(stateMutex); auto& target=state(b);
+    for (std::uint32_t i=0;i<count;++i) {
+        const std::optional<std::uint32_t> next=(i+1<count && regs[i+1].offset==regs[i].offset+1)?std::optional<std::uint32_t>(regs[i+1].value):std::nullopt;
+        if (regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_PS || regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_ES || regs[i].offset==ShaderRegs::SPI_SHADER_PGM_LO_LS || regs[i].offset==ShaderRegs::COMPUTE_PGM_LO) {
+            bindShaderRegister(target,regs[i].offset,regs[i].value,next); ++i;
+        }
+    }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); auto& target=state(b).shaderBindings;
-    if (values) { target.reserve(target.size()+count); for (std::uint32_t i=0;i<count;++i) target.push_back({offset+i,values[i]}); }
+    if (!values && count) throw std::invalid_argument("native AGC: null shader register range");
+    std::lock_guard lock(stateMutex); auto& target=state(b);
+    for (std::uint32_t i=0;i<count;++i) {
+        const auto current=offset+i;
+        if (current==ShaderRegs::SPI_SHADER_PGM_LO_PS || current==ShaderRegs::SPI_SHADER_PGM_LO_ES || current==ShaderRegs::SPI_SHADER_PGM_LO_LS || current==ShaderRegs::COMPUTE_PGM_LO) {
+            const std::optional<std::uint32_t> next=i+1<count?std::optional<std::uint32_t>(values[i+1]):std::nullopt;
+            bindShaderRegister(target,current,values[i],next); ++i;
+        }
+    }
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
