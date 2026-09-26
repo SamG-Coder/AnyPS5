@@ -11,6 +11,7 @@ public:
     void SetUser(std::uint32_t offset, std::uint32_t value);
     const State& Get() const { return state; }
     std::optional<std::uint32_t> Primitive() const { return primitive; }
+    bool ReadyForDraw() const;
 private:
     void updateTopology();
     void updateRaster();
