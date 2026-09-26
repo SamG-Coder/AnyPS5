@@ -252,6 +252,7 @@ bool TranslationContext::emitScalar(const RdnaInstruction& inst) {
     case RdnaOpcode::SPackHhB32B16:
         return packB16(inst, true, true);
     case RdnaOpcode::SNop:
+    case RdnaOpcode::SClause:
     case RdnaOpcode::SSleep:
     case RdnaOpcode::SSetprio:
     case RdnaOpcode::STrap:
