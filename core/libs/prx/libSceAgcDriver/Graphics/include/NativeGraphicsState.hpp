@@ -12,6 +12,7 @@ public:
     const State& Get() const { return state; }
     std::optional<std::uint32_t> Primitive() const { return primitive; }
     bool ReadyForDraw() const;
+    std::optional<ShaderRecompiler::ShaderPixelStageInfo> PixelStage() const;
 private:
     void updateTopology();
     void updateRaster();
@@ -30,6 +31,8 @@ private:
     std::optional<std::uint32_t> colorBase, colorBaseExt, colorAttrib2, colorAttrib3;
     std::optional<std::uint32_t> blendControl;
     std::optional<std::uint32_t> blendConstant[4];
+    std::optional<std::uint32_t> psInputControl, psInputEnable, psInputAddress, dbShaderControl, shaderColorFormat;
+    std::optional<std::uint32_t> interpolants[32];
 };
 }
 #endif
