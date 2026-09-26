@@ -33,6 +33,7 @@ add_executable(relinker
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/CallSiteResolver.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/AgcLoweringAnalyzer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/AgcImportLowering.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/ImportLibraries.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../libs/nid/src/NidCompute.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../libs/nid/src/Sha1.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/relinker/src/analysis/UnusedNidFilter.cpp

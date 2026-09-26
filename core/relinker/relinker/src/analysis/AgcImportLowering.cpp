@@ -2,6 +2,7 @@
 #include <relinker/analysis/AgcLoweringAnalyzer.hpp>
 #include <unordered_map>
 #include <nid/NidCompute.hpp>
+#include <relinker/analysis/ImportLibraries.hpp>
 namespace Relinker {
 static const std::unordered_map<std::string, std::string>& nativeMap() {
     static const std::unordered_map<std::string, std::string> native = {
@@ -23,9 +24,10 @@ static const std::unordered_map<std::string, std::string>& nativeMap() {
     return native;
 }
 std::optional<std::string> AgcImportLowering::NativeSymbol(const std::string& imported, const std::string& library) {
+    const std::string name(ImportLibraries::SymbolName(imported));
     const auto& native=nativeMap();
-    if (const auto found=native.find(imported); found!=native.end()) return found->second;
-    for (const auto& [source,target]:native) if (imported==Nid::ComputeNid(source,library)) return target;
+    if (const auto found=native.find(name); found!=native.end()) return found->second;
+    for (const auto& [source,target]:native) if (name==Nid::ComputeNid(source,library)) return target;
     return std::nullopt;
 }
 void AgcImportLowering::Apply(std::vector<NidReference>& references) {

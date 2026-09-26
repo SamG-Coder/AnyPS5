@@ -28,3 +28,18 @@ if(AGC_NATIVE_RELINKED_ONLY)
         endif()
     endif()
 endif()
+
+if(BUILD_TESTING)
+    add_executable(native_import_lowering_tests
+        tests/NativeImportLowering.cpp
+        core/relinker/relinker/src/analysis/ImportLibraries.cpp
+        core/relinker/relinker/src/analysis/AgcImportLowering.cpp
+        core/relinker/relinker/src/analysis/AgcLoweringAnalyzer.cpp
+        core/relinker/relinker/src/analysis/CallSiteResolver.cpp
+        core/relinker/codegen/src/x86/X64InstructionDecoder.cpp
+        core/libs/nid/src/NidCompute.cpp core/libs/nid/src/Sha1.cpp)
+    target_include_directories(native_import_lowering_tests PRIVATE
+        core/relinker/domain/include core/relinker/relinker/include
+        core/relinker/codegen/include core/libs/nid/include)
+    add_test(NAME native_import_lowering COMMAND native_import_lowering_tests)
+endif()

@@ -2,6 +2,8 @@
 #include <relinker/analysis/ValidationPolicy.hpp>
 #include <relinker/analysis/AgcLoweringAnalyzer.hpp>
 #include <relinker/analysis/AgcImportLowering.hpp>
+#include <relinker/analysis/ImportLibraries.hpp>
+#include <span>
 #include <relinker/analysis/UnusedNidFilter/PltCompactor.hpp>
 #include <sstream>
 #include <iostream>
@@ -163,6 +165,11 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         if (policy) policy->RegisterLibraryImport(snd);
     }
 
+    const auto dynStringSize = getTagValue(hasTag(DT_OS_STRSZ) ? DT_OS_STRSZ : DT_STRSZ);
+    if (dynStrTabOffset > raw.size() || dynStringSize > raw.size() - dynStrTabOffset)
+        throw RelinkerException("Dynamic string table is out of bounds", dynStrTabOffset);
+    const ImportLibraries importLibraries(dynTags, std::span(raw).subspan(dynStrTabOffset, dynStringSize));
+
     auto extractRela = [&](const FileByteOffset relaOff, const ByteCount relaSize) {
         for (ByteCount off = 0; off + relaEntSize <= relaSize; off += relaEntSize) {
             const FileByteOffset pos = relaOff + off;
@@ -191,7 +198,8 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
             std::uint32_t nameOff = 0;
             std::memcpy(&nameOff, raw.data() + symOff, 4);
 
-            nidRefs.push_back({readCStr(nameOff), {}, relType, pos, rOffset, rAddend});
+            const auto imported = readCStr(nameOff);
+            nidRefs.push_back({imported, importLibraries.LibraryFor(imported), relType, pos, rOffset, rAddend});
         }
     };
 
@@ -243,7 +251,6 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     std::cout << "NID total: " << originalNidCount << " -> " << nidRefs.size() << "; filtered=" << originalNidCount - nidRefs.size() << "\n";
 
     auto dynamicRefs = nidRefs;
-    AgcImportLowering::Apply(dynamicRefs);
     std::vector<RelinkPatch> patches;
     auto pltCount = static_cast<std::uint32_t>(dynJmpRelSize / relaEntSize);
     if (unusedFilterLevel == 2) {
@@ -253,6 +260,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
         std::cout << "PLT compaction: " << pltCount << " -> " << compacted.SlotCount << "\n";
         pltCount = compacted.SlotCount;
     }
+    AgcImportLowering::Apply(dynamicRefs);
     auto dynSection = _dynamicSectionBuilder->BuildDynamicSection(dynamicRefs, neededLibraries, dynJmpRelOffset, pltCount);
 
     static constexpr std::uint32_t R_X86_64_RELATIVE = 8;
@@ -288,7 +296,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     for (const auto& ref : nidRefs) {
         std::vector<FileByteOffset> callSites;
         bool callSitesResolved = false;
-        if (!textSection.empty() && gotSize > 0) {
+        if (!textSection.empty()) {
             callSites = _callSiteResolver->ResolveCallSites(textSection, textVAddr, ref.RelocationAddress, 8);
             callSitesResolved = !callSites.empty();
         }
