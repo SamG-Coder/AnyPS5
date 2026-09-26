@@ -44,7 +44,7 @@ if(BUILD_TESTING)
     add_test(NAME native_import_lowering COMMAND native_import_lowering_tests)
 endif()
 
-if(BUILD_TESTING AND Python3_Interpreter_FOUND AND UNIX AND NOT APPLE)
+if(BUILD_TESTING AND Python3_Interpreter_FOUND AND (WIN32 OR (UNIX AND NOT APPLE)))
     add_test(NAME native_function_relink COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_SOURCE_DIR}/tests/native_function_relink.py
         $<TARGET_FILE:relinker> ${CMAKE_CXX_COMPILER})

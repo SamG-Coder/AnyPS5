@@ -28,8 +28,46 @@ def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], capture_output=True, text=True, timeout=30, **kwargs)
 
 
+def windows_main(relinker, compiler):
+    with tempfile.TemporaryDirectory(prefix="native-function-pe-") as directory:
+        work = Path(directory)
+        source = work / "source.elf"
+        source.write_bytes(image())
+        manifest = work / "bindings.txt"
+        valid = "0x240 native_fixture_add native_fixture.prx b807000000c3\n"
+        manifest.write_text(valid)
+        impl = work / "native.cpp"
+        impl.write_text('extern "C" __attribute__((dllexport,sysv_abi)) '
+                        'int native_fixture_add(int value) { return value + 23; }\n')
+        compiled = run([compiler, "-shared", impl, "-o", work / "native_fixture.prx"])
+        if compiled.returncode:
+            raise AssertionError((compiled.stdout, compiled.stderr))
+        for name, expected, options in (
+            ("original.exe", 7, []),
+            ("ported.exe", 42, ["--native-functions", manifest]),
+        ):
+            output = work / name
+            result = run([relinker, "--windows", *options, "--rpath", work, source, output])
+            if result.returncode:
+                raise AssertionError((result.stdout, result.stderr))
+            executed = run([output], cwd=work)
+            if executed.returncode != expected:
+                raise AssertionError((name, executed.returncode, executed.stdout, executed.stderr))
+        output = work / "ported.exe"
+        emitted = output.read_bytes()
+        manifest.write_text(valid.replace("b807", "b808"))
+        result = run([relinker, "--windows", "--native-functions", manifest,
+                      "--rpath", work, source, output])
+        if result.returncode != 2 or output.read_bytes() != emitted:
+            raise AssertionError(("invalid PE lowering modified output", result.stdout, result.stderr))
+    print("PE loader execution verified: original=7, native System V replacement=42")
+
+
 def main():
     relinker, compiler = map(Path, sys.argv[1:3])
+    if sys.platform == "win32":
+        windows_main(relinker, compiler)
+        return
     with tempfile.TemporaryDirectory(prefix="native-function-relink-") as directory:
         work = Path(directory)
         source = work / "source.elf"
