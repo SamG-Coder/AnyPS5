@@ -208,6 +208,16 @@ int main() {
         auto relocated = request;
         relocated.shader.codeAddress += 0x1000;
         require(Recompile(relocated).cacheHit, "shader relocation caused recompilation");
+        auto registered = request;
+        registered.shader.sourceIdentity = 1;
+        require(GetResourcePlan(registered) == plan, "registered copy rebuilt the resource plan");
+        require(Recompile(registered).cacheHit, "registered copy recompiled identical code");
+        registered.shader.sourceIdentity = 2;
+        registered.shader.codeAddress += 0x2000;
+        const auto registeredResult = Recompile(registered);
+        require(registeredResult.cacheHit, "relocated registration recompiled identical code");
+        require(registeredResult.generatedIdentity == first.generatedIdentity, "relocated registration lost compiled shader identity");
+        verifyResult(first, registeredResult);
         auto changedTarget = request;
         changedTarget.target.subgroupSize = 32;
         require(GetResourcePlan(changedTarget) != plan, "different target reused the source entry");
@@ -216,6 +226,8 @@ int main() {
         auto changedSource = request;
         changedSource.shader.code = changedCode;
         require(GetResourcePlan(changedSource) != plan, "changed code reused the source entry");
+        changedSource.shader.sourceIdentity = registered.shader.sourceIdentity;
+        require(GetResourcePlan(changedSource) != plan, "registration identity hid changed shader code");
         auto uncached = request;
         uncached.useCache = false;
         require(GetResourcePlan(uncached) != plan, "disabled cache reused the resource plan");
