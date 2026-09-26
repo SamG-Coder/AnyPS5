@@ -7,6 +7,7 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include <mutex>
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -133,13 +134,24 @@ std::uint64_t tokenCapacity(const CommandBuffer* buffer) {
     const auto top = reinterpret_cast<std::uintptr_t>(buffer->top);
     const auto up = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
     const auto down = reinterpret_cast<std::uintptr_t>(buffer->cursor_down);
-    if (!bottom || ((bottom | top | up | down) & 3u) != 0 ||
+    if ((!bottom && top) || ((bottom | top | up | down) & 3u) != 0 ||
         bottom > up || up > down || down > top)
         throw std::invalid_argument("native AGC: invalid command buffer storage or cursors");
     const auto available = (down - up) / sizeof(std::uint32_t);
     if (buffer->reserved_dw > available)
         throw std::invalid_argument("native AGC: reserved space exceeds command buffer capacity");
     return available - buffer->reserved_dw;
+}
+void reserveTokens(CommandBuffer* buffer, std::uint32_t count) {
+    if (tokenCapacity(buffer) >= count) return;
+    if (!buffer->callback)
+        throw std::runtime_error("native AGC: command token storage exhausted");
+    if (count > UINT32_MAX - buffer->reserved_dw)
+        throw std::overflow_error("native AGC: command storage allocation overflow");
+    if (!buffer->callback(buffer, count + buffer->reserved_dw, buffer->user_data))
+        throw std::runtime_error("native AGC: command storage allocation callback failed");
+    if (tokenCapacity(buffer) < count)
+        throw std::runtime_error("native AGC: command storage callback returned insufficient space");
 }
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (tokenCapacity(buffer) == 0)
@@ -165,13 +177,12 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
     if (!match) throw std::runtime_error("native AGC: submission was not authored by a lowered native command buffer");
     return *match;
 }
-std::uint32_t* opaque(CommandBuffer* buffer) {
-    // Preserve pointer identity expected by the source ABI without generating
-    // PS5 commands. This DWORD is only an opaque token owned by the ported API.
-    if (tokenCapacity(buffer) == 0)
+std::uint32_t* opaque(CommandBuffer* buffer, std::uint32_t count = 1) {
+    if (tokenCapacity(buffer) < count)
         throw std::runtime_error("native AGC: command token storage exhausted");
-    auto* token=buffer->cursor_up++;
-    *token=0;
+    auto* token = buffer->cursor_up;
+    std::fill_n(token, count, 0u);
+    buffer->cursor_up += count;
     return token;
 }
 }
@@ -281,18 +292,34 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer* b, std::
     return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer* b, std::uint64_t address) {
-    if (!address) throw std::invalid_argument("native AGC: null index buffer");
-    std::lock_guard lock(stateMutex); state(b).indexBuffer = address; return opaque(b);
+    if (!address || (address & 1u)) throw std::invalid_argument("native AGC: null or misaligned index buffer");
+    reserveTokens(b, 3);
+    std::lock_guard lock(stateMutex); auto& target = state(b);
+    auto* token = opaque(b, 3);
+    target.indexBuffer = address;
+    return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexCount(CommandBuffer* b, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); state(b).indexCount = count; return opaque(b);
+    reserveTokens(b, 2);
+    std::lock_guard lock(stateMutex); auto& target = state(b);
+    auto* token = opaque(b, 2);
+    target.indexCount = count;
+    return token;
 }
-std::uint32_t* APS5_VABI aps5NativeAgcSetIndexSize(CommandBuffer* b, std::uint8_t size, std::uint8_t) {
-    if (size > 2) throw std::invalid_argument("native AGC: invalid index size");
-    std::lock_guard lock(stateMutex); state(b).indexSize = size; return opaque(b);
+std::uint32_t* APS5_VABI aps5NativeAgcSetIndexSize(CommandBuffer* b, std::uint8_t size, std::uint8_t cachePolicy) {
+    if (size > 2 || cachePolicy > 3) throw std::invalid_argument("native AGC: invalid index configuration");
+    reserveTokens(b, 3);
+    std::lock_guard lock(stateMutex); auto& target = state(b);
+    auto* token = opaque(b, 3);
+    target.indexSize = size;
+    return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetNumInstances(CommandBuffer* b, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); state(b).instances = count; return opaque(b);
+    reserveTokens(b, 2);
+    std::lock_guard lock(stateMutex); auto& target = state(b);
+    auto* token = opaque(b, 2);
+    target.instances = count;
+    return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t count, const volatile void* address, std::uint64_t) {
     if (!address) throw std::invalid_argument("native AGC: null draw index address");
