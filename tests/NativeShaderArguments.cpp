@@ -305,8 +305,10 @@ void contextBindings() {
     directInput.Write(0x204, 12);
     direct.Merge(directInput);
     check(direct.Resolve().at(0x204) == 12);
+    check(!direct.HasIndirect());
     first[0].offset = 0x200;
     rejects([&] { state.Resolve(); });
+    check(direct.Resolve().at(0x204) == 12 && direct.Resolve().at(0x205) == 11);
     first[0].offset = 0x205;
     rejects([&] { state.Bind(nullptr, 1); });
     rejects([&] { state.Bind(first.data(), 0x4000); });
@@ -318,6 +320,17 @@ void contextBindings() {
     NativeRegisterBindings empty;
     empty.Bind(first.data(), 0);
     check(empty.Empty());
+    NativeRegisterBindings reused;
+    ShaderRegister oldBinding{0x242, 4}, newBinding{0x242, 6};
+    reused.Bind(&oldBinding, 1);
+    const auto previousDraw = reused;
+    reused.Bind(&newBinding, 1);
+    oldBinding.offset = 0x243;
+    check(reused.Resolve().at(0x242) == 6);
+    rejects([&] { previousDraw.Resolve(); });
+    oldBinding.offset = 0x242;
+    oldBinding.value = 5;
+    check(previousDraw.Resolve().at(0x242) == 5);
     static std::array<std::uint32_t, 16> words;
     words.fill(0xabcdef01);
     CommandBuffer command{words.data(), words.data() + words.size(), words.data(),

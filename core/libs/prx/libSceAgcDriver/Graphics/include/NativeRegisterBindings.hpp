@@ -15,15 +15,18 @@ class NativeRegisterBindings {
         std::vector<ShaderRegister> records;
     };
     struct Source {
-        std::size_t layout;
+        std::shared_ptr<const Layout> layout;
         std::size_t index;
         std::uint32_t value = 0;
     };
 public:
     bool Empty() const { return sources.empty(); }
-    bool HasIndirect() const { return !layouts.empty(); }
+    bool HasIndirect() const {
+        for (const auto& [offset, source] : sources) if (source.layout) return true;
+        return false;
+    }
     void Write(std::uint32_t offset, std::uint32_t value) {
-        sources[offset] = {static_cast<std::size_t>(-1), 0, value};
+        sources[offset] = {nullptr, 0, value};
     }
     void Bind(const volatile ShaderRegister* registers, std::uint32_t count) {
         if (count > 0x3fffu) throw std::invalid_argument("native AGC: register binding count exceeds 14 bits");
@@ -35,28 +38,26 @@ public:
         layout->records.resize(count);
         GuestMemory::Read(address, std::as_writable_bytes(std::span(layout->records)), 4);
         auto updated = *this;
-        const auto slot = updated.layouts.size();
-        updated.layouts.push_back(std::move(layout));
         for (std::size_t i = 0; i < count; ++i) {
-            const auto offset = updated.layouts.back()->records[i].offset;
+            const auto offset = layout->records[i].offset;
             if (offset > 0xffffu) throw std::invalid_argument("native AGC: invalid register offset");
-            updated.sources[offset] = {slot, i};
+            updated.sources[offset] = {layout, i};
         }
         *this = std::move(updated);
     }
     void Merge(const NativeRegisterBindings& bindings) {
         auto updated = *this;
-        const auto base = updated.layouts.size();
-        updated.layouts.insert(updated.layouts.end(), bindings.layouts.begin(), bindings.layouts.end());
         for (const auto& [offset, source] : bindings.sources)
-            updated.sources[offset] = source.layout == static_cast<std::size_t>(-1) ? source : Source{base + source.layout, source.index};
+            updated.sources[offset] = source;
         *this = std::move(updated);
     }
     std::map<std::uint32_t, std::uint32_t> Resolve() const {
-        std::vector<std::vector<ShaderRegister>> values;
-        values.reserve(layouts.size());
-        for (const auto& layout : layouts) {
-            auto& records = values.emplace_back(layout->records.size());
+        std::map<const Layout*, std::vector<ShaderRegister>> values;
+        for (const auto& [offset, source] : sources) {
+            const auto* layout = source.layout.get();
+            if (!layout || values.contains(layout)) continue;
+            auto& records = values[layout];
+            records.resize(layout->records.size());
             GuestMemory::Read(layout->address, std::as_writable_bytes(std::span(records)), 4);
             for (std::size_t i = 0; i < records.size(); ++i)
                 if (records[i].offset != layout->records[i].offset)
@@ -64,11 +65,10 @@ public:
         }
         std::map<std::uint32_t, std::uint32_t> result;
         for (const auto& [offset, source] : sources)
-            result.emplace(offset, source.layout == static_cast<std::size_t>(-1) ? source.value : values[source.layout][source.index].value);
+            result.emplace(offset, source.layout ? values.at(source.layout.get())[source.index].value : source.value);
         return result;
     }
 private:
-    std::vector<std::shared_ptr<const Layout>> layouts;
     std::map<std::uint32_t, Source> sources;
 };
 }
