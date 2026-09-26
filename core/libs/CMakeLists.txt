@@ -1,3 +1,8 @@
+if(NOT WIN32)
+    string(REPLACE "-static " "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ")
+    string(STRIP "${CMAKE_EXE_LINKER_FLAGS}" CMAKE_EXE_LINKER_FLAGS)
+endif()
+
 add_executable(nid_patcher
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/Sha1.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nid/src/NidCompute.cpp

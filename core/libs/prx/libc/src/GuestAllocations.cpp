@@ -9,6 +9,9 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <link.h>
+#include <unistd.h>
 #endif
 
 namespace GuestAllocations {
@@ -72,6 +75,51 @@ void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
         cursor += memory.RegionSize;
     }
     require(registered, "main guest image has no committed pages");
+    state.ranges.swap(replacement);
+    state.mainImageRegistered = true;
+}
+#else
+void GuestAllocationsRegisterMainImage_nid_postfix(void*) {
+    auto& state = registry();
+    if (state.mainImageRegistered) return;
+    struct Page {
+        bool readable = false;
+        bool writable = false;
+    };
+    std::map<std::uint64_t, Page> pages;
+    const auto pageSize = static_cast<std::uint64_t>(::sysconf(_SC_PAGESIZE));
+    std::pair<std::map<std::uint64_t, Page>*, std::uint64_t> collection{&pages, pageSize};
+    dl_iterate_phdr([](dl_phdr_info* image, std::size_t, void* data) {
+        auto& collected = *static_cast<std::pair<std::map<std::uint64_t, Page>*, std::uint64_t>*>(data);
+        for (int index = 0; index < image->dlpi_phnum; ++index) {
+            const auto& header = image->dlpi_phdr[index];
+            if (header.p_type != PT_LOAD || header.p_memsz == 0) continue;
+            const auto start = (image->dlpi_addr + header.p_vaddr) & ~(collected.second - 1);
+            const auto end = (image->dlpi_addr + header.p_vaddr + header.p_memsz + collected.second - 1) & ~(collected.second - 1);
+            for (auto page = start; page < end; page += collected.second) {
+                auto& entry = (*collected.first)[page];
+                entry.readable = entry.readable || (header.p_flags & (PF_R | PF_W)) != 0;
+                entry.writable = entry.writable || (header.p_flags & PF_W) != 0;
+            }
+        }
+        return 1;
+    }, &collection);
+    require(!pages.empty(), "main guest image has no loadable segments");
+    auto replacement = state.ranges;
+    for (auto page = pages.begin(); page != pages.end();) {
+        auto last = page;
+        while (std::next(last) != pages.end() && std::next(last)->first == last->first + pageSize && std::next(last)->second.readable == page->second.readable && std::next(last)->second.writable == page->second.writable) ++last;
+        const auto address = page->first;
+        const auto bytes = static_cast<std::size_t>(last->first + pageSize - address);
+        const auto next = replacement.lower_bound(address);
+        require(next == replacement.end() || address + bytes <= next->first, "guest image overlaps a registered allocation");
+        if (next != replacement.begin()) {
+            const auto& previous = *std::prev(next)->second;
+            require(previous.address + previous.bytes <= address, "guest image overlaps a registered allocation");
+        }
+        replacement.emplace(address, std::make_shared<const Range>(Range{address, bytes, page->second.readable, page->second.writable, address, bytes, false}));
+        page = std::next(last);
+    }
     state.ranges.swap(replacement);
     state.mainImageRegistered = true;
 }

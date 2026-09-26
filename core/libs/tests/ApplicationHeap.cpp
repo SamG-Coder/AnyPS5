@@ -87,8 +87,8 @@ int main(int argc, char**) {
     write(replacement, 0x18, &finalize);
     write(replacement, 0x20, &allocate);
     write(replacement, 0x28, &release);
-    write(replacement, 0x30, &reallocate);
-    write(replacement, 0x38, &allocateZeroed);
+    write(replacement, 0x30, &allocateZeroed);
+    write(replacement, 0x38, &reallocate);
     write(replacement, 0x40, &align);
     write(replacement, 0x48, &reallocate);
     write(replacement, 0x50, &posixAlign);

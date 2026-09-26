@@ -142,7 +142,7 @@ void* ApplicationHeapReallocate_nid_no_patch(void* pointer, std::size_t bytes) {
         ApplicationHeapFree_nid_no_patch(pointer);
         return nullptr;
     }
-    const auto reallocate = callback<Reallocate>(2);
+    const auto reallocate = callback<Reallocate>(3);
     CallbackScope scope;
     return requireAllocation(reallocate(pointer, bytes));
 }
@@ -158,7 +158,7 @@ void* ApplicationHeapAlign_nid_no_patch(std::size_t alignment, std::size_t bytes
 
 void* ApplicationHeapCalloc_nid_no_patch(std::size_t count, std::size_t bytes) {
     if (bytes != 0 && count > std::numeric_limits<std::size_t>::max() / bytes) throw std::length_error("application heap: calloc size overflow");
-    const auto calloc = callback<Calloc>(3);
+    const auto calloc = callback<Calloc>(2);
     CallbackScope scope;
     return requireAllocation(calloc(count, bytes));
 }
