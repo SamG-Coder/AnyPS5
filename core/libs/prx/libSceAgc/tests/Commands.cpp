@@ -13,6 +13,7 @@ extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std:
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
+extern "C" std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t, std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
@@ -252,6 +253,22 @@ void testMemory() {
     check(storage.words == before, "invalid memory operation modified packet memory");
 }
 
+void testReleaseMemory() {
+    Storage storage;
+    auto* packet = sceAgcCbReleaseMem(&storage.buffer, 45, 12, 1, 0, nullptr, 0, 0, 0, 1, 0, 0);
+    const std::array<std::uint32_t, 8> expected{0xc0064900, 0xc52d, 0x10000, 0, 0, 0, 0, 0};
+    check(std::equal(expected.begin(), expected.end(), packet), "barrier release packet mismatch");
+    alignas(8) std::uint64_t label = 0;
+    auto* address = reinterpret_cast<const volatile Label*>(&label);
+    packet = sceAgcCbReleaseMem(&storage.buffer, 40, 0, 0, 0, address, 2, 0x1122334455667788ull, 9, 17, 0, 0);
+    check(packet[5] == 0x55667788 && packet[6] == 0x11223344, "unused GDS fields changed immediate release data");
+    packet = sceAgcCbReleaseMem(&storage.buffer, 40, 0, 0, 0, address, 5, 0, 9, 17, 0, 0);
+    check(packet[5] == 0x110009 && packet[6] == 0, "GDS release lost offset or size");
+    const auto before = storage.words;
+    expectFailure([&] { sceAgcCbReleaseMem(&storage.buffer, 40, 0, 0, 0, address, 5, 1, 9, 17, 0, 0); });
+    check(storage.words == before, "invalid GDS release modified command memory");
+}
+
 void testDefaults() {
     check(sceAgcInit(8) == 0, "AGC initialization failed");
     expectFailure([] { sceAgcInit(14); });
@@ -278,6 +295,7 @@ int main() {
         testRegisterRange();
         testPacketPayloadAddress();
         testMemory();
+        testReleaseMemory();
         testDefaults();
         LibcRunShutdown_nid_postfix();
         std::puts("AGC command tests passed");
