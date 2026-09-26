@@ -1,6 +1,7 @@
 #include "Recompiler.hpp"
 #include "CacheKey.hpp"
 #include <mutex>
+#include <atomic>
 #include <shared_mutex>
 #include <unordered_map>
 #include "ControlFlow/include/ControlFlow/GraphBuilder.hpp"
@@ -227,6 +228,8 @@ CompiledVariant compileVariant(const RecompileRequest& request, IrProgram progra
     constexpr SpirvEmitter spirvEmitter;
     RecompileResult result;
     result.spirv = spirvEmitter.Emit(program, inputInfo, bindings, targetOptions);
+    static std::atomic<std::uint64_t> nextGeneratedIdentity{1};
+    result.generatedIdentity = nextGeneratedIdentity.fetch_add(1, std::memory_order_relaxed);
 
 #if ANYPS5_ENABLE_SPIRV_TOOLS
     result.spirv = ValidateAndOptimizeSpirv(result.spirv, request.target.vulkanVersion, request.target.spirvVersion);
