@@ -156,6 +156,7 @@ target_link_libraries(agc_shader_memory_tests PRIVATE shader_recompiler_agc_driv
 set_target_properties(agc_shader_memory_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_shader_memory_tests)
 if(BUILD_TESTING)
+    set_target_properties(agc_shader_memory_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME agc_shader_memory COMMAND agc_shader_memory_tests)
     if(WIN32)
         set_tests_properties(agc_shader_memory PROPERTIES ENVIRONMENT_MODIFICATION
