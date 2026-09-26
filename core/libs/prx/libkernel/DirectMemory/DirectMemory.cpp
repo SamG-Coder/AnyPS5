@@ -61,7 +61,7 @@ void ValidateRange(const void* addr, size_t len, size_t alignment) {
 }
 
 int LinuxProtFromSce(int prot) {
-    if ((prot & ~0x37) != 0) {
+    if ((prot & ~0xF7) != 0) {
         // return SCE_KERNEL_ERROR_EINVAL;
         throw std::invalid_argument("Unsupported memory protection bits");
     }
