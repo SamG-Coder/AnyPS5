@@ -70,7 +70,7 @@ void bindShaderRegister(NativeCommandBufferState& target, std::uint32_t offset, 
 }
 void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
     if (!s.vertexShader || !s.fragmentShader) throw std::runtime_error("native AGC: draw is missing native vertex or fragment shader");
-    if (!s.graphics.Primitive()) throw std::runtime_error("native AGC: draw is missing primitive topology");
+    if (!s.graphics.ReadyForDraw()) throw std::runtime_error("native AGC: draw graphics state is incomplete");
     const auto bytes=s.indexSize==0?2u:s.indexSize==1?4u:0u;
     if(indexed && bytes==0) throw std::runtime_error("native AGC: unsupported native index size");
     NativeDrawCall call;
