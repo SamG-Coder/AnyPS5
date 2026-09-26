@@ -78,6 +78,31 @@ int main() {
     result.DynamicSection.DynSymData.resize(24);
     result.DynamicSection.DynStrData.push_back(0);
     const std::array<Relinker::NativeFunctionBinding, 1> bindings{{{64, "native_replacement", "native_fixture.prx", body}}};
+    for (const auto opcode : {0xebu, 0x75u, 0xe2u}) {
+        auto invalid = source;
+        invalid[32] = static_cast<std::uint8_t>(opcode);
+        invalid[33] = 33;
+        const auto unchanged = invalid;
+        auto invalidResult = result;
+        bool rejected = false;
+        try { Relinker::LowerNativeFunctions(invalid, invalidResult, bindings); }
+        catch (const Relinker::RelinkerException&) { rejected = true; }
+        check(rejected && invalid == unchanged && invalidResult.OriginalHeaders.size() == 1);
+        check(invalidResult.DynamicSection.RelaData.empty());
+    }
+    const std::array<std::vector<std::uint8_t>, 3> longBranches{{
+        {0xe8, 30, 0, 0, 0}, {0xe9, 30, 0, 0, 0}, {0x0f, 0x85, 29, 0, 0, 0}
+    }};
+    for (const auto& branch : longBranches) {
+        auto invalid = source;
+        std::copy(branch.begin(), branch.end(), invalid.begin() + 32);
+        const auto unchanged = invalid;
+        auto invalidResult = result;
+        bool rejected = false;
+        try { Relinker::LowerNativeFunctions(invalid, invalidResult, bindings); }
+        catch (const Relinker::RelinkerException&) { rejected = true; }
+        check(rejected && invalid == unchanged && invalidResult.DynamicSection.RelaData.empty());
+    }
     Relinker::LowerNativeFunctions(source, result, bindings);
     check(std::equal(direct.begin(), direct.end(), source.begin()));
     check(std::equal(indirect.begin(), indirect.end(), source.begin() + 16));

@@ -86,6 +86,73 @@ FileByteOffset locate(const std::vector<std::uint8_t>& bytes, const std::vector<
     if (!found) throw RelinkerException("Native function is not in file-backed executable memory", binding.address);
     return *found;
 }
+void rejectInteriorBranches(const std::vector<std::uint8_t>& bytes,
+                            const std::vector<ProgramHeader>& headers,
+                            std::span<const NativeFunctionBinding> bindings) {
+    const auto replaced = [&](VirtualAddress address) {
+        return std::any_of(bindings.begin(), bindings.end(), [&](const auto& binding) {
+            return address >= binding.address && address - binding.address < binding.expected.size();
+        });
+    };
+    Codegen::X64InstructionDecoder decoder;
+    for (const auto& header : headers) {
+        if (header.Type != 1 || (header.Flags & 1) == 0) continue;
+        if (header.Offset > bytes.size() || header.FileSize > bytes.size() - header.Offset ||
+            header.FileSize > UINT64_MAX - header.MappedAddress)
+            throw RelinkerException("Invalid executable segment during native branch verification");
+        for (std::uint64_t offset = 0; offset < header.FileSize;) {
+            const auto* instruction = bytes.data() + header.Offset + offset;
+            const auto length = decoder.Decode(instruction, header.FileSize - offset);
+            if (!length || length > header.FileSize - offset)
+                throw RelinkerException("Invalid instruction during native branch verification", header.MappedAddress + offset);
+            const auto address = header.MappedAddress + offset;
+            offset += length;
+            if (replaced(address)) continue;
+            std::size_t prefix = 0;
+            while (prefix < length) {
+                const auto value = instruction[prefix];
+                if ((value >= 0x40 && value <= 0x4f) || value == 0x66 || value == 0x67 ||
+                    value == 0xf2 || value == 0xf3 || value == 0x2e || value == 0x3e ||
+                    value == 0x26 || value == 0x36 || value == 0x64 || value == 0x65) ++prefix;
+                else break;
+            }
+            if (prefix == length) continue;
+            const auto op = instruction[prefix];
+            std::optional<std::int64_t> displacement;
+            if ((op == 0xe8 || op == 0xe9) && length - prefix == 5) {
+                const auto field = prefix + 1;
+                const auto value = static_cast<std::uint32_t>(instruction[field]) |
+                    (static_cast<std::uint32_t>(instruction[field + 1]) << 8) |
+                    (static_cast<std::uint32_t>(instruction[field + 2]) << 16) |
+                    (static_cast<std::uint32_t>(instruction[field + 3]) << 24);
+                displacement = static_cast<std::int32_t>(value);
+            } else if ((op == 0xeb || (op >= 0x70 && op <= 0x7f) || (op >= 0xe0 && op <= 0xe3)) && length - prefix == 2) {
+                displacement = static_cast<std::int8_t>(instruction[prefix + 1]);
+            } else if (op == 0x0f && length - prefix == 6 && instruction[prefix + 1] >= 0x80 && instruction[prefix + 1] <= 0x8f) {
+                const auto field = prefix + 2;
+                const auto value = static_cast<std::uint32_t>(instruction[field]) |
+                    (static_cast<std::uint32_t>(instruction[field + 1]) << 8) |
+                    (static_cast<std::uint32_t>(instruction[field + 2]) << 16) |
+                    (static_cast<std::uint32_t>(instruction[field + 3]) << 24);
+                displacement = static_cast<std::int32_t>(value);
+            }
+            if (!displacement) continue;
+            const auto end = header.MappedAddress + offset;
+            VirtualAddress target;
+            if (*displacement < 0) {
+                const auto distance = static_cast<std::uint64_t>(-*displacement);
+                if (distance > end) continue;
+                target = end - distance;
+            } else {
+                if (static_cast<std::uint64_t>(*displacement) > UINT64_MAX - end) continue;
+                target = end + *displacement;
+            }
+            for (const auto& binding : bindings)
+                if (target > binding.address && target - binding.address < binding.expected.size())
+                    throw RelinkerException("Direct branch enters the interior of a native replacement", address);
+        }
+    }
+}
 void rejectRelocationOverlap(const std::vector<std::uint8_t>& relocations, const NativeFunctionBinding& binding) {
     if (relocations.size() % 24) throw RelinkerException("Malformed native relocation table");
     for (std::size_t offset = 0; offset < relocations.size(); offset += 24) {
@@ -150,6 +217,7 @@ void LowerNativeFunctions(std::vector<std::uint8_t>& source, RelinkResult& resul
     const auto nativeBytes = bindings.size() * 8u;
     if (nativeBytes > SIZE_MAX - nativeOffset || align(nativeBytes, page) > UINT64_MAX - nativeBase)
         throw RelinkerException("Native image size overflow");
+    rejectInteriorBranches(source, result.OriginalHeaders, bindings);
     // Work on copies so a failed verification never produces a partially lowered image.
     auto bytes = source;
     auto dynamic = result.DynamicSection;
