@@ -6,7 +6,23 @@ Includes a [relinker](core/relinker) that converts executable to the target syst
 
 Releases will be published after the first full successful launch of at least one game.
 
-## Status
+## Native relinking branch
+
+`relink/native-agc-only` is an experimental development branch, not a completed
+native Quake II port. Native mode is the default; its driver library excludes
+PM4 execution. This does **not** mean shader translation has been moved entirely
+offline or that all original command-buffer memory contracts have been ported.
+
+The offline `--native-functions` pass now rewrites verified x86-64 function
+entries to native library imports. Its regression test executes the original and
+relinked Linux binaries and verifies the native replacement receives the original
+arguments. See [offline function relinking](docs/NativeFunctionRelinking.md) and
+[verified branch status](docs/NativeBranchStatus.md) for tests and remaining gaps.
+
+## Earlier execution status
+
+The following describes earlier/upstream compatibility-path progress, not a
+successful execution of the native-only branch:
 
 Execution reaches `_start`, [stack unwinding](core/libs/prx/libc/src/exception/Unwind.cpp) and exception handling tables are built, reaches main. Unsupported or unexpected states strictly throw `std::runtime_error`. `what()` is printed to stderr and the process terminates.
 

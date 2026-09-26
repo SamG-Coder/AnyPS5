@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(Relinker CXX)
 
+option(AGC_NATIVE_RELINKED_ONLY "Build the native relinking branch without legacy PM4 execution" ON)
+
 option(BUILD_TESTING "Build and register relinker tests" OFF)
 if(BUILD_TESTING)
     enable_testing()
