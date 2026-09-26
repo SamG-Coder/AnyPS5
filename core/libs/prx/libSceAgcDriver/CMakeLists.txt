@@ -31,6 +31,8 @@ endfunction()
 
 ensure_agc_glslang()
 
+option(AGC_NATIVE_RELINKED_ONLY "Build AGC as a native relinked compatibility library with no PM4 interpreter" OFF)
+
 set(agcTextureDetileShaderSource ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/shaders/TextureDetile.comp)
 set(agcTextureDetileGeneratedRoot ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(agcTextureDetileGeneratedDir ${agcTextureDetileGeneratedRoot}/prx/libSceAgcDriver/Graphics/shaders)
@@ -48,14 +50,15 @@ add_custom_command(
 
 add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/DisplayBuffer.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp
+        $<$<NOT:$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>>:${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Driver.cpp>
+        $<$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>:${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/NativeExports.cpp>
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/NativeAgc.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/NativeGraphicsRuntime.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../libSceAgc/Shader/src/ShaderUtils.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/GuestMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/ShaderMemory.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/BdaFeatures.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp
+        $<$<NOT:$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>>:${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/Pm4.cpp>
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/VulkanDevice.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/SwapchainState.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/AspectFit.cpp
@@ -63,7 +66,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Draw.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetLayout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthTargetLayout.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthState.cpp
+        $<$<NOT:$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>>:${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthState.cpp>
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthSurface.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthMemoryOwnership.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetTransfer.cpp
@@ -76,7 +79,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/BdaResources.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/BufferAddress.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ShaderValidation.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/State.cpp
+        $<$<NOT:$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>>:${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/State.cpp>
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/NativeGraphicsState.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/NativeDrawCompiler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/GuestTextureResource.cpp
@@ -95,8 +98,13 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/State/src/Status.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Submit/src/Acb.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Submit/src/CommandBuffer.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/Submit/src/Dcb.cpp
+        $<$<NOT:$<BOOL:${AGC_NATIVE_RELINKED_ONLY}>>:${CMAKE_CURRENT_SOURCE_DIR}/Submit/src/Dcb.cpp>
 )
+
+if(AGC_NATIVE_RELINKED_ONLY)
+    target_compile_definitions(libSceAgcDriver PRIVATE AGC_NATIVE_RELINKED_ONLY=1)
+    message(STATUS "libSceAgcDriver: native relinked-only build; PM4/QueueState execution is excluded")
+endif()
 
 target_include_directories(libSceAgcDriver PRIVATE
         ${LIBS_INCLUDE_DIR}
