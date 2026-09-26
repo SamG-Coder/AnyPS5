@@ -12,7 +12,16 @@ public:
     static void Build(const RecompileRequest& request, std::vector<std::uint64_t>& key) {
         key.clear();
         append(key, request.shader.stage);
-        append(key, request.shader.code);
+        if (request.shader.sourceIdentity != 0) {
+            // Relinked shaders are immutable registered sources. Avoid copying
+            // every machine-code DWORD into the lookup key on every draw.
+            append(key, request.shader.sourceIdentity);
+            append(key, request.shader.codeAddress);
+            append(key, request.shader.code.size());
+        } else {
+            append(key, std::uint64_t{0});
+            append(key, request.shader.code);
+        }
         append(key, request.context.waveSize);
         append(key, request.context.userDataBaseRegister);
         append(key, request.context.userData.size());
