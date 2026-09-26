@@ -11,6 +11,8 @@
 
 namespace ShaderRecompiler {
 
+inline constexpr std::uint32_t GuestBufferAlignment = 256u;
+
 enum class ShaderStage {
     Compute,
     Vertex,

@@ -61,11 +61,15 @@ void GuestBufferMemory::Upload(bool addressable) {
     regions = std::move(merged);
     for (auto& region : regions) {
         const auto bytes = region.end - region.begin;
-        Require(bytes <= std::numeric_limits<std::size_t>::max(), "guest GPU allocation size overflow");
+        const auto prefix = region.begin % ShaderRecompiler::GuestBufferAlignment;
+        Require(bytes <= std::numeric_limits<std::size_t>::max() - prefix, "guest GPU allocation size overflow");
         const auto usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (addressable ? VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT : 0u);
-        region.buffer = std::make_unique<Buffer>(context, static_cast<std::size_t>(bytes), usage);
-        if (region.writable) GuestMemory::Read(region.begin, region.buffer->Bytes());
-        else std::memcpy(region.buffer->Bytes().data(), region.snapshot.data(), region.snapshot.size());
+        region.buffer = std::make_unique<Buffer>(context, static_cast<std::size_t>(bytes + prefix), usage);
+        auto storage = region.buffer->Bytes();
+        std::fill_n(storage.begin(), static_cast<std::size_t>(prefix), std::byte{});
+        auto contents = storage.subspan(static_cast<std::size_t>(prefix));
+        if (region.writable) GuestMemory::Read(region.begin, contents);
+        else std::memcpy(contents.data(), region.snapshot.data(), region.snapshot.size());
         region.snapshot.clear();
     }
 }
@@ -77,10 +81,12 @@ VkDescriptorBufferInfo GuestBufferMemory::Descriptor(std::uint64_t address, std:
     Require(found != regions.begin(), "guest buffer has no GPU owner");
     const auto& region = *std::prev(found);
     Require(address >= region.begin && address + bytes <= region.end && region.buffer != nullptr, "guest buffer view exceeds its GPU owner");
-    const auto offset = address - region.begin;
-    Require(context.limits.minStorageBufferOffsetAlignment != 0 && offset % context.limits.minStorageBufferOffsetAlignment == 0, "guest buffer view violates storage buffer offset alignment");
-    Require(bytes <= context.limits.maxStorageBufferRange, "guest buffer view exceeds descriptor range limit");
-    return {region.buffer->Handle(), offset, bytes};
+    const auto alignment = context.limits.minStorageBufferOffsetAlignment;
+    Require(alignment != 0 && ShaderRecompiler::GuestBufferAlignment % alignment == 0, "device storage buffer alignment exceeds the guest offset ABI");
+    const auto prefix = address % ShaderRecompiler::GuestBufferAlignment;
+    const auto offset = address - region.begin + region.begin % ShaderRecompiler::GuestBufferAlignment - prefix;
+    Require(bytes <= context.limits.maxStorageBufferRange && prefix <= context.limits.maxStorageBufferRange - bytes, "guest buffer view exceeds descriptor range limit");
+    return {region.buffer->Handle(), offset, bytes + prefix};
 }
 
 std::vector<ShaderRecompiler::BdaAbi::Range> GuestBufferMemory::AddressRanges() const {
@@ -88,7 +94,9 @@ std::vector<ShaderRecompiler::BdaAbi::Range> GuestBufferMemory::AddressRanges() 
     std::vector<ShaderRecompiler::BdaAbi::Range> result;
     for (const auto& region : regions) {
         Require(region.buffer != nullptr, "incomplete guest GPU upload");
-        const auto address = region.buffer->DeviceAddress();
+        const auto prefix = region.begin % ShaderRecompiler::GuestBufferAlignment;
+        Require(region.buffer->DeviceAddress() <= std::numeric_limits<std::uint64_t>::max() - prefix, "GPU address prefix overflow");
+        const auto address = region.buffer->DeviceAddress() + prefix;
         Require(region.end - region.begin <= std::numeric_limits<std::uint64_t>::max() - address, "GPU address range overflow");
         result.push_back({region.begin, region.end, address, ShaderRecompiler::BdaAbi::Read, 0});
     }
@@ -110,7 +118,7 @@ void GuestBufferMemory::WriteBack() {
         Require(found != regions.begin(), "write-back range has no GPU owner");
         const auto& region = *std::prev(found);
         Require(region.buffer != nullptr && region.writable && end <= region.end, "write-back range exceeds its GPU owner");
-        sources.push_back(region.buffer->Bytes().subspan(static_cast<std::size_t>(begin - region.begin), static_cast<std::size_t>(end - begin)));
+        sources.push_back(region.buffer->Bytes().subspan(static_cast<std::size_t>(begin - region.begin + region.begin % ShaderRecompiler::GuestBufferAlignment), static_cast<std::size_t>(end - begin)));
     }
     for (std::size_t i = 0; i < merged.size(); ++i) GuestMemory::Write(merged[i].first, sources[i]);
     committed = true;
