@@ -79,3 +79,13 @@ if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY AND MINGW)
         configure_windows_unwind(${nativeTest})
     endforeach()
 endif()
+
+if(BUILD_TESTING AND CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(native_function_execution_tests
+        tests/NativeFunctionExecution.cpp
+        core/relinker/relinker/src/lowering/NativeFunctions.cpp
+        core/relinker/codegen/src/x86/X64InstructionDecoder.cpp)
+    target_include_directories(native_function_execution_tests PRIVATE
+        core/relinker/domain/include core/relinker/relinker/include core/relinker/codegen/include)
+    add_test(NAME native_function_execution COMMAND native_function_execution_tests)
+endif()
