@@ -1,4 +1,5 @@
 #include "prx/libScePad/include/PadState.hpp"
+#include "prx/libScePad/include/Pad.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include <mutex>
 #include <stdexcept>
@@ -9,6 +10,20 @@ namespace {
     std::uint64_t timestamp = 0;
     std::exception_ptr failure;
     bool initialized = false;
+    int vibrationMode = 2;
+}
+
+int Pad::SetVibrationMode(int handle, int mode) {
+    std::lock_guard lock(stateMutex);
+    if (handle != PAD_HANDLE) return PAD_ERROR_INVALID_HANDLE;
+    if (mode != 1 && mode != 2) return PAD_ERROR_INVALID_ARG;
+    vibrationMode = mode;
+    return PAD_OK;
+}
+
+int Pad::GetVibrationMode() {
+    std::lock_guard lock(stateMutex);
+    return vibrationMode;
 }
 
 void Pad::Initialize() {
