@@ -249,6 +249,18 @@ if(BUILD_TESTING)
     endif()
 endif()
 
+if(BUILD_TESTING)
+    add_executable(agc_shader_clause_tests tests/ShaderClause.cpp)
+    target_link_libraries(agc_shader_clause_tests PRIVATE shader_recompiler_agc_driver libc)
+    set_target_properties(agc_shader_clause_tests PROPERTIES CXX_EXTENSIONS OFF)
+    configure_windows_unwind(agc_shader_clause_tests)
+    add_test(NAME agc_shader_clause COMMAND agc_shader_clause_tests)
+    if(WIN32)
+        set_tests_properties(agc_shader_clause PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
+
 add_executable(agc_driver_bda_device_tests EXCLUDE_FROM_ALL
         tests/BdaDevice.cpp
         tests/BdaShader.cpp
