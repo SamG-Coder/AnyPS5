@@ -1,6 +1,7 @@
 #include <relinker/pipeline/RelinkerPipeline.hpp>
 #include <relinker/analysis/ValidationPolicy.hpp>
 #include <relinker/analysis/AgcLoweringAnalyzer.hpp>
+#include <relinker/analysis/AgcImportLowering.hpp>
 #include <relinker/analysis/UnusedNidFilter/PltCompactor.hpp>
 #include <sstream>
 #include <iostream>
@@ -242,6 +243,7 @@ RelinkResult RelinkerPipeline::Relink(const std::vector<std::uint8_t>& sourceElf
     std::cout << "NID total: " << originalNidCount << " -> " << nidRefs.size() << "; filtered=" << originalNidCount - nidRefs.size() << "\n";
 
     auto dynamicRefs = nidRefs;
+    AgcImportLowering::Apply(dynamicRefs);
     std::vector<RelinkPatch> patches;
     auto pltCount = static_cast<std::uint32_t>(dynJmpRelSize / relaEntSize);
     if (unusedFilterLevel == 2) {
