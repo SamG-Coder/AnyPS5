@@ -375,6 +375,7 @@ enum class RdnaOpcode : std::uint16_t {
     VCmpTI32,
     VCmpClassF32,
     VCmpxClassF32,
+    VCmpxClassF16,
     VCmpLtI16,
     VCmpEqI16,
     VCmpLeI16,
