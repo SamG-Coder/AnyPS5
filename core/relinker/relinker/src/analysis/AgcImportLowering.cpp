@@ -3,8 +3,9 @@
 #include <unordered_map>
 #include <nid/NidCompute.hpp>
 namespace Relinker {
-void AgcImportLowering::Apply(std::vector<NidReference>& references) {
+static const std::unordered_map<std::string, std::string>& nativeMap() {
     static const std::unordered_map<std::string, std::string> native = {
+
         {"sceAgcDcbDrawIndex", "aps5NativeAgcDrawIndex"},
         {"sceAgcDcbDrawIndexAuto", "aps5NativeAgcDrawIndexAuto"},
         {"sceAgcDcbDrawIndexOffset", "aps5NativeAgcDrawIndexOffset"},
@@ -19,20 +20,18 @@ void AgcImportLowering::Apply(std::vector<NidReference>& references) {
         {"sceAgcCbSetUcRegistersDirect", "aps5NativeAgcSetUcRegisters"},
         {"sceAgcCbSetUcRegisterRangeDirect", "aps5NativeAgcSetUcRegisterRange"}
     };
+    return native;
+}
+std::optional<std::string> AgcImportLowering::NativeSymbol(const std::string& imported, const std::string& library) {
+    const auto& native=nativeMap();
+    if (const auto found=native.find(imported); found!=native.end()) return found->second;
+    for (const auto& [source,target]:native) if (imported==Nid::ComputeNid(source,library)) return target;
+    return std::nullopt;
+}
+void AgcImportLowering::Apply(std::vector<NidReference>& references) {
     for (auto& reference : references) {
         if (!AgcLoweringAnalyzer::IsAgcLibrary(reference.Library)) continue;
-        auto found = native.find(reference.Nid);
-        if (found == native.end()) {
-            for (const auto& [source, target] : native) {
-                if (reference.Nid == Nid::ComputeNid(source, reference.Library)) {
-                    reference.Nid = target;
-                    found = native.end();
-                    break;
-                }
-            }
-        } else {
-            reference.Nid = found->second;
-        }
+        if (const auto native=NativeSymbol(reference.Nid,reference.Library)) reference.Nid=*native;
     }
 }
 }
