@@ -12,7 +12,7 @@
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
-extern "C" int APS5_VABI sceAgcInit(std::uint32_t* state, std::uint32_t version);
+extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
 extern "C" int APS5_VABI sceAgcGetDataPacketPayloadAddressUnk(std::uint32_t** addr, std::uint32_t* cmd, int type);
@@ -253,11 +253,11 @@ void testMemory() {
 }
 
 void testDefaults() {
-    std::uint32_t state = 0x12345678;
-    check(sceAgcInit(&state, 8) == 0 && state == 0x12345678, "AGC initialization failed or modified caller state");
-    expectFailure([] { sceAgcInit(nullptr, 8); });
-    expectFailure([&] { sceAgcInit(&state, 14); });
+    check(sceAgcInit(8) == 0, "AGC initialization failed");
+    expectFailure([] { sceAgcInit(14); });
+    expectFailure([] { sceAgcInit(0xffffffffu); });
     for (std::uint32_t version = 0; version < 14; ++version) {
+        check(sceAgcInit(version) == 0, "supported AGC version rejected");
         for (const bool internal : {false, true}) {
             auto* first = Agc::Command::GetRegisterDefaults(version, internal, __func__);
             check(first != nullptr && first == Agc::Command::GetRegisterDefaults(version, internal, __func__), "unstable register defaults pointer");
