@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include "prx/libSceAgcDriver/Execution/include/GuestMemory.hpp"
 #include "prx/libSceAgcDriver/Execution/include/ShaderMemory.hpp"
@@ -735,15 +736,15 @@ void UnregisterVideoOutput(std::uint32_t handle, const std::shared_ptr<IVideoOut
 }
 
 void PresentClear(const PresentationWindow& window, bool opaque, void (*gpuReady)(void*), void* context) {
-    Driver::Get().Present(window, nullptr, opaque, gpuReady, context);
+    NativeGraphicsRuntime::Get().Present(window, nullptr, opaque, gpuReady, context);
 }
 
 void PresentBuffer(const PresentationWindow& window, const DisplayBuffer& buffer, void (*gpuReady)(void*), void* context) {
-    Driver::Get().Present(window, &buffer, true, gpuReady, context);
+    NativeGraphicsRuntime::Get().Present(window, &buffer, true, gpuReady, context);
 }
 
 void ReleaseWindow(void* window) {
-    Driver::Get().ReleaseWindow(window);
+    NativeGraphicsRuntime::Get().ReleaseWindow(window);
 }
 
 void ReportFailure(std::exception_ptr error) {
