@@ -10,6 +10,7 @@ public:
     VulkanDevice& Headless();
     VulkanDevice& Presenting(const PresentationWindow& window);
     void ReleaseWindow(void* window);
+    void WaitDraws();
     std::recursive_mutex& Mutex(){return mutex;}
 private:
     std::recursive_mutex mutex;
