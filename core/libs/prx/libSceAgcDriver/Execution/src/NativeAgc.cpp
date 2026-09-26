@@ -22,6 +22,15 @@ struct NativeShader {
     std::optional<ShaderUserData> userDataInfo;
 };
 
+struct NativeDrawCall {
+    Graphics::State graphics;
+    std::shared_ptr<const NativeShader> vertexShader;
+    std::shared_ptr<const NativeShader> fragmentShader;
+    std::vector<std::uint32_t> userData;
+    std::uint32_t userDataBase = 0;
+    Graphics::DrawParameters draw{};
+};
+
 struct NativeCommandBufferState {
     Graphics::NativeGraphicsState graphics;
     std::shared_ptr<const NativeShader> vertexShader;
@@ -33,6 +42,7 @@ struct NativeCommandBufferState {
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
     std::uint32_t instances = 1;
+    std::vector<NativeDrawCall> draws;
 };
 std::mutex stateMutex;
 std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
@@ -57,6 +67,20 @@ void bindShaderRegister(NativeCommandBufferState& target, std::uint32_t offset, 
         case ShaderRegs::COMPUTE_PGM_LO: bind(target.computeShader); return;
         default: throw std::runtime_error("native AGC: shader register has no native lowering");
     }
+}
+void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, std::uint64_t address, std::uint32_t firstVertex=0) {
+    if (!s.vertexShader || !s.fragmentShader) throw std::runtime_error("native AGC: draw is missing native vertex or fragment shader");
+    if (!s.graphics.Primitive()) throw std::runtime_error("native AGC: draw is missing primitive topology");
+    const auto bytes=s.indexSize==0?2u:s.indexSize==1?4u:0u;
+    if(indexed && bytes==0) throw std::runtime_error("native AGC: unsupported native index size");
+    NativeDrawCall call;
+    call.graphics=s.graphics.Get();
+    call.vertexShader=s.vertexShader;
+    call.fragmentShader=s.fragmentShader;
+    call.userData=s.userData;
+    call.userDataBase=s.userDataBase;
+    call.draw={indexed?address:0u,count,indexed?bytes:0u,s.instances,0u,indexed,firstVertex,0u};
+    s.draws.push_back(std::move(call));
 }
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (!buffer) throw std::invalid_argument("native AGC: null command buffer");
@@ -196,13 +220,17 @@ std::uint32_t* APS5_VABI aps5NativeAgcSetNumInstances(CommandBuffer* b, std::uin
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t count, const volatile void* address, std::uint64_t) {
     if (!address) throw std::invalid_argument("native AGC: null draw index address");
-    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexBuffer=reinterpret_cast<std::uintptr_t>(address); s.indexCount=count; return opaque(b);
+    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexBuffer=reinterpret_cast<std::uintptr_t>(address); s.indexCount=count; appendDraw(s,count,true,s.indexBuffer); return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint32_t count, std::uint64_t) {
-    std::lock_guard lock(stateMutex); state(b).indexCount=count; return opaque(b);
+    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count; appendDraw(s,count,false,0); return opaque(b);
 }
-std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t, std::uint32_t count, std::uint64_t) {
-    std::lock_guard lock(stateMutex); state(b).indexCount=count; return opaque(b);
+std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t offset, std::uint32_t count, std::uint64_t) {
+    std::lock_guard lock(stateMutex); auto& s=state(b); s.indexCount=count;
+    const auto bytes=s.indexSize==0?2u:s.indexSize==1?4u:0u;
+    if(!s.indexBuffer||!bytes) throw std::runtime_error("native AGC: indexed offset draw is missing index buffer state");
+    appendDraw(s,count,true,s.indexBuffer+static_cast<std::uint64_t>(offset)*bytes);
+    return opaque(b);
 }
 int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
     std::lock_guard lock(stateMutex);
