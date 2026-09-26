@@ -46,10 +46,18 @@ struct ShaderSnapshot {
     std::vector<std::byte> header;
 };
 
+struct DecodedPacket {
+    std::size_t offset;
+    std::size_t count;
+    std::uint32_t header;
+    std::uint32_t opcode;
+};
+
 struct Submission {
     std::uint64_t serial;
     std::uint32_t queue;
     std::vector<std::uint32_t> commands;
+    std::vector<DecodedPacket> plan;
     std::map<std::uint64_t, std::shared_ptr<const ShaderSnapshot>> shaders;
     std::map<std::size_t, std::shared_ptr<IFlipRequest>> flips;
     std::map<std::size_t, std::shared_ptr<IRenderingWait>> renderingWaits;
@@ -117,14 +125,15 @@ public:
             submission.commands.assign(descriptor.addr, descriptor.addr + descriptor.dw_num);
         }
         submission.copied = FrameTiming::Clock::now();
-        validate(submission.commands, queue);
+        submission.plan = decode(submission.commands, queue);
         submission.validated = FrameTiming::Clock::now();
         {
             std::lock_guard lock(mutex);
             rethrowFailure();
             require(!stopping, "submission during shutdown");
             require(accepted != std::numeric_limits<std::uint64_t>::max(), "submission serial overflow");
-            for (std::size_t cursor = 0; cursor < submission.commands.size();) {
+            for (const auto& decoded : submission.plan) {
+                const auto cursor = decoded.offset;
                 const auto* words = submission.commands.data() + cursor;
                 if (words[0] == RenderingWaitPacketHeader) {
                     const auto output = outputs.find(words[1]);
@@ -141,7 +150,6 @@ public:
                     require(request != nullptr, "video output returned a null flip reservation");
                     submission.flips.emplace(cursor, std::move(request));
                 }
-                cursor += static_cast<std::size_t>((words[0] >> 16u) & 0x3fffu) + 2;
             }
             submission.shaders = shaders;
             submission.serial = accepted + 1;
@@ -322,7 +330,9 @@ private:
         }
     }
 
-    static void validate(std::span<const std::uint32_t> commands, std::uint32_t queue) {
+    static std::vector<DecodedPacket> decode(std::span<const std::uint32_t> commands, std::uint32_t queue) {
+        std::vector<DecodedPacket> plan;
+        plan.reserve(commands.size() / 3u + 1u);
         for (std::size_t cursor = 0; cursor < commands.size();) {
             const auto header = commands[cursor];
             require((header & 0xc0000000u) == 0xc0000000u, "unsupported PM4 packet type");
@@ -333,8 +343,10 @@ private:
             } catch (const std::exception& error) {
                 throw std::runtime_error("AGC driver: " + Pm4::Name(header) + " at DWORD " + std::to_string(cursor) + ": " + error.what());
             }
+            plan.push_back({cursor, count, header, (header >> 8u) & 0xffu});
             cursor += count;
         }
+        return plan;
     }
 
     void dispatch(QueueState& queue, std::span<const std::uint32_t> packet, const Submission& submission) {
