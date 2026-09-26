@@ -189,6 +189,33 @@ void testIndexedDraw() {
     expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "guest");
 }
 
+void testDirectIndexedDraw() {
+    AgcDriver::QueueState state;
+    alignas(4) std::array<std::uint32_t, 8> indices{};
+    state.indexBase = 1;
+    state.indexBufferSize = 1;
+    state.instanceCount = 3;
+    const auto packet = makePacket(0x27, {8, low(indices.data()), high(indices.data()), 4, 0x20});
+    check(AgcDriver::Pm4::AccessesMemory(packet[0]), "direct indexed draw lost guest memory synchronization");
+    for (std::uint32_t type = 0; type < 3; ++type) {
+        state.indexType = type;
+        const auto draw = AgcDriver::Pm4::ResolveDraw(packet, state);
+        check(draw.indexed && draw.indexAddress == reinterpret_cast<std::uintptr_t>(indices.data()) &&
+              draw.indexCount == 4 && draw.indexSize == (type == 0 ? 2u : type == 1 ? 4u : 1u) &&
+              draw.instanceCount == 3 && draw.flags == 0x20, "direct indexed draw used stale queue address or count");
+    }
+    expectFailure([&] { AgcDriver::Pm4::Validate(packet, 0x20); }, "compute queue");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x27, {3, 0, 0, 4, 0}), 0); }, "maximum index size");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x27, {4, 0, 0, 4, 1}), 0); }, "draw flags");
+    expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x27, {4, 0, 0, 4}), 0); }, "packet size");
+    state.indexType = 1;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(makePacket(0x27, {4, low(indices.data()) + 1, high(indices.data()), 4, 0}), state); }, "misaligned index base");
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(makePacket(0x27, {4, 0xfffffffcu, 0xffffffffu, 4, 0}), state); }, "address range overflow");
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(makePacket(0x27, {4, 0x1000, 0, 4, 0}), state); }, "guest");
+    state.indexType = 3;
+    expectFailure([&] { AgcDriver::Pm4::ResolveDraw(packet, state); }, "index type");
+}
+
 void testMemory() {
     AgcDriver::QueueState state;
     std::array<std::uint32_t, 4> data{0, 0, 0, 0};
@@ -434,6 +461,7 @@ int main(int argc, char** argv) {
         testRegisters();
         testContextAndBases();
         testIndexedDraw();
+        testDirectIndexedDraw();
         testAutoDraw();
         testMemory();
         testCopies();

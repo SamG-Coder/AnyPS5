@@ -621,7 +621,7 @@ private:
                         direct = Pm4::ResolveDispatch(packet, queue);
                     }
                     dispatch(queue, direct, submission);
-                } else if (opcode == 0x35 || opcode == 0x2d) {
+                } else if (opcode == 0x27 || opcode == 0x35 || opcode == 0x2d) {
                     draw(queue, packet, submission);
                 } else if (opcode != 0x42 && opcode != 0x46 && opcode != 0x58) {
                     std::lock_guard gpuLock(gpuMutex);

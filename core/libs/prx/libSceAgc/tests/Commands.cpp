@@ -22,6 +22,7 @@ extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
 extern "C" int APS5_VABI sceAgc_23LRUSvYu1M(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t, std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
+extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndex(CommandBuffer*, std::uint32_t, const volatile void*, std::uint64_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetIndexCount(CommandBuffer* buf, std::uint32_t indexCount);
 extern "C" std::uint32_t APS5_VABI sceAgcDcbSetIndexCountGetSize();
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
@@ -97,6 +98,19 @@ void testIndexCount() {
     expectFailure([&] { sceAgcDcbSetIndexCount(&exhausted.buffer, 37); });
     check(exhausted.buffer.cursor_up == exhausted.words.data() && exhausted.words[0] == 0,
           "failed index count allocation modified the command buffer");
+}
+
+void testDirectIndexedDraw() {
+    Storage storage;
+    const auto* indices = reinterpret_cast<const void*>(0x123456789ull);
+    auto* packet = sceAgcDcbDrawIndex(&storage.buffer, 37, indices, 0x100);
+    const std::array<std::uint32_t, 6> expected{0xc0042700u, 37, 0x23456789u, 1, 37, 0x20};
+    check(std::equal(expected.begin(), expected.end(), packet), "direct index packet lost address, count or flags");
+    const auto before = storage.words;
+    const auto cursor = storage.buffer.cursor_up;
+    expectFailure([&] { sceAgcDcbDrawIndex(&storage.buffer, 37, nullptr, 0); });
+    expectFailure([&] { sceAgcDcbDrawIndex(&storage.buffer, 37, indices, 0x200000000ull); });
+    check(storage.words == before && storage.buffer.cursor_up == cursor, "invalid indexed draw modified commands");
 }
 
 struct ContextGrowth {
@@ -333,6 +347,7 @@ int main() {
     try {
         testPackets();
         testIndexCount();
+        testDirectIndexedDraw();
         testContextState();
         testFlip();
         testRegisters();
