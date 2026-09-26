@@ -8,6 +8,12 @@
 #include <cstdio>
 #include <stdexcept>
 #include <string>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std::uint32_t op, std::uint32_t state);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
@@ -272,6 +278,18 @@ void testReleaseMemory() {
 
 void testDefaults() {
     std::array<std::uint32_t, 2> state{0x12345678, 0x9abcdef0};
+#ifdef _WIN32
+    const auto module = GetModuleHandleA("libSceAgc.prx");
+    check(module != nullptr, "AGC library is not loaded");
+    const auto namedAddress = GetProcAddress(module, "sceAgcInit");
+    const auto stateAddress = GetProcAddress(module, "23LRUSvYu1M_nid_no_patch_cut");
+    check(namedAddress != nullptr && stateAddress != nullptr && namedAddress != stateAddress,
+        "AGC initialization exports must retain distinct entry points");
+    using NamedInit = int (APS5_VABI *)(std::uint32_t);
+    using StateInit = int (APS5_VABI *)(std::uint32_t*, std::uint32_t);
+    check(reinterpret_cast<NamedInit>(namedAddress)(8) == 0, "named AGC initialization ABI failed");
+    check(reinterpret_cast<StateInit>(stateAddress)(state.data(), 8) == 0, "NID AGC initialization ABI failed");
+#endif
     expectFailure([] { sceAgc_23LRUSvYu1M(nullptr, 8); });
     expectFailure([&] { sceAgc_23LRUSvYu1M(reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(state.data()) + 1), 8); });
     expectFailure([&] { sceAgc_23LRUSvYu1M(state.data(), 14); });
