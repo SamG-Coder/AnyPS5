@@ -71,8 +71,33 @@ void callSites() {
     rejects([&] { resolver->ResolveCallSites(bytes, UINT64_MAX - 5, got, 8); });
     rejects([&] { resolver->ResolveCallSites(bytes, base, UINT64_MAX - 1, 8); });
 }
+
+void coverage() {
+    std::vector<Relinker::CallRegistryEntry> entries(3);
+    entries[0].Nid = "sceAgcInit";
+    entries[1].Nid = "missingFirst";
+    entries[2].Nid = "missingSecond";
+    for (auto& entry : entries) {
+        entry.Library = "libSceAgc";
+        entry.CallSites = {16};
+        entry.CallSitesResolved = true;
+    }
+    entries[2].CallSitesResolved = false;
+    try {
+        Relinker::AgcLoweringAnalyzer().Analyze(entries);
+        throw std::runtime_error("incomplete native coverage accepted");
+    } catch (const Relinker::RelinkerException& error) {
+        const std::string message = error.what();
+        check(message.find("missingFirst") != std::string::npos && message.find("missingSecond") != std::string::npos,
+              "coverage report stopped at the first unsupported import");
+        check(message.find("indirect or unresolved") != std::string::npos, "unresolved call sites were not reported");
+        check(message.find("sceAgcInit") == std::string::npos, "supported import reported as unsupported");
+    }
+    entries.resize(1);
+    check(Relinker::AgcLoweringAnalyzer().Analyze(entries).size() == 1, "supported native import rejected");
+}
 }
 int main() {
-    try { libraries(); callSites(); std::cout << "Native import lowering and call-site tests passed\n"; }
+    try { libraries(); callSites(); coverage(); std::cout << "Native import lowering and call-site tests passed\n"; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }
