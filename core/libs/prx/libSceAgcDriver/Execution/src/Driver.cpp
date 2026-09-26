@@ -224,57 +224,6 @@ public:
         changed.notify_all();
     }
 
-    void Present(const PresentationWindow& window, const DisplayBuffer* buffer, bool opaque, void (*gpuReady)(void*), void* context) {
-        PerformanceContext timingContext(window.timing.get());
-        PerformanceTimer timing("Driver.Present");
-        CheckFailure();
-        require(gpuReady != nullptr && context != nullptr, "missing GPU completion callback");
-        require(window.getDrawableSize != nullptr, "missing window drawable size query");
-        std::shared_ptr<VulkanDevice> presenting;
-        timing.Mark("validate");
-        try {
-            {
-                std::lock_guard lock(gpuMutex);
-                timing.Mark("gpu_mutex_wait");
-                if (device == nullptr || device->Window() == nullptr) {
-                    if (device) device->WaitIdle();
-                    device = std::make_shared<VulkanDevice>(&window);
-                }
-                require(device->Window() == window.context, "presentation window does not match device surface");
-                presenting = device;
-                timing.Mark("device_setup");
-                std::uint32_t drawableWidth = 0;
-                std::uint32_t drawableHeight = 0;
-                window.getDrawableSize(window.context, &drawableWidth, &drawableHeight);
-                presenting->Resize(drawableWidth, drawableHeight);
-                timing.Mark("resize");
-                if (presenting->Presentable()) {
-                    if (buffer != nullptr) {
-                        require(buffer->width == window.width && buffer->height == window.height, "display buffer extent differs from output");
-                        presenting->WaitDraws();
-                        timing.Mark("draw_wait");
-                        presenting->PresentDisplayBuffer(*buffer);
-                        timing.Mark("present_display_buffer");
-                    } else {
-                        presenting->PresentClear(window.width, window.height, opaque);
-                        timing.Mark("present_clear");
-                    }
-                }
-            }
-            gpuReady(context);
-            timing.Mark("release_and_callback");
-            CheckFailure();
-        } catch (...) {
-            ReportFailure(std::current_exception());
-            throw;
-        }
-    }
-
-    void ReleaseWindow(void* window) {
-        std::lock_guard lock(gpuMutex);
-        if (device && device->Window() == window) device.reset();
-    }
-
     void RegisterShader(const Shader* shader) {
         CheckFailure();
         GuestMemory::CheckRange(shader, sizeof(Shader), alignof(Shader));
