@@ -302,6 +302,9 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
             entryIr.SetVectorReg(static_cast<VectorReg>(ps->psPerspectiveCenterVgpr + 1u), builtin(StageInputKind::BaryCoordSmooth, 1u));
         }
         std::uint32_t reg = ps->psSystemInputBase;
+        if (ps->psLineStippleVgpr != std::numeric_limits<std::uint32_t>::max()) {
+            entryIr.SetVectorReg(static_cast<VectorReg>(ps->psLineStippleVgpr), builtin(StageInputKind::LineStipple));
+        }
         if (ps->psPosX) {
             entryIr.SetVectorReg(static_cast<VectorReg>(reg++), builtin(StageInputKind::FragCoord, 0u));
         }

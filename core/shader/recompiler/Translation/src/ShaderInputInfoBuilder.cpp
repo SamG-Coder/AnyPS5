@@ -99,6 +99,11 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
             pixelStorage.interpolatorSettings[i] = pixel.interpolatorSettings[i];
         }
         pixelStorage.inputNum = pixel.interpolatorCount;
+        pixelStorage.psSystemInputBase = pixel.systemInputBase;
+        if (pixel.lineStipple) {
+            if (pixel.systemInputBase == 0) throw std::runtime_error("pixel line-stipple input has no register slot");
+            pixelStorage.psLineStippleVgpr = pixel.systemInputBase - 1u;
+        }
         if (pixel.hasPerspectiveCenterVgpr) {
             pixelStorage.psPerspectiveCenterVgpr = pixel.perspectiveCenterVgpr;
         }

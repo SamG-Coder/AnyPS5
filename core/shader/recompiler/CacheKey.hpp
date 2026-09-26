@@ -80,6 +80,8 @@ private:
         append(key, value.executeOnNoop);
         append(key, value.targetOutputMode);
         append(key, value.targetExportMapping);
+        append(key, value.systemInputBase);
+        append(key, value.lineStipple);
     }
 
     static void append(std::vector<std::uint64_t>& key, const ShaderVertexResourceDestination& value) {

@@ -186,6 +186,7 @@ set_target_properties(agc_driver_pm4_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_driver_pm4_tests)
 
 add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
+        tests/PixelInputs.cpp
         tests/Graphics.cpp
         tests/ColorTargetLayout.cpp
         tests/BdaResources.cpp
@@ -244,8 +245,9 @@ if(BUILD_TESTING)
     add_test(NAME agc_color_control COMMAND agc_driver_graphics_tests color-control)
     add_test(NAME agc_shader_headers COMMAND agc_driver_graphics_tests shader-headers)
     add_test(NAME agc_buffer_alignment COMMAND agc_driver_graphics_tests buffer-alignment)
+    add_test(NAME agc_pixel_inputs COMMAND agc_driver_graphics_tests pixel-inputs)
     if(WIN32)
-        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment agc_pixel_inputs PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

@@ -34,6 +34,7 @@ enum class StageInputKind {
     LocalInvocationIndex,
     GlobalInvocationId,
     Parameter,
+    LineStipple,
 };
 
 enum class StageOutputKind {

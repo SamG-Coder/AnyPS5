@@ -66,6 +66,8 @@ struct ShaderPixelStageInfo {
     bool executeOnNoop;
     std::array<std::uint8_t, 8> targetOutputMode;
     std::array<std::uint8_t, 8> targetExportMapping;
+    std::uint32_t systemInputBase = 0;
+    bool lineStipple = false;
 };
 
 struct ShaderVertexBufferResource {

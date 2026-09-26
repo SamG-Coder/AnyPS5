@@ -18,6 +18,8 @@
 #include <type_traits>
 #include <vector>
 
+void RunPixelInputTests();
+
 namespace {
 
 using AgcDriver::Graphics::Require;
@@ -1219,6 +1221,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "pixel-inputs") {
+            RunPixelInputTests();
+            std::cout << "Pixel input tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "buffer-alignment") {
             using namespace AgcDriver::Graphics;
             alignas(256) std::array<std::uint32_t, 140> guest{};
