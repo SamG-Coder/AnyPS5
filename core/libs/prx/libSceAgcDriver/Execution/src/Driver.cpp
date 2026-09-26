@@ -663,21 +663,26 @@ private:
                     dispatch(queue, direct, submission);
                 } else if (opcode == 0x27 || opcode == 0x35 || opcode == 0x2d) {
                     if (decoded.nativeDraw) {
+                        const auto indexSize = decoded.nativeDraw->indexed
+                            ? (queue.indexType == 0 ? 2u : queue.indexType == 1 ? 4u : 1u)
+                            : 0u;
+                        auto indexAddress = decoded.nativeDraw->indexAddress;
+                        if (decoded.nativeDraw->indexed && indexAddress == 0) {
+                            require(queue.indexBase != 0, "native draw index base has not been set");
+                            const auto byteOffset = static_cast<std::uint64_t>(decoded.nativeDraw->indexOffset) * indexSize;
+                            require(byteOffset <= std::numeric_limits<std::uint64_t>::max() - queue.indexBase, "native draw index offset overflow");
+                            indexAddress = queue.indexBase + byteOffset;
+                        }
                         auto native = Pm4::DrawParameters{
-                            decoded.nativeDraw->indexAddress,
+                            indexAddress,
                             decoded.nativeDraw->indexCount,
-                            decoded.nativeDraw->indexSize,
+                            indexSize,
                             queue.instanceCount,
                             decoded.nativeDraw->flags,
                             decoded.nativeDraw->indexed,
-                            0,
+                            decoded.nativeDraw->indexed ? 0u : queue.userConfig.at(0x24a),
                             0
                         };
-                        if (native.indexed && decoded.nativeDraw->indexOffset != 0) {
-                            const auto byteOffset = static_cast<std::uint64_t>(decoded.nativeDraw->indexOffset) * native.indexSize;
-                            require(byteOffset <= std::numeric_limits<std::uint64_t>::max() - native.indexAddress, "native draw index offset overflow");
-                            native.indexAddress += byteOffset;
-                        }
                         draw(queue, packet, submission, native);
                     } else {
                         draw(queue, packet, submission);
