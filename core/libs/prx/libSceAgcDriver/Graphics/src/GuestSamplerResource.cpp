@@ -79,7 +79,6 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     Require(!forceSrgb, "guest sampler descriptor forces sRGB decoding which is not implemented");
     Require(anisoBias == 0, "guest sampler descriptor uses an anisotropy bias which is not implemented");
     Require(!truncCoord, "guest sampler descriptor uses coordinate truncation which is not implemented");
-    Require(!disableCubeWrap, "guest sampler descriptor disables seamless cube filtering which is not implemented");
     Require(filterMode == 0, "guest sampler descriptor uses a reduction filter mode which is not implemented");
     Require(!disableDegamma, "guest sampler descriptor disables degamma which is not implemented");
     Require(perfMip == 0 && perfZ == 0, "guest sampler descriptor uses performance counters which are not implemented");
@@ -128,6 +127,7 @@ GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words)
     result.borderColor = border;
     const std::array compareOps{VK_COMPARE_OP_NEVER, VK_COMPARE_OP_LESS, VK_COMPARE_OP_EQUAL, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER, VK_COMPARE_OP_NOT_EQUAL, VK_COMPARE_OP_GREATER_OR_EQUAL, VK_COMPARE_OP_ALWAYS};
     result.compareOp = compareOps.at(depthCompareFunc);
+    result.nonSeamlessCubeMap = disableCubeWrap;
     return result;
 }
 

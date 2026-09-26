@@ -25,6 +25,7 @@ struct GuestSamplerResource {
     VkBorderColor borderColor;
     bool compareEnable = false;
     VkCompareOp compareOp = VK_COMPARE_OP_NEVER;
+    bool nonSeamlessCubeMap = false;
 };
 
 GuestSamplerResource DecodeSamplerResource(std::span<const std::uint32_t> words);

@@ -8,6 +8,8 @@ namespace AgcDriver::Graphics {
         Require(descriptor.lodBias >= -context.limits.maxSamplerLodBias && descriptor.lodBias <= context.limits.maxSamplerLodBias, "guest sampler descriptor requests a LOD bias beyond the device limit");
 
         VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+        Require(!descriptor.nonSeamlessCubeMap || context.nonSeamlessCubeMap, "guest sampler requests non-seamless cube filtering which the device does not support");
+        info.flags = descriptor.nonSeamlessCubeMap ? VK_SAMPLER_CREATE_NON_SEAMLESS_CUBE_MAP_BIT_EXT : 0;
         info.magFilter = descriptor.magFilter;
         info.minFilter = descriptor.minFilter;
         info.mipmapMode = descriptor.mipmapMode;
