@@ -59,6 +59,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Execution/src/PresentationScaler.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Draw.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetLayout.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthTargetLayout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetTransfer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Pipeline.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Resources.cpp
@@ -253,6 +254,12 @@ if(BUILD_TESTING)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(agc_depth_layout_tests tests/DepthTargetLayout.cpp Graphics/src/DepthTargetLayout.cpp)
+    target_include_directories(agc_depth_layout_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(agc_depth_layout_tests PRIVATE libc)
+    set_target_properties(agc_depth_layout_tests PROPERTIES CXX_EXTENSIONS OFF)
+    configure_windows_unwind(agc_depth_layout_tests)
+    add_test(NAME agc_depth_layout COMMAND agc_depth_layout_tests)
     add_executable(agc_buffer_operands_tests tests/BufferOperands.cpp)
     target_link_libraries(agc_buffer_operands_tests PRIVATE shader_recompiler_agc_driver libc)
     set_target_properties(agc_buffer_operands_tests PROPERTIES CXX_EXTENSIONS OFF)
@@ -281,7 +288,7 @@ if(BUILD_TESTING)
     configure_windows_unwind(agc_shader_clause_tests)
     add_test(NAME agc_shader_clause COMMAND agc_shader_clause_tests)
     if(WIN32)
-        set_tests_properties(agc_buffer_operands agc_vertex_entry agc_shader_clause agc_shader_legacy_multiply agc_sampler PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_depth_layout agc_buffer_operands agc_vertex_entry agc_shader_clause agc_shader_legacy_multiply agc_sampler PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
