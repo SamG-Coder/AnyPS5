@@ -68,8 +68,9 @@ if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
     target_link_libraries(native_shader_argument_tests PRIVATE libSceAgcDriver libc)
     add_test(NAME native_shader_arguments COMMAND native_shader_argument_tests)
     add_test(NAME native_flip_failure COMMAND native_shader_argument_tests --flip-failure)
+    add_test(NAME native_flip_ready_failure COMMAND native_shader_argument_tests --flip-ready-failure)
     if(WIN32)
-        set_tests_properties(native_shader_arguments native_flip_failure PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(native_shader_arguments native_flip_failure native_flip_ready_failure PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceAgcDriver>")
     endif()
 endif()

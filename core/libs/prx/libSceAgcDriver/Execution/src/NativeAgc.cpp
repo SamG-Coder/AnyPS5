@@ -412,7 +412,6 @@ std::uint32_t* APS5_VABI aps5NativeAgcReleaseMem(CommandBuffer* buffer, std::uin
     reserveTokens(buffer, 8);
     std::lock_guard lock(stateMutex);
     auto& target = state(buffer);
-    if (!target.flips.empty()) throw std::runtime_error("native AGC: release after a flip requires native lowering");
     const auto begin = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
     target.completions.push_back({begin, begin + 8 * sizeof(std::uint32_t),
         dataSelect == 1 ? reinterpret_cast<volatile std::uint32_t*>(address) : nullptr,
@@ -519,10 +518,17 @@ int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
                 Graphics::CompileAndEnqueueNativeDraw(nativeDevice,call.graphics,call.draw,programs,call.pixel,memory);
             }
             runtime.WaitDraws();
-            for (const auto& completion : completions)
-                if (completion.address) *completion.address = completion.value;
         }
-        for (const auto& request : requests) request->GpuReady(std::make_shared<AgcDriver::FrameTiming>(0));
+        auto completion = completions.begin();
+        for (std::size_t i = 0; i < flips.size(); ++i) {
+            while (completion != completions.end() && completion->end <= flips[i].begin) {
+                if (completion->address) *completion->address = completion->value;
+                ++completion;
+            }
+            requests[i]->GpuReady(std::make_shared<AgcDriver::FrameTiming>(0));
+        }
+        for (; completion != completions.end(); ++completion)
+            if (completion->address) *completion->address = completion->value;
     } catch (...) {
         const auto failure = std::current_exception();
         for (const auto& request : requests) request->Fail(failure);

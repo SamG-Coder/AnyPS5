@@ -111,12 +111,13 @@ public:
         });
         other.join();
         check(unlocked);
+        if (failReady) throw std::runtime_error("flip preparation failure");
         ready = true;
         readyHook();
     }
     void Fail(std::exception_ptr error) noexcept override { failed = error != nullptr; }
     Label& marker;
-    bool captured = false, reserved = false, waited = false, ready = false, failed = false, failWait = false;
+    bool captured = false, reserved = false, waited = false, ready = false, failed = false, failWait = false, failReady = false;
     std::function<void()> readyHook;
 };
 class FlipOutput final : public AgcDriver::IVideoOutput {
@@ -135,12 +136,13 @@ public:
     void Fail(std::exception_ptr error) noexcept override { probe->Fail(error); }
     std::shared_ptr<FlipProbe> probe;
 };
-void terminalFlip(bool failWait) {
-    static std::array<std::uint32_t, 24> words{};
+void terminalFlip(bool failWait, bool failReady = false) {
+    static std::array<std::uint32_t, 32> words{};
     auto* cursor = words.data();
     Label marker{17};
     const auto output = std::make_shared<FlipOutput>(marker);
     output->probe->failWait = failWait;
+    output->probe->failReady = failReady;
     output->probe->readyHook = [weak = std::weak_ptr<FlipOutput>(output)] {
         AgcDriverUnregisterVideoOutput_nid_postfix(78, weak.lock());
     };
@@ -151,19 +153,19 @@ void terminalFlip(bool failWait) {
     aps5NativeAgcReleaseMem(&command, 0x28, 0x30c, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
     check(aps5NativeAgcSetFlip(&command, 78, 2, 1, -0x123456789abcdefLL) == words.data() + 12);
     check(command.cursor_up == words.data() + 18 && !output->probe->reserved);
-    rejects([&] { aps5NativeAgcReleaseMem(&command, 0x28, 0, 0, 0, &marker, 1, 43, 0, 0, 0, 0); });
-    check(command.cursor_up == words.data() + 18);
-    const Packet partial{words.data(), 17, 0, {0, 0, 0}};
+    aps5NativeAgcReleaseMem(&command, 0x28, 0, 0, 0, &marker, 1, 43, 0, 0, 0, 0);
+    check(command.cursor_up == words.data() + 26);
+    const Packet partial{words.data(), 18, 0, {0, 0, 0}};
     rejects([&] { aps5NativeAgcSubmit(&partial); });
     check(!output->probe->reserved && marker.value == 17);
-    const Packet complete{words.data(), 18, 0, {0, 0, 0}};
-    if (failWait) {
+    const Packet complete{words.data(), 26, 0, {0, 0, 0}};
+    if (failWait || failReady) {
         rejects([&] { aps5NativeAgcSubmit(&complete); });
-        check(output->probe->failed && !output->probe->ready && marker.value == 17);
+        check(output->probe->failed && !output->probe->ready && marker.value == (failWait ? 17u : 42u));
         AgcDriverUnregisterVideoOutput_nid_postfix(78, output);
     } else {
         check(aps5NativeAgcSubmit(&complete) == 0);
-        check(output->probe->ready && !output->probe->failed && marker.value == 42);
+        check(output->probe->ready && !output->probe->failed && marker.value == 43);
     }
 }
 void terminalCompletion() {
@@ -346,8 +348,13 @@ void scalarStorage() {
     check(buffer.cursor_up == cursor);
 }
 }
-int main(int argc, char**) {
-    if (argc > 1) { terminalFlip(true); return 0; }
+int main(int argc, char** argv) {
+    if (argc > 1) {
+        const std::string mode = argv[1];
+        check(argc == 2 && (mode == "--flip-failure" || mode == "--flip-ready-failure"));
+        terminalFlip(mode == "--flip-failure", mode == "--flip-ready-failure");
+        return 0;
+    }
     terminalFlip(false);
     renderingDependency();
     terminalCompletion();
