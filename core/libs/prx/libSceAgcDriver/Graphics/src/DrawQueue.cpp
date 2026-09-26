@@ -39,16 +39,6 @@ void DrawQueue::Flush() {
     pending.back().commands->Submit();
 }
 
-void DrawQueue::AfterGpu(std::function<void()> callback) {
-    Require(static_cast<bool>(callback), "missing draw completion");
-    if (recording.commands && (!recording.entries.empty() || recording.hasBarrier)) Flush();
-    if (pending.empty()) {
-        callback();
-        return;
-    }
-    pending.back().completions.push_back(std::move(callback));
-}
-
 void DrawQueue::Resolve(std::uint64_t address, std::size_t bytes) {
     const auto overlaps = [&](const auto& entry) { return entry.resources->WritesOverlap(address, bytes); };
     if (std::any_of(recording.entries.begin(), recording.entries.end(), overlaps) || std::any_of(pending.begin(), pending.end(), [&](const auto& batch) { return std::any_of(batch.entries.begin(), batch.entries.end(), overlaps); })) Wait();
