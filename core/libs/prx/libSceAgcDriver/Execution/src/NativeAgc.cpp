@@ -1,8 +1,20 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
 #include <mutex>
+#include <cstring>
+#include <memory>
+#include <vector>
 #include <stdexcept>
 #include <unordered_map>
 namespace {
+struct NativeShader {
+    std::uint64_t identity;
+    std::uint8_t type;
+    std::uint64_t codeAddress;
+    std::uint64_t headerAddress;
+    std::vector<std::uint32_t> code;
+    std::vector<std::byte> header;
+};
+
 struct NativeCommandBufferState {
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
@@ -11,6 +23,8 @@ struct NativeCommandBufferState {
 };
 std::mutex stateMutex;
 std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
+std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
+std::uint64_t nextShaderIdentity = 0;
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (!buffer) throw std::invalid_argument("native AGC: null command buffer");
     return states[buffer];
@@ -22,6 +36,34 @@ std::uint32_t* opaque(CommandBuffer* buffer) {
 }
 }
 extern "C" {
+int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volatile void* code) {
+    if (!dst || !header || !code) throw std::invalid_argument("native AGC: invalid shader creation arguments");
+    auto* shader = static_cast<Shader*>(header);
+    if (shader->file_header != 0x34333231u || shader->version != 0x18u)
+        throw std::invalid_argument("native AGC: invalid shader header");
+    if (shader->header_size < sizeof(Shader) || shader->shader_size == 0 || (shader->shader_size & 3u) != 0)
+        throw std::invalid_argument("native AGC: invalid shader size");
+    shader->code = code;
+    auto native = std::make_shared<NativeShader>();
+    {
+        std::lock_guard lock(stateMutex);
+        if (nextShaderIdentity == UINT64_MAX) throw std::overflow_error("native AGC: shader identity overflow");
+        native->identity = ++nextShaderIdentity;
+    }
+    native->type = shader->type;
+    native->codeAddress = reinterpret_cast<std::uintptr_t>(code);
+    native->headerAddress = reinterpret_cast<std::uintptr_t>(shader);
+    native->code.resize(shader->shader_size / sizeof(std::uint32_t));
+    std::memcpy(native->code.data(), const_cast<const void*>(code), shader->shader_size);
+    native->header.resize(shader->header_size);
+    std::memcpy(native->header.data(), shader, shader->header_size);
+    {
+        std::lock_guard lock(stateMutex);
+        shaders.insert_or_assign(shader, std::move(native));
+    }
+    *dst = shader;
+    return 0;
+}
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer* b, std::uint64_t address) {
     if (!address) throw std::invalid_argument("native AGC: null index buffer");
     std::lock_guard lock(stateMutex); state(b).indexBuffer = address; return opaque(b);
