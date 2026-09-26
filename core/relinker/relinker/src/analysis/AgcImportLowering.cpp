@@ -11,7 +11,8 @@ void AgcImportLowering::Apply(std::vector<NidReference>& references) {
         {"sceAgcDcbSetIndexCount", "aps5NativeAgcSetIndexCount"},
         {"sceAgcDcbSetIndexSize", "aps5NativeAgcSetIndexSize"},
         {"sceAgcDcbSetNumInstances", "aps5NativeAgcSetNumInstances"},
-        {"sceAgcDriverSubmitDcb", "aps5NativeAgcSubmit"}
+        {"sceAgcDriverSubmitDcb", "aps5NativeAgcSubmit"},
+        {"sceAgcCreateShader", "aps5NativeAgcCreateShader"}
     };
     for (auto& reference : references) {
         if (!AgcLoweringAnalyzer::IsAgcLibrary(reference.Library)) continue;
