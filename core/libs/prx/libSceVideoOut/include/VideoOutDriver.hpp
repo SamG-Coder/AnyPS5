@@ -181,7 +181,7 @@ private:
     bool close(int handle);
     void presentLoop(std::stop_token token);
     void vblankLoop(std::stop_token token);
-    void vblankEnd();
+    void vblankEnd(bool defaultRateTick);
     void processFlip(FlipRequest& req);
     void triggerEvents(VideoOutConfig& cfg, int eventKind, void* triggerData);
 

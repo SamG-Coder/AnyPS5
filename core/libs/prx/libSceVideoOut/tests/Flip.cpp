@@ -240,9 +240,43 @@ void testPresentation(bool expectUnavailable) {
 
 }
 
+void testOutputRates() {
+    const int normal = sceVideoOutOpen(255, VIDEO_OUT_BUS_TYPE_MAIN, 0, nullptr);
+    const int fast = sceVideoOutOpen(255, VIDEO_OUT_BUS_TYPE_OVERLAY, 0, nullptr);
+    check(sceVideoOutIsOutputSupported(fast, VIDEO_OUT_OUTPUT_MODE_119_88HZ, nullptr, nullptr, 0) == 1, "high refresh mode unavailable");
+    check(sceVideoOutConfigureOutput(fast, VIDEO_OUT_OUTPUT_MODE_119_88HZ, nullptr, nullptr, 0) == 0, "high refresh configuration failed");
+    VideoOutOutputStatus output{};
+    check(sceVideoOutGetOutputStatus(fast, &output) == 0 && output.refreshRate == VIDEO_OUT_REFRESH_RATE_119_88HZ, "high refresh status incorrect");
+    auto sample = [&](int handle) {
+        VideoOutVblankStatus status{};
+        check(sceVideoOutGetVblankStatus(handle, &status) == 0, "vblank status failed");
+        return status.count;
+    };
+    auto compare = [&](bool highRate) {
+        const auto normalStart = sample(normal);
+        const auto fastStart = sample(fast);
+        auto cfg = VideoOutDriver::Get().GetConfig(fast);
+        {
+            std::unique_lock lock(cfg->mutex);
+            check(cfg->vblankCond.wait_for(lock, std::chrono::seconds(3), [&] { return cfg->vblankStatus.count >= fastStart + 60; }), "refresh clock stalled");
+        }
+        const auto fastTicks = sample(fast) - fastStart;
+        const auto normalTicks = sample(normal) - normalStart;
+        const auto expected = normalTicks * (highRate ? 2 : 1);
+        check(fastTicks + 3 >= expected && expected + 3 >= fastTicks, "per-output refresh cadence incorrect");
+    };
+    compare(true);
+    check(sceVideoOutConfigureOutput(fast, VIDEO_OUT_OUTPUT_MODE_DEFAULT, nullptr, nullptr, 0) == 0, "default refresh restoration failed");
+    check(sceVideoOutGetOutputStatus(fast, &output) == 0 && output.refreshRate == VIDEO_OUT_REFRESH_RATE_59_94HZ, "restored refresh status incorrect");
+    compare(false);
+    check(sceVideoOutClose(fast) == 0 && sceVideoOutClose(normal) == 0, "output close failed");
+    LibcRunShutdown_nid_postfix();
+}
+
 int main(int argc, char** argv) {
     try {
-        if (argc == 2 && std::string(argv[1]) == "decode") testDecode();
+        if (argc == 2 && std::string(argv[1]) == "rates") testOutputRates();
+        else if (argc == 2 && std::string(argv[1]) == "decode") testDecode();
         else if (argc == 2 && std::string(argv[1]) == "controls") testControls();
         else if (argc == 2 && std::string(argv[1]) == "present") testPresentation(false);
         else if (argc == 2 && std::string(argv[1]) == "unavailable") testPresentation(true);
