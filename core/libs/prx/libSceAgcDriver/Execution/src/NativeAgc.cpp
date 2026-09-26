@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <map>
 #include <vector>
 #include <stdexcept>
 #include <unordered_map>
@@ -39,8 +40,6 @@ struct NativeDrawCall {
 };
 
 struct NativeCommandBufferState {
-    std::uintptr_t storageBegin = 0;
-    std::uintptr_t storageEnd = 0;
     Graphics::NativeGraphicsState graphics;
     std::shared_ptr<const NativeShader> vertexShader;
     std::shared_ptr<const NativeShader> fragmentShader;
@@ -55,7 +54,7 @@ struct NativeCommandBufferState {
     std::vector<NativeDrawCall> draws;
 };
 std::mutex stateMutex;
-std::unordered_map<CommandBuffer*, NativeCommandBufferState> states;
+std::map<std::pair<std::uintptr_t, std::uintptr_t>, NativeCommandBufferState> states;
 std::unordered_map<const Shader*, std::shared_ptr<const NativeShader>> shaders;
 std::uint64_t nextShaderIdentity = 0;
 std::shared_ptr<const NativeShader> findShaderByProgramAddress(std::uint64_t address) {
@@ -158,10 +157,8 @@ void reserveTokens(CommandBuffer* buffer, std::uint32_t count) {
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (tokenCapacity(buffer) == 0)
         throw std::runtime_error("native AGC: command token storage exhausted");
-    auto& native = states[buffer];
-    native.storageBegin = reinterpret_cast<std::uintptr_t>(buffer->bottom);
-    native.storageEnd = reinterpret_cast<std::uintptr_t>(buffer->top);
-    return native;
+    return states[{reinterpret_cast<std::uintptr_t>(buffer->bottom),
+                   reinterpret_cast<std::uintptr_t>(buffer->top)}];
 }
 NativeCommandBufferState& submittedState(const Packet* packet) {
     if (!packet) throw std::invalid_argument("native AGC: null submission");
@@ -171,8 +168,8 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
     if (!begin || bytes>UINTPTR_MAX-begin) throw std::invalid_argument("native AGC: invalid submission range");
     const auto end=begin+bytes;
     NativeCommandBufferState* match=nullptr;
-    for (auto& [buffer, native] : states) {
-        if (begin >= native.storageBegin && end <= native.storageEnd) {
+    for (auto& [storage, native] : states) {
+        if (begin >= storage.first && end <= storage.second) {
             if (match) throw std::runtime_error("native AGC: submission ambiguously belongs to multiple command buffers");
             match=&native;
         }

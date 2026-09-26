@@ -43,6 +43,21 @@ void descriptorLifetime() {
     check(aps5NativeAgcSubmit(&submission) == 0);
     check(aps5NativeAgcSubmit(&submission) == 0);
 }
+void descriptorReuse() {
+    static std::array<std::uint32_t, 16> first{}, second{};
+    CommandBuffer descriptor{first.data(), first.data() + first.size(), first.data(),
+        first.data() + first.size(), nullptr, nullptr, 0};
+    aps5NativeAgcSetIndexCount(&descriptor, 7);
+    const Packet firstSubmission{first.data(), 2, 0, {0, 0, 0}};
+    descriptor = {second.data(), second.data() + second.size(), second.data(),
+        second.data() + second.size(), nullptr, nullptr, 0};
+    aps5NativeAgcSetIndexCount(&descriptor, 11);
+    const Packet secondSubmission{second.data(), 2, 0, {0, 0, 0}};
+    descriptor = {};
+    check(aps5NativeAgcSubmit(&firstSubmission) == 0);
+    check(aps5NativeAgcSubmit(&secondSubmission) == 0);
+    check(aps5NativeAgcSubmit(&firstSubmission) == 0);
+}
 void drawFailures() {
     std::array<std::uint32_t, 24> words;
     words.fill(0xabcdef01u);
@@ -153,6 +168,7 @@ void scalarStorage() {
 }
 int main() {
     descriptorLifetime();
+    descriptorReuse();
     drawFailures();
     scalarStorage();
     rangeStorage();
