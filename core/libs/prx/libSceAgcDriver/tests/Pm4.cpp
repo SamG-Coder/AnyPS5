@@ -338,9 +338,31 @@ void testAcquireMem() {
     expectFailure([] { AgcDriver::Pm4::Validate(makePacket(0x58, {0, 0, 0, 0, 0, 0, 0, 0}), 0); }, "packet size");
 }
 
+void testReleaseMem() {
+    AgcDriver::QueueState state;
+    alignas(8) std::array<std::uint32_t, 2> result{0, 0xcafebabe};
+    auto packet = makePacket(0x49, {0x528, 0x23000000, low(result.data()), high(result.data()), 73, 0xffffffff, 0});
+    execute(state, packet);
+    check(result[0] == 73 && result[1] == 0xcafebabe, "32-bit release overwrote adjacent memory");
+    const auto invalid = [&](unsigned index, std::uint32_t value, const char* reason) {
+        auto bad = packet;
+        bad[index] = value;
+        expectFailure([&] { execute(state, bad); }, reason);
+        check(result[0] == 73 && result[1] == 0xcafebabe, "invalid release modified memory");
+    };
+    invalid(1, 0x30d528, "cache flags");
+    invalid(1, 0x530, "event");
+    invalid(2, 0x22000000, "interrupt delivery");
+    invalid(2, 0xa0000000, "clocks and GDS");
+    invalid(3, low(result.data()) + 1, "misaligned");
+    invalid(7, 1, "interrupt context");
+    expectFailure([&] { AgcDriver::Pm4::Validate(packet, 1); }, "graphics packet");
+}
+
 void testDriverSubmission() {
     std::array<std::uint32_t, 2> source{0x10, 73};
     std::array<std::uint32_t, 1> destination{};
+    alignas(8) std::array<std::uint32_t, 2> completion{};
     std::vector<std::uint32_t> commands;
     for (const auto& packet : {
         makePacket(0x9f, {low(source.data()), high(source.data()), 0x80000000, 1}),
@@ -356,12 +378,15 @@ void testDriverSubmission() {
         makePacket(0x46, {0x2e}),
         makePacket(0x58, {0x02007fc0, 0, 0, 0, 0, 10, 0x200}),
         makePacket(0x58, {0x00800000, 0xffffffff, 0, 0, 0, 10}),
-        makePacket(0x83, {0, 1, low(destination.data()), high(destination.data())})
+        makePacket(0x83, {0, 1, low(destination.data()), high(destination.data())}),
+        makePacket(0x49, {0xc52d, 0x10000, 0, 0, 0, 0, 0}),
+        makePacket(0x49, {0x30c528, 0x43000000, low(completion.data()), high(completion.data()), 0x12345678, 0x9abcdef0, 0})
     }) commands.insert(commands.end(), packet.begin(), packet.end());
     Packet packet{commands.data(), static_cast<std::uint32_t>(commands.size()), 0, {}};
     check(sceAgcDriverSubmitDcb(&packet) == 0, "PM4 submission failed");
     AgcDriverWaitIdle_nid_postfix();
     check(destination[0] == 83, "worker did not execute PM4 memory operations");
+    check(completion[0] == 0x12345678 && completion[1] == 0x9abcdef0, "release completion data was not published");
     auto rejectedCommands = commands;
     const auto unsupportedEvent = makePacket(0x46, {0x139, 0, 0});
     rejectedCommands.insert(rejectedCommands.end(), unsupportedEvent.begin(), unsupportedEvent.end());
@@ -415,6 +440,7 @@ int main(int argc, char** argv) {
         testMemorySynchronization();
         testEventWrite();
         testAcquireMem();
+        testReleaseMem();
         testDriverSubmission();
         LibcRunShutdown_nid_postfix();
         std::puts("PM4 catalog, registers, state, memory and submission tests passed");

@@ -100,7 +100,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
         case 0x11: case 0x12: case 0x13: case 0x15: case 0x16: case 0x26:
         case 0x2a: case 0x2d: case 0x2f: case 0x35: case 0x37: case 0x40: case 0x42: case 0x46: case 0x50:
         case 0x58: case 0x63: case 0x64: case 0x69: case 0x76: case 0x79: case 0x7a:
-        case 0x81: case 0x83: case 0x9f: return {};
+        case 0x49: case 0x81: case 0x83: case 0x9f: return {};
         case 0x24: case 0x25: case 0x27: case 0x2c: case 0x38: case 0x3a: case 0x8d:
             return "graphics draw, shader stages and guest render-target materialization are not implemented";
         case 0x20: return "GPU query predication is not implemented";
@@ -110,7 +110,7 @@ std::string_view UnsupportedReason(std::uint32_t header) {
             return "cooperative command-queue waits are not implemented";
         case 0x84: case 0x85: case 0x86: case 0x88:
             return "separate CE/DE execution and counter synchronization are not implemented";
-        case 0x43: case 0x47: case 0x48: case 0x49:
+        case 0x43: case 0x47: case 0x48:
             return "guest cache actions, GPU events and interrupt delivery are not implemented";
         case 0x8e: return "GPU LOD statistics are not implemented; synthetic results are forbidden";
         case 0x28: case 0x41: case 0x68: case 0x78:
@@ -200,6 +200,21 @@ void Validate(std::span<const std::uint32_t> packet, std::uint32_t queue) {
             }
             break;
         }
+        case 0x49: {
+            graphics();
+            size(8);
+            require((packet[1] & ~0x0630c73fu) == 0, "unsupported RELEASE_MEM event or cache flags");
+            const auto event = packet[1] & 0xfffu;
+            require(event == 0x528 || event == 0x52d, "unsupported RELEASE_MEM event");
+            require((packet[2] & ~0xe7010000u) == 0, "unsupported RELEASE_MEM control flags");
+            const auto data = packet[2] >> 29u;
+            const auto interrupt = (packet[2] >> 24u) & 7u;
+            require(data <= 2, "RELEASE_MEM clocks and GDS data are not implemented");
+            require(interrupt == 0 || (interrupt == 3 && data != 0), "RELEASE_MEM interrupt delivery is not implemented");
+            require(packet[7] == 0, "RELEASE_MEM interrupt context is not implemented");
+            if (data != 0) require((address(packet[3], packet[4]) & (data == 2 ? 7u : 3u)) == 0, "misaligned RELEASE_MEM destination");
+            break;
+        }
         case 0x58: {
             require(packet.size() == 7 || packet.size() == 8, "invalid ACQUIRE_MEM packet size");
             const auto controlMask = packet.size() == 8 ? 0x86287fc3u : 0xfeecfffbu;
@@ -274,7 +289,7 @@ bool UsesGpuCacheBarrier(std::span<const std::uint32_t> packet) {
 
 bool AccessesMemory(std::uint32_t header) {
     switch ((header >> 8u) & 0xffu) {
-        case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
+        case 0x16: case 0x2d: case 0x35: case 0x37: case 0x40: case 0x49: case 0x50: case 0x63: case 0x64: case 0x83: case 0x9f: return true;
         default: return false;
     }
 }
@@ -380,6 +395,11 @@ void Execute(std::span<const std::uint32_t> packet, QueueState& queue) {
         case 0x40: {
             const auto source = ((packet[1] & 0xfu) << 1u) | ((packet[1] >> 30u) & 1u);
             copyMemory(address(packet[2], packet[3]), address(packet[4], packet[5]), (packet[1] & 0x10000u) != 0 ? 8 : 4, source >= 10);
+            return;
+        }
+        case 0x49: {
+            const auto data = packet[2] >> 29u;
+            if (data != 0) GuestMemory::Write(address(packet[3], packet[4]), std::as_bytes(packet.subspan(5, data)), data == 2 ? 8 : 4);
             return;
         }
         case 0x50:
