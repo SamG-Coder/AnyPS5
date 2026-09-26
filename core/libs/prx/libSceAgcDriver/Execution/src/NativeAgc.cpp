@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
 #include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include <mutex>
 #include <cstring>
 #include <memory>
@@ -17,8 +18,7 @@ struct NativeShader {
 };
 
 struct NativeCommandBufferState {
-    std::unordered_map<std::uint32_t, std::uint32_t> shaderValues;
-    std::unordered_map<std::uint32_t, std::uint32_t> userValues;
+    Graphics::NativeGraphicsState graphics;
     std::uint64_t indexBuffer = 0;
     std::uint32_t indexCount = 0;
     std::uint8_t indexSize = 0;
@@ -83,24 +83,24 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs && count) throw std::invalid_argument("native AGC: null shader register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b).shaderValues;
-    for (std::uint32_t i=0;i<count;++i) target[regs[i].offset]=regs[i].value;
+    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
+    for (std::uint32_t i=0;i<count;++i) target.SetContext(regs[i].offset, regs[i].value);
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); auto& target=state(b).shaderValues;
-    if (values) for (std::uint32_t i=0;i<count;++i) target[offset+i]=values[i];
+    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
+    if (values) for (std::uint32_t i=0;i<count;++i) target.SetContext(offset+i, values[i]);
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer* b, const volatile ShaderRegister* regs, std::uint32_t count) {
     if (!regs && count) throw std::invalid_argument("native AGC: null user register list");
-    std::lock_guard lock(stateMutex); auto& target=state(b).userValues;
-    for (std::uint32_t i=0;i<count;++i) target[regs[i].offset]=regs[i].value;
+    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
+    for (std::uint32_t i=0;i<count;++i) target.SetUser(regs[i].offset, regs[i].value);
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer* b, std::uint32_t offset, const std::uint32_t* values, std::uint32_t count) {
-    std::lock_guard lock(stateMutex); auto& target=state(b).userValues;
-    if (values) for (std::uint32_t i=0;i<count;++i) target[offset+i]=values[i];
+    std::lock_guard lock(stateMutex); auto& target=state(b).graphics;
+    if (values) for (std::uint32_t i=0;i<count;++i) target.SetUser(offset+i, values[i]);
     return opaque(b);
 }
 std::uint32_t* APS5_VABI aps5NativeAgcSetIndexBuffer(CommandBuffer* b, std::uint64_t address) {
