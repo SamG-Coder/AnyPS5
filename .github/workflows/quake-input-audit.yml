@@ -1,0 +1,33 @@
+name: Quake native input audit
+
+on:
+  push:
+    branches: [relink/native-agc-only]
+    paths: [.github/workflows/quake-input-audit.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download and verify public homebrew test input
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o quake.zip https://github.com/blackbearreloaded/ps5-yamagi-quake2/releases/download/v0.2.0-alpha.1/PPSA99007.zip
+          echo '4fa5da07498fe64ffc67229eed2347e0ddffd5073f1fea248ba5e69307229a70  quake.zip' | sha256sum --check
+          mkdir input
+          unzip -p quake.zip PPSA99007/eboot.bin > input/eboot.bin
+          test -s input/eboot.bin
+          printf '%s\n' 'Source: blackbearreloaded/ps5-yamagi-quake2 v0.2.0-alpha.1; GPL-3.0-or-later. Original release: https://github.com/blackbearreloaded/ps5-yamagi-quake2/releases/tag/v0.2.0-alpha.1' > input/ORIGIN.txt
+          readelf --wide --all input/eboot.bin > input/elf.txt
+          objdump --disassemble input/eboot.bin > input/disassembly.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quake-native-input
+          path: input/
+          retention-days: 2
