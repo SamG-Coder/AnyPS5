@@ -28,7 +28,7 @@ void DrawQueue::Enqueue(std::shared_ptr<ShaderResources> resources, std::shared_
     Require(recording.commands != nullptr && resources != nullptr && storage != nullptr, "draw batch is incomplete");
     recording.entries.push_back({std::move(storage), std::move(resources)});
     ++drawCount;
-    if (recording.entries.size() >= 8) Flush();
+    if (recording.entries.size() >= 16) Flush();
 }
 
 void DrawQueue::Flush() {
