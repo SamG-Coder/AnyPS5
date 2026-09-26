@@ -73,6 +73,12 @@ void testPackets() {
     const std::array<std::uint32_t, 5> expected{0xc0001200u, 3, 0xc0012d00u, 17, 2};
     check(std::equal(expected.begin(), expected.end(), storage.words.begin()), "reset or draw packet mismatch");
     check(storage.buffer.cursor_up == storage.words.data() + expected.size(), "incorrect packet cursor advance");
+    Storage equivalent;
+    sceAgcDcbResetQueue(&equivalent.buffer, 0, 3);
+    sceAgcDcbDrawIndexAuto(&equivalent.buffer, 17, 2);
+    check(equivalent.words == storage.words, "direct auto draw modifier 2 changed command semantics");
+    check(equivalent.buffer.cursor_up - equivalent.words.data() == storage.buffer.cursor_up - storage.words.data(),
+          "direct auto draw modifier 2 changed command size");
     const auto before = storage.words;
     expectFailure([&] { sceAgcDcbResetQueue(&storage.buffer, 0, 16); });
     check(storage.words == before, "invalid reset modified packet memory");

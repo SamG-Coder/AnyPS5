@@ -73,6 +73,15 @@ void drawFailures() {
         check(std::string(error.what()).find("missing index buffer state") != std::string::npos);
     }
     check(buffer.cursor_up == words.data() && words == original);
+    for (const auto modifier : {0ull, 2ull}) {
+        try {
+            aps5NativeAgcDrawIndexAuto(&buffer, 4, modifier);
+            check(false);
+        } catch (const std::runtime_error& error) {
+            check(std::string(error.what()).find("missing native vertex or fragment shader") != std::string::npos);
+        }
+        check(buffer.cursor_up == words.data() && words == original);
+    }
     for (unsigned kind = 0; kind < 3; ++kind) {
         Allocation allocation;
         allocation.words.fill(0xabcdef01u);
@@ -82,7 +91,8 @@ void drawFailures() {
             else if (kind == 1) aps5NativeAgcDrawIndexAuto(&buffer, 4, modifier);
             else aps5NativeAgcDrawIndexOffset(&buffer, 0, 4, modifier);
         };
-        rejects([&] { draw(0x100); });
+        for (const auto modifier : {1ull, 3ull, 0x100ull, 0x102ull, 0x200000000ull})
+            rejects([&] { draw(modifier); });
         check(allocation.requested == 0);
         rejects([&] { draw(0); });
         check(allocation.requested == (kind == 0 ? 6u : kind == 1 ? 3u : 5u));

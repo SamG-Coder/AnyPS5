@@ -339,7 +339,7 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer* b, std::uint32_t 
     return token;
 }
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint32_t count, std::uint64_t modifier) {
-    if (modifier != 0) throw std::invalid_argument("native AGC: draw modifier requires native lowering");
+    if (modifier != 0 && modifier != 2) throw std::invalid_argument("native AGC: draw modifier requires native lowering");
     reserveTokens(b, 3);
     std::lock_guard lock(stateMutex);
     auto& target = state(b);
