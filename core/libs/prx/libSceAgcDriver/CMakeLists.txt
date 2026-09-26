@@ -243,8 +243,9 @@ if(BUILD_TESTING)
     add_test(NAME agc_provoking_vertex COMMAND agc_driver_graphics_tests provoking)
     add_test(NAME agc_color_control COMMAND agc_driver_graphics_tests color-control)
     add_test(NAME agc_shader_headers COMMAND agc_driver_graphics_tests shader-headers)
+    add_test(NAME agc_buffer_alignment COMMAND agc_driver_graphics_tests buffer-alignment)
     if(WIN32)
-        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

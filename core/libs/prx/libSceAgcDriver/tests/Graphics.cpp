@@ -1,6 +1,7 @@
 #include "BdaTests.hpp"
 #include "GraphicsTests.hpp"
 #include "SceShaders.hpp"
+#include "Optimization/DescriptorBindingBuilder.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
@@ -1218,6 +1219,73 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "buffer-alignment") {
+            using namespace AgcDriver::Graphics;
+            alignas(256) std::array<std::uint32_t, 140> guest{};
+            for (std::uint32_t i = 0; i < guest.size(); ++i) guest[i] = i + 100;
+            const auto address = reinterpret_cast<std::uintptr_t>(guest.data()) + 4;
+            auto context = mockContext();
+            context.bufferDeviceAddress = true;
+            context.limits.minStorageBufferOffsetAlignment = 16;
+            {
+                GuestBufferMemory memory(context);
+                memory.AddWritable(address, 520);
+                memory.AddWritable(address + 8, 96);
+                memory.Upload(true);
+                const auto first = memory.Descriptor(address, 520);
+                const auto alias = memory.Descriptor(address + 8, 96);
+                const auto later = memory.Descriptor(address + 260, 8);
+                Require(first.buffer == alias.buffer && alias.buffer == later.buffer, "aligned views lost shared ownership");
+                Require(first.offset == 0 && first.range == 524 && alias.offset == 0 && alias.range == 108,
+                    "unaligned view has incorrect descriptor bounds");
+                Require(later.offset == 256 && later.range == 16, "view crossing an alignment boundary was rebased incorrectly");
+                auto& bytes = mock.memories.at(mock.bufferMemory.at(alias.buffer));
+                Require(std::memcmp(bytes.data() + 4, guest.data() + 1, 520) == 0, "upload prefix shifted guest contents");
+                const auto ranges = memory.AddressRanges();
+                Require(ranges.size() == 1 && ranges[0].begin == address && ranges[0].end == address + 520,
+                    "BDA mapping exposed padding as guest memory");
+                const VkBufferDeviceAddressInfo addressInfo{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, nullptr, first.buffer};
+                Require(ranges[0].deviceAddress == mockGetBufferDeviceAddress(context.device, &addressInfo) + 4,
+                    "BDA address did not account for the upload prefix");
+                expectFailure([&] { memory.Descriptor(address + 520, 4); }, "exceeds its GPU owner");
+                const std::uint32_t changed = 0x12345678u;
+                std::memcpy(bytes.data() + alias.offset + (address + 8) % ShaderRecompiler::GuestBufferAlignment, &changed, 4);
+                memory.WriteBack();
+                Require(guest[3] == changed && guest[0] == 100 && guest[131] == 231, "write-back changed guest boundaries");
+            }
+            {
+                auto limited = context;
+                limited.limits.maxStorageBufferRange = 100;
+                GuestBufferMemory memory(limited);
+                memory.AddWritable(address, 104);
+                memory.Upload(false);
+                expectFailure([&] { memory.Descriptor(address + 8, 96); }, "descriptor range limit");
+            }
+            ShaderRecompiler::BindingAllocationResult allocation;
+            allocation.layout.memoryOffsetCount = 2;
+            allocation.layout.memoryOffsetDword = 1;
+            allocation.layout.userDataRegisters = {0};
+            allocation.layout.pushDataStartDword = 0;
+            allocation.layout.descriptors = {{ShaderRecompiler::DescriptorBindingKind::Buffers, {1, 0}}};
+            ShaderRecompiler::ResourceSnapshot snapshot;
+            snapshot.userData = {0xdeadbeefu};
+            snapshot.buffers.resize(2);
+            snapshot.buffers[0].dwordCount = snapshot.buffers[1].dwordCount = 4;
+            snapshot.buffers[0].dwords[0] = 0x1008;
+            snapshot.buffers[1].dwords[0] = 0x20fc;
+            ShaderRecompiler::DescriptorBindingBuilder builder;
+            builder.Populate(allocation, ShaderRecompiler::ShaderInfo{}, ShaderRecompiler::IrShaderStage::Compute, 0, snapshot);
+            std::array<std::uint32_t, 2> words{};
+            std::memcpy(words.data(), allocation.pushConstants.data(), sizeof(words));
+            Require(words[0] == 0xdeadbeefu && words[1] == 0x08fcu, "shader byte offsets lost binding order or user data");
+            allocation.layout.pushDataStartDword = ShaderRecompiler::PushData::NoStart;
+            allocation.layout.descriptors.push_back({ShaderRecompiler::DescriptorBindingKind::ShaderData, {}});
+            builder.Populate(allocation, ShaderRecompiler::ShaderInfo{}, ShaderRecompiler::IrShaderStage::Compute, 0, snapshot);
+            Require(allocation.pushConstants.empty() && allocation.bindings.back().guestDescriptor == std::vector<std::uint32_t>({0xdeadbeefu, 0x08fcu}),
+                "storage-backed shader data lost alignment offsets");
+            std::cout << "Buffer alignment tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "shader-headers") {
             ShaderHeaderTests();
             std::cout << "Shader header tests passed\n";

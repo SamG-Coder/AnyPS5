@@ -172,6 +172,16 @@ std::vector<std::uint32_t> ShaderDataDwordsFor(const IrBindingLayout& layout, st
         }
         result[i] = snapshot.userData[reg - userDataBase];
     }
+    for (const auto& binding : layout.descriptors) {
+        if (binding.kind != DescriptorBindingKind::Buffers) continue;
+        if (binding.resources.size() != layout.memoryOffsetCount) fail("guest buffer offset count disagrees with binding layout");
+        for (std::size_t i = 0; i < binding.resources.size(); ++i) {
+            const auto& descriptor = snapshot.buffers.at(binding.resources[i]);
+            if (descriptor.dwordCount != 4u) fail("guest buffer offset descriptor has an invalid width");
+            const auto offset = descriptor.dwords[0] % GuestBufferAlignment;
+            result.at(layout.memoryOffsetDword + i / 4u) |= offset << ((i % 4u) * 8u);
+        }
+    }
     return result;
 }
 

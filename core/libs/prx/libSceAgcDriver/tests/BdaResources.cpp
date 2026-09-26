@@ -26,7 +26,7 @@ ShaderRecompiler::DescriptorBinding binding(Role role, std::uint32_t slot) {
 }
 
 void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
-    alignas(64) std::array<std::uint32_t, 16> guest{};
+    alignas(256) std::array<std::uint32_t, 16> guest{};
     guest[0] = 123;
     const auto address = reinterpret_cast<std::uintptr_t>(guest.data());
     GuestBufferMemory memory(context);
@@ -35,12 +35,12 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
     memory.Upload(true);
     const auto first = memory.Descriptor(address, sizeof(guest));
     const auto alias = memory.Descriptor(address + 16, 16);
-    Require(first.buffer == alias.buffer && alias.offset == 16, "aliased guest buffers have different owners");
+    Require(first.buffer == alias.buffer && alias.offset == 0 && alias.range == 32, "aliased guest buffers have different owners");
     const auto ranges = memory.AddressRanges();
     Require(ranges.size() == 1 && ranges[0].begin == address && ranges[0].end == address + sizeof(guest), "incorrect BDA range bounds");
     Require(ranges[0].deviceAddress != 0 && ranges[0].permissions == ShaderRecompiler::BdaAbi::Read, "incorrect BDA address or permissions");
     std::uint32_t changed = 321;
-    std::memcpy(access.bytes(alias.buffer).data() + alias.offset, &changed, sizeof(changed));
+    std::memcpy(access.bytes(alias.buffer).data() + alias.offset + 16, &changed, sizeof(changed));
     memory.WriteBack();
     Require(guest[4] == changed, "aliased GPU write was not published");
     reject([&] { memory.WriteBack(); }, "cannot be committed twice");
@@ -115,7 +115,8 @@ void RunBdaResourceTests(const Context& context, const BdaTestAccess& access) {
         GuestBufferMemory unaligned(aligned);
         unaligned.AddWritable(address, sizeof(guest));
         unaligned.Upload(true);
-        reject([&] { unaligned.Descriptor(address + 4, 4); }, "offset alignment");
+        const auto view = unaligned.Descriptor(address + 4, 4);
+        Require(view.offset == 0 && view.range == 8, "unaligned descriptor did not retain its shader offset");
         reject([&] { unaligned.Descriptor(address + sizeof(guest), 4); }, "exceeds its GPU owner");
     }
 }
