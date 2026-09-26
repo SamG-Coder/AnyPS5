@@ -5,6 +5,11 @@
 #include <cstdint>
 extern "C" {
 int APS5_VABI aps5NativeAgcCreateShader(Shader**, void*, const volatile void*);
+std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer*, std::uint32_t, const std::uint32_t*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisters(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegisterRange(CommandBuffer*, std::uint32_t, const std::uint32_t*, std::uint32_t);
+
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndex(CommandBuffer*, std::uint32_t, const volatile void*, std::uint64_t);
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer*, std::uint32_t, std::uint64_t);
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer*, std::uint32_t, std::uint32_t, std::uint64_t);
