@@ -570,7 +570,7 @@ private:
                 PerformanceTimer timing("Driver.Packet");
                 CheckFailure();
                 timing.Mark("failure_check");
-                if (opcode == 0x37 || opcode == 0x40 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
+                if (opcode == 0x37 || opcode == 0x40 || opcode == 0x49 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
                     std::lock_guard gpuLock(gpuMutex);
                     timing.Mark("gpu_mutex_wait");
                     const auto eventType = opcode == 0x46 ? packet[1] & 0x3fu : 0u;
@@ -578,7 +578,10 @@ private:
                     const auto waitDraws = memoryTransfer || opcode == 0x42 || (opcode == 0x46 && (eventType == 0x07 || eventType == 0x0f || eventType == 0x10));
                     const auto gpuCacheBarrier = opcode == 0x58 && Pm4::UsesGpuCacheBarrier(packet);
                     if (device != nullptr) {
-                        if (gpuCacheBarrier) device->AcquireGpuMemory();
+                        if (opcode == 0x49) {
+                            device->WaitIdle();
+                            device->ResolveMemory(0, std::numeric_limits<std::size_t>::max(), true);
+                        } else if (gpuCacheBarrier) device->AcquireGpuMemory();
                         else if (waitDraws) device->WaitDraws();
                         else {
                             const auto scope = header == FlipPacketHeader ? "Driver.FlipWait" : opcode == 0x58 ? "Driver.AcquireMemoryWait" : "Driver.CacheEventWait";
