@@ -2,6 +2,7 @@
 #include "prx/libSceAgc/DcbDraw/include/DrawIndexed.hpp"
 
 #include "prx/libSceAgc/Command/include/Packet.hpp"
+#include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"
@@ -12,9 +13,12 @@ extern "C" {
 std::uint32_t* APS5_VABI sceAgcDcbDrawIndex(CommandBuffer* buf, std::uint32_t indexCount, const volatile void* indexAddress, std::uint64_t modifier) {
     const auto address = reinterpret_cast<std::uintptr_t>(indexAddress);
     Agc::Command::CheckAddress(address, 1, __func__);
-    return Agc::Command::Emit(buf, 0x27u, {indexCount == 0 ? 1u : indexCount,
+    const auto flags = Agc::Command::DrawInitiator(modifier, true, __func__);
+    auto* packet = Agc::Command::Emit(buf, 0x27u, {indexCount == 0 ? 1u : indexCount,
         static_cast<std::uint32_t>(address), static_cast<std::uint32_t>(address >> 32u),
-        indexCount, Agc::Command::DrawInitiator(modifier, true, __func__)}, __func__);
+        indexCount, flags}, __func__);
+    AgcDriver::RegisterNativeDrawHint({packet, 6u, address, indexCount, 0u, flags, true, 0u});
+    return packet;
 }
 
 std::uint32_t APS5_VABI sceAgcDcbDrawIndexGetSize() {
@@ -22,7 +26,10 @@ std::uint32_t APS5_VABI sceAgcDcbDrawIndexGetSize() {
 }
 
 std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier) {
-    return Agc::Command::Emit(buf, 0x2du, {indexCount, Agc::Command::DrawInitiator(modifier, false, __func__)}, __func__);
+    const auto flags = Agc::Command::DrawInitiator(modifier, false, __func__);
+    auto* packet = Agc::Command::Emit(buf, 0x2du, {indexCount, flags}, __func__);
+    AgcDriver::RegisterNativeDrawHint({packet, 3u, 0u, indexCount, 0u, flags, false, 0u});
+    return packet;
 }
 
 std::uint32_t APS5_VABI sceAgcDcbDrawIndexAutoGetSize() {
@@ -30,7 +37,10 @@ std::uint32_t APS5_VABI sceAgcDcbDrawIndexAutoGetSize() {
 }
 
 std::uint32_t* APS5_VABI sceAgcDcbDrawIndexOffset(CommandBuffer* buf, std::uint32_t indexOffset, std::uint32_t indexCount, std::uint64_t modifier) {
-    return Agc::Command::Emit(buf, 0x35u, {indexCount == 0 ? 1u : indexCount, indexOffset, indexCount, Agc::Command::DrawInitiator(modifier, true, __func__)}, __func__);
+    const auto flags = Agc::Command::DrawInitiator(modifier, true, __func__);
+    auto* packet = Agc::Command::Emit(buf, 0x35u, {indexCount == 0 ? 1u : indexCount, indexOffset, indexCount, flags}, __func__);
+    AgcDriver::RegisterNativeDrawHint({packet, 5u, 0u, indexCount, 0u, flags, true, indexOffset});
+    return packet;
 }
 
 uint32_t APS5_VABI sceAgcDcbDrawIndexOffsetGetSize(void) {
