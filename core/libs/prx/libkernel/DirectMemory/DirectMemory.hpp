@@ -16,7 +16,7 @@ static constexpr int SCE_KERNEL_ERROR_EFAULT = -2147418103;
 int DirectMemoryAlloc(int64_t searchStart, int64_t searchEnd, size_t len, size_t alignment, int64_t* physOut);
 void DirectMemoryFree(int64_t start, size_t len);
 int DoMapDirect(void** addr, size_t len, int prot, int flags, int64_t physStart, size_t alignment);
-int DoMapAnon(void** addr, size_t len, int prot, int flags);
+int DoMapAnon(void** addr, size_t len, int prot, int flags, size_t alignment = PS5_PAGE_SIZE);
 int DoMprotect(const void* addr, size_t len, int prot);
 int DoMunmap(void* addr, size_t len);
 int DoReserveVirtual(void** addr, size_t len, size_t alignment);
