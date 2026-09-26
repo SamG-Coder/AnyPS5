@@ -14,6 +14,7 @@
 namespace {
 
 std::recursive_mutex g_sysLock;
+using GuestDestructor = void (APS5_VABI *)(void*);
 
 }
 
@@ -22,9 +23,9 @@ extern "C" {
 FileStream _Stderr_nid_postfix{stderr};
 FileStream _Stdout_nid_postfix{stdout};
 
-int APS5_VABI __cxa_atexit_nid_postfix(void (*func)(void*), void* arg, void* dsoHandle) {
+int APS5_VABI __cxa_atexit_nid_postfix(GuestDestructor func, void* arg, void* dsoHandle) {
     (void)dsoHandle;
-    static std::vector<std::pair<void (*)(void*), void*>> destructors;
+    static std::vector<std::pair<GuestDestructor, void*>> destructors;
     static bool runnerRegistered = false;
     destructors.emplace_back(func, arg);
     if (!runnerRegistered) {
