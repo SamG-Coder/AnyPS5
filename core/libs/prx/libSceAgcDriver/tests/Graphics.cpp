@@ -137,6 +137,27 @@ void hardwareScreenOffsetTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void ScanConversionTests() {
+    auto queue = makeState();
+    queue.context[0x94] = 0x80010002;
+    queue.context[0x95] = 0x30020;
+    for (const auto scissor : {0u, 2u}) {
+        queue.context[0x292] = scissor;
+        const auto reference = AgcDriver::Graphics::DecodeState(queue);
+        for (const auto distribution : {0u, 0x20u, 0x40u, 0x60u}) {
+            queue.context[0x292] = scissor | distribution;
+            const auto state = AgcDriver::Graphics::DecodeState(queue);
+            Require(state.scissor.offset.x == reference.scissor.offset.x && state.scissor.offset.y == reference.scissor.offset.y && state.scissor.extent.width == reference.scissor.extent.width && state.scissor.extent.height == reference.scissor.extent.height, "render-backend distribution changed the scissor");
+            Require(state.viewport.x == reference.viewport.x && state.viewport.y == reference.viewport.y && state.viewport.width == reference.viewport.width && state.viewport.height == reference.viewport.height, "render-backend distribution changed the viewport");
+        }
+    }
+    for (unsigned bit = 0; bit < 32; ++bit) {
+        if ((1u << bit) & 0x62u) continue;
+        queue.context[0x292] = 2u | (1u << bit);
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "scan conversion mode is unsupported: context DWORD 0x292");
+    }
+}
+
 void ShaderStageTests() {
     auto queue = makeState();
     for (const auto routing : {0x2000u, 0x2010u, 0x02002000u, 0x02002010u}) {
@@ -1122,6 +1143,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "scan") {
+            ScanConversionTests();
+            std::cout << "Scan conversion tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "stages") {
             ShaderStageTests();
             std::cout << "Shader stage tests passed\n";
@@ -1149,6 +1175,7 @@ int main(int argc, char** argv) {
             expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
         }
         stateTests();
+        ScanConversionTests();
         hardwareScreenOffsetTests();
         DepthClipTests();
         DisabledColorTests();

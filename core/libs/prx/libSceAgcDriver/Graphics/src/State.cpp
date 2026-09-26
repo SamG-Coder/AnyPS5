@@ -27,7 +27,13 @@ float readFloat(const Registers& registers, std::uint32_t offset) {
 }
 
 void zero(const Registers& registers, std::uint32_t offset, std::uint32_t mask, const char* name, const char* bank = "context") {
-    Require((read(registers, offset, bank) & mask) == 0, std::string(name) + " is unsupported");
+    const auto value = read(registers, offset, bank);
+    if ((value & mask) != 0) {
+        std::ostringstream message;
+        message << name << " is unsupported: " << bank << " DWORD 0x" << std::hex << offset
+                << " = 0x" << value << ", unsupported bits 0x" << (value & mask);
+        Require(false, message.str());
+    }
 }
 
 VkBlendFactor blendFactor(std::uint32_t value) {
@@ -153,7 +159,7 @@ State DecodeState(const QueueState& queue) {
     zero(cx, 0x203, ~0x00009870u, "depth export, shader coverage or ordered fragment execution");
     zero(cx, 0x2dc, ~0x0001ff00u, "alpha-to-coverage");
     zero(cx, 0x2f8, ~0u, "multisampling or coverage conversion");
-    zero(cx, 0x292, ~2u, "scan conversion mode");
+    zero(cx, 0x292, ~0x62u, "scan conversion mode");
     zero(cx, 0x293, ~0x06003fffu, "sample iteration, primitive discard or out-of-order rasterization");
     zero(cx, 0x80, ~0u, "window offset");
     zero(cx, 0x8d, ~0x01ff01ffu, "reserved PA_SU_HARDWARE_SCREEN_OFFSET bits");
