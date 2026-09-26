@@ -13,6 +13,7 @@ extern "C" std::uint32_t* APS5_VABI sceAgcDcbResetQueue(CommandBuffer* buf, std:
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbSetFlip(CommandBuffer* buf, std::uint32_t handle, std::int32_t index, std::uint32_t mode, std::int64_t argument);
 extern "C" int APS5_VABI sceAgcSuspendPoint();
 extern "C" int APS5_VABI sceAgcInit(std::uint32_t version);
+extern "C" int APS5_VABI sceAgc_23LRUSvYu1M(std::uint32_t* state, std::uint32_t version);
 extern "C" std::uint32_t* APS5_VABI sceAgcCbReleaseMem(CommandBuffer*, std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, const volatile Label*, std::uint8_t, std::uint64_t, std::uint16_t, std::uint16_t, std::uint8_t, std::uint32_t);
 extern "C" std::uint32_t* APS5_VABI sceAgcDcbDrawIndexAuto(CommandBuffer* buf, std::uint32_t indexCount, std::uint64_t modifier);
 extern "C" int APS5_VABI sceAgcWaitRegMemPatchReference(std::uint32_t* cmd, std::uint64_t reference);
@@ -270,11 +271,17 @@ void testReleaseMemory() {
 }
 
 void testDefaults() {
+    std::array<std::uint32_t, 2> state{0x12345678, 0x9abcdef0};
+    expectFailure([] { sceAgc_23LRUSvYu1M(nullptr, 8); });
+    expectFailure([&] { sceAgc_23LRUSvYu1M(reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(state.data()) + 1), 8); });
+    expectFailure([&] { sceAgc_23LRUSvYu1M(state.data(), 14); });
+    expectFailure([&] { sceAgc_23LRUSvYu1M(state.data(), 0xffffffffu); });
     check(sceAgcInit(8) == 0, "AGC initialization failed");
     expectFailure([] { sceAgcInit(14); });
     expectFailure([] { sceAgcInit(0xffffffffu); });
     for (std::uint32_t version = 0; version < 14; ++version) {
         check(sceAgcInit(version) == 0, "supported AGC version rejected");
+        check(sceAgc_23LRUSvYu1M(state.data(), version) == 0, "state-based AGC initialization failed");
         for (const bool internal : {false, true}) {
             auto* first = Agc::Command::GetRegisterDefaults(version, internal, __func__);
             check(first != nullptr && first == Agc::Command::GetRegisterDefaults(version, internal, __func__), "unstable register defaults pointer");
