@@ -240,8 +240,9 @@ if(BUILD_TESTING)
     add_test(NAME agc_shader_stages COMMAND agc_driver_graphics_tests stages)
     add_test(NAME agc_scan_conversion COMMAND agc_driver_graphics_tests scan)
     add_test(NAME agc_clipping_state COMMAND agc_driver_graphics_tests clipping)
+    add_test(NAME agc_provoking_vertex COMMAND agc_driver_graphics_tests provoking)
     if(WIN32)
-        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

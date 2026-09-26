@@ -37,6 +37,7 @@ std::string makeKey(const Context& context, const State& state, const std::share
     append(key, state.scissor.extent.height);
     append(key, state.cullMode);
     append(key, state.frontFace);
+    append(key, state.provokingVertexLast);
     append(key, state.blend.blendEnable);
     append(key, state.blend.srcColorBlendFactor);
     append(key, state.blend.dstColorBlendFactor);

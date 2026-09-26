@@ -12,6 +12,7 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
     Require(state.hasColorTarget || (context.limits.framebufferNoAttachmentsSampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0, "device does not support single-sample rendering without attachments");
     ValidateShaders(shaders, state, context.subgroup, context.fragmentShaderBarycentric);
     Require(!state.negativeOneToOne || context.depthClipControl, "negative-one-to-one depth clipping requires VK_EXT_depth_clip_control with depthClipControl enabled");
+    Require(!state.provokingVertexLast || context.provokingVertexLast, "last provoking vertex requires VK_EXT_provoking_vertex with provokingVertexLast enabled");
     if (state.rectList) Require(context.tessellationShader && context.limits.maxTessellationPatchSize >= 4, "rect-list requires tessellation with four output control points");
     if (state.stages.tessellation) {
         Require(context.tessellationShader, "device does not support tessellation shaders");
@@ -100,6 +101,9 @@ Pipeline::Pipeline(const Context& context, const State& state, const RenderTarge
         viewports.scissorCount = 1;
         viewports.pScissors = &state.scissor;
         VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        VkPipelineRasterizationProvokingVertexStateCreateInfoEXT provoking{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_PROVOKING_VERTEX_STATE_CREATE_INFO_EXT};
+        provoking.provokingVertexMode = VK_PROVOKING_VERTEX_MODE_LAST_VERTEX_EXT;
+        if (state.provokingVertexLast) raster.pNext = &provoking;
         raster.polygonMode = VK_POLYGON_MODE_FILL;
         raster.cullMode = state.cullMode;
         raster.frontFace = state.frontFace;
