@@ -1,6 +1,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/DepthTargetLayout.hpp"
 #include <bit>
 #include <cmath>
 #include <array>
@@ -41,6 +42,37 @@ void NativeGraphicsState::SetUser(std::uint32_t o, std::uint32_t v) {
 }
 void NativeGraphicsState::SetContext(std::uint32_t o, std::uint32_t v) {
     if (o == 0x205) { raster=v; updateRaster(); return; }
+    if (o == 0x200) depthControl=v;
+    else if (o == 0x0) depthRenderControl=v;
+    else if (o == 0x2) depthView=v;
+    else if (o == 0x10) depthInfo=v;
+    else if (o == 0x7) depthSize=v;
+    else if (o == 0x12) depthReadBase=v;
+    else if (o == 0x1a) depthReadBaseExt=v;
+    else if (o == 0x14) depthWriteBase=v;
+    else if (o == 0x1c) depthWriteBaseExt=v;
+    else goto not_depth;
+    if(depthControl && (*depthControl&2u)==0) { state.depth.reset(); return; }
+    if(depthControl&&depthRenderControl&&depthView&&depthInfo&&depthSize&&depthReadBase&&depthReadBaseExt){
+        if((*depthControl&~0x007007f6u)!=0 || *depthRenderControl!=0 || *depthView!=0 || *depthInfo!=0x80000183u)
+            throw std::runtime_error("native AGC: unsupported depth configuration");
+        const auto sz=*depthSize; if(sz&0xc000c000u) throw std::runtime_error("native AGC: invalid depth extent");
+        const VkExtent2D extent{(sz&0x3fffu)+1u,((sz>>16u)&0x3fffu)+1u};
+        if((*depthReadBaseExt&~0xffu)!=0) throw std::runtime_error("native AGC: invalid depth address extension");
+        const auto address=(static_cast<std::uint64_t>(*depthReadBaseExt)<<40u)|(static_cast<std::uint64_t>(*depthReadBase)<<8u);
+        if(!address||(address&0xffffu)) throw std::runtime_error("native AGC: depth address must be 64KB aligned");
+        const bool write=(*depthControl&4u)!=0;
+        if(write){
+            if(!depthWriteBase||!depthWriteBaseExt) return;
+            const auto writeAddress=(static_cast<std::uint64_t>(*depthWriteBaseExt)<<40u)|(static_cast<std::uint64_t>(*depthWriteBase)<<8u);
+            if(writeAddress!=address) throw std::runtime_error("native AGC: separate depth read/write surfaces unsupported");
+        }
+        constexpr VkCompareOp cmp[]{VK_COMPARE_OP_NEVER,VK_COMPARE_OP_LESS,VK_COMPARE_OP_EQUAL,VK_COMPARE_OP_LESS_OR_EQUAL,VK_COMPARE_OP_GREATER,VK_COMPARE_OP_NOT_EQUAL,VK_COMPARE_OP_GREATER_OR_EQUAL,VK_COMPARE_OP_ALWAYS};
+        state.depth=DepthState{address,extent,DepthTargetLayout(extent.width,extent.height).Bytes(),cmp[(*depthControl>>4u)&7u],write};
+        if(!state.hasColorTarget) state.renderExtent=extent;
+    }
+    return;
+not_depth:
     if (o == 0x1b6) { psInputControl=v; return; }
     if (o == 0x1b3) { psInputEnable=v; return; }
     if (o == 0x1b4) { psInputAddress=v; return; }
