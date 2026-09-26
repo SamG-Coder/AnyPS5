@@ -58,8 +58,38 @@ int main() {
         }
     });
     for (auto& worker : workers) worker.join();
+    alignas(16) std::array<unsigned char, 4096> otherStorage{};
+    void* otherArena = sceLibcMspaceCreate_nid_postfix("other", otherStorage.data(), otherStorage.size(), 0);
+    Require(otherArena != nullptr);
+    std::array<void*, 256> pointers{};
+    for (std::size_t i = 0; i < pointers.size(); ++i) {
+        pointers[i] = sceLibcMspaceMalloc_nid_postfix(arena, i % 64 + 1);
+        Require(pointers[i] != nullptr);
+        std::memset(pointers[i], static_cast<int>(i), i % 64 + 1);
+    }
+    sceLibcMspaceFree_nid_postfix(otherArena, pointers[127]);
+    Require(sceLibcMspaceRealloc_nid_postfix(otherArena, pointers[127], 256) == nullptr);
+    Require(sceLibcMspaceMallocUsableSize_nid_postfix(pointers[127]) == 64);
+    Require(sceLibcMspaceMallocUsableSize_nid_postfix(static_cast<unsigned char*>(pointers[127]) + 1) == 0);
+    for (std::size_t i = 0; i < pointers.size(); i += 2) {
+        sceLibcMspaceFree_nid_postfix(arena, pointers[i]);
+        Require(sceLibcMspaceMallocUsableSize_nid_postfix(pointers[i]) == 0);
+        sceLibcMspaceFree_nid_postfix(arena, pointers[i]);
+    }
+    for (std::size_t i = 1; i < pointers.size(); i += 2) {
+        for (std::size_t j = 0; j < i % 64 + 1; ++j)
+            Require(static_cast<unsigned char*>(pointers[i])[j] == static_cast<unsigned char>(i));
+        Require(sceLibcMspaceMallocUsableSize_nid_postfix(pointers[i]) == i % 64 + 1);
+        sceLibcMspaceFree_nid_postfix(arena, pointers[i]);
+    }
+    large = sceLibcMspaceMalloc_nid_postfix(arena, storage.size() - 256);
+    Require(large != nullptr);
     Require(sceLibcMspaceDestroy_nid_postfix(arena) == 0);
+    Require(sceLibcMspaceMallocUsableSize_nid_postfix(large) == 0);
+    Require(sceLibcMspaceDestroy_nid_postfix(otherArena) == 0);
     Require(sceLibcMspaceMalloc_nid_postfix(arena, 8) == nullptr);
     Require(sceLibcMspaceCreate_nid_postfix("reuse", storage.data(), storage.size(), 0) == arena);
+    large = sceLibcMspaceMalloc_nid_postfix(arena, storage.size() - 256);
+    Require(large != nullptr);
     Require(sceLibcMspaceDestroy_nid_postfix(arena) == 0);
 }

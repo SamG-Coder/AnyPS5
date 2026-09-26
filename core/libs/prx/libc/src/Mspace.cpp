@@ -4,6 +4,8 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <new>
+#include <unordered_map>
 
 extern "C" int* APS5_VABI __error_nid_postfix();
 
@@ -13,14 +15,23 @@ struct alignas(16) Block {
     Block* next;
     void* pointer;
     std::size_t used;
+    Block* previous;
+    Block* freePrevious;
+    Block* freeNext;
 };
 struct alignas(16) Arena {
     Arena* next;
     Block* first;
     std::uintptr_t end;
+    Block* free;
+};
+struct Allocation {
+    Arena* arena;
+    Block* block;
 };
 std::mutex arenaMutex;
 Arena* arenas = nullptr;
+std::unordered_map<const void*, Allocation> allocations;
 
 void Error(int value) { *__error_nid_postfix() = value; }
 Arena* Find(void* handle) {
@@ -30,34 +41,59 @@ Arena* Find(void* handle) {
     return nullptr;
 }
 Block* FindBlock(Arena* arena, const void* pointer) {
-    if (arena && pointer)
-        for (auto* block = arena->first; block; block = block->next)
-            if (block->pointer == pointer) return block;
+    const auto found = allocations.find(pointer);
+    if (arena && found != allocations.end() && found->second.arena == arena)
+        return found->second.block;
     Error(22);
     return nullptr;
+}
+void RemoveFree(Arena* arena, Block* block) {
+    if (block->freePrevious) block->freePrevious->freeNext = block->freeNext;
+    else arena->free = block->freeNext;
+    if (block->freeNext) block->freeNext->freePrevious = block->freePrevious;
+    block->freePrevious = nullptr;
+    block->freeNext = nullptr;
+}
+void AddFree(Arena* arena, Block* block) {
+    block->freePrevious = nullptr;
+    block->freeNext = arena->free;
+    if (arena->free) arena->free->freePrevious = block;
+    arena->free = block;
 }
 void* Allocate(Arena* arena, std::size_t size, std::size_t alignment) {
     if (!arena) return nullptr;
     size = std::max<std::size_t>(size, 1);
-    for (auto* block = arena->first; block; block = block->next) {
-        if (block->pointer) continue;
+    for (auto* block = arena->free; block; block = block->freeNext) {
         const auto start = reinterpret_cast<std::uintptr_t>(block + 1);
         if (start > std::numeric_limits<std::uintptr_t>::max() - (alignment - 1)) continue;
         const auto aligned = (start + alignment - 1) & ~(alignment - 1);
         const auto padding = aligned - start;
         if (padding > block->capacity || size > block->capacity - padding) continue;
+        void* pointer = reinterpret_cast<void*>(aligned);
+        try {
+            if (!allocations.emplace(pointer, Allocation{arena, block}).second) {
+                Error(22);
+                return nullptr;
+            }
+        } catch (const std::bad_alloc&) {
+            Error(12);
+            return nullptr;
+        }
+        RemoveFree(arena, block);
         auto consumed = padding + size;
         // Splitting preserves header alignment and avoids small unusable fragments.
         if (consumed <= std::numeric_limits<std::size_t>::max() - 15) {
             const auto rounded = (consumed + 15) & ~std::size_t{15};
             if (rounded <= block->capacity && block->capacity - rounded >= sizeof(Block) + 16) {
                 auto* tail = reinterpret_cast<Block*>(start + rounded);
-                *tail = {block->capacity - rounded - sizeof(Block), block->next, nullptr, 0};
+                *tail = {block->capacity - rounded - sizeof(Block), block->next, nullptr, 0, block, nullptr, nullptr};
+                if (tail->next) tail->next->previous = tail;
                 block->capacity = rounded;
                 block->next = tail;
+                AddFree(arena, tail);
             }
         }
-        block->pointer = reinterpret_cast<void*>(aligned);
+        block->pointer = pointer;
         block->used = size;
         return block->pointer;
     }
@@ -65,14 +101,25 @@ void* Allocate(Arena* arena, std::size_t size, std::size_t alignment) {
     return nullptr;
 }
 void Release(Arena* arena, Block* released) {
+    allocations.erase(released->pointer);
     released->pointer = nullptr;
     released->used = 0;
-    for (auto* block = arena->first; block && block->next;) {
-        if (!block->pointer && !block->next->pointer) {
-            block->capacity += sizeof(Block) + block->next->capacity;
-            block->next = block->next->next;
-        } else block = block->next;
+    if (released->previous && !released->previous->pointer) {
+        auto* previous = released->previous;
+        RemoveFree(arena, previous);
+        previous->capacity += sizeof(Block) + released->capacity;
+        previous->next = released->next;
+        if (previous->next) previous->next->previous = previous;
+        released = previous;
     }
+    if (released->next && !released->next->pointer) {
+        auto* next = released->next;
+        RemoveFree(arena, next);
+        released->capacity += sizeof(Block) + next->capacity;
+        released->next = next->next;
+        if (released->next) released->next->previous = released;
+    }
+    AddFree(arena, released);
 }
 }
 
@@ -95,8 +142,8 @@ void* APS5_VABI sceLibcMspaceCreate_nid_postfix(const char* name, void* base,
     }
     auto* arena = static_cast<Arena*>(base);
     auto* block = reinterpret_cast<Block*>(arena + 1);
-    *block = {size - sizeof(Arena) - sizeof(Block), nullptr, nullptr, 0};
-    *arena = {arenas, block, start + size};
+    *block = {size - sizeof(Arena) - sizeof(Block), nullptr, nullptr, 0, nullptr, nullptr, nullptr};
+    *arena = {arenas, block, start + size, block};
     arenas = arena;
     return arena;
 }
@@ -105,6 +152,8 @@ int APS5_VABI sceLibcMspaceDestroy_nid_postfix(void* handle) {
     std::lock_guard lock(arenaMutex);
     for (auto** entry = &arenas; *entry; entry = &(*entry)->next) {
         if (*entry == handle) {
+            for (auto* block = (*entry)->first; block; block = block->next)
+                if (block->pointer) allocations.erase(block->pointer);
             *entry = (*entry)->next;
             return 0;
         }
@@ -168,9 +217,8 @@ int APS5_VABI sceLibcMspacePosixMemalign_nid_postfix(void* handle, void** result
 std::size_t APS5_VABI sceLibcMspaceMallocUsableSize_nid_postfix(const void* pointer) {
     if (!pointer) return 0;
     std::lock_guard lock(arenaMutex);
-    for (auto* arena = arenas; arena; arena = arena->next)
-        for (auto* block = arena->first; block; block = block->next)
-            if (block->pointer == pointer) return block->used;
+    const auto found = allocations.find(pointer);
+    if (found != allocations.end()) return found->second.block->used;
     Error(22);
     return 0;
 }
