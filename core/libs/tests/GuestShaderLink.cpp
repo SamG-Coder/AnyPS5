@@ -7,6 +7,7 @@
 #include <stdexcept>
 extern "C" int APS5_VABI sceAgcLinkShaders(ShaderRegister*, ShaderRegister*, const void*, const Shader*, const Shader*, std::uint32_t);
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults();
+extern "C" void* APS5_VABI aps5NativeAgcGetRegisterDefaults();
 extern "C" void* APS5_VABI sceAgcGetRegisterDefaults2(std::uint32_t);
 static void Require(bool value) { if (!value) std::abort(); }
 extern "C" int APS5_VABI aps5NativeAgcLinkShaders(ShaderRegister*, ShaderRegister*, const void*, const Shader*, const Shader*, std::uint32_t);
@@ -14,6 +15,7 @@ static void Exercise(decltype(&sceAgcLinkShaders) linkShaders) {
     using namespace ShaderRegs;
     auto* defaults = static_cast<unsigned char*>(sceAgcGetRegisterDefaults());
     Require(defaults && defaults == sceAgcGetRegisterDefaults());
+    Require(defaults == aps5NativeAgcGetRegisterDefaults());
     Require(defaults == sceAgcGetRegisterDefaults2(0));
     // These are the byte offsets used by native callers, independent of the
     // private C++ structure used to construct the defaults object.

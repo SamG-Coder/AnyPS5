@@ -22,4 +22,8 @@ void* APS5_VABI sceAgcGetRegisterDefaults2Internal(std::uint32_t version) {
     return Agc::Command::GetRegisterDefaults(version, true, __func__);
 }
 
+void* APS5_VABI aps5NativeAgcGetRegisterDefaults() {
+    return sceAgcGetRegisterDefaults();
+}
+
 }

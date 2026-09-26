@@ -9,6 +9,7 @@ static const std::unordered_map<std::string, std::string>& nativeMap() {
 
         {"sceAgcInit", "aps5NativeAgcInit"},
         {"sceAgcLinkShaders", "aps5NativeAgcLinkShaders"},
+        {"sceAgcGetRegisterDefaults", "aps5NativeAgcGetRegisterDefaults"},
         {"sceAgcDcbDrawIndex", "aps5NativeAgcDrawIndex"},
         {"sceAgcDcbDrawIndexAuto", "aps5NativeAgcDrawIndexAuto"},
         {"sceAgcDcbDrawIndexOffset", "aps5NativeAgcDrawIndexOffset"},
