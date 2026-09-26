@@ -39,6 +39,20 @@ int main() {
         for (unsigned x = 0; x < 129; ++x) touched[layout.Offset(x, y) / 4] = true;
     for (std::size_t i = 0; i < tiled.size(); ++i) if (!touched[i / 4]) Require(tiled[i] == std::byte{0xa5});
     Require(DepthTargetLayout(3840, 2160).Bytes() == 33423360);
+    for (const auto extent : {std::array{1u, 1u}, std::array{2u, 5u}, std::array{127u, 129u},
+                              std::array{128u, 128u}, std::array{129u, 131u}, std::array{257u, 255u}}) {
+        const DepthTargetLayout tested(extent[0], extent[1]);
+        std::vector<std::byte> input(tested.LinearBytes()), actual(tested.Bytes(), std::byte{0xa5});
+        std::vector<std::byte> expected(tested.Bytes(), std::byte{0xa5}), restored(input.size());
+        for (std::size_t i = 0; i < input.size(); ++i) input[i] = static_cast<std::byte>((i * 37u + i / 4u) & 255u);
+        for (unsigned y = 0; y < extent[1]; ++y)
+            for (unsigned x = 0; x < extent[0]; ++x)
+                std::memcpy(expected.data() + tested.Offset(x, y), input.data() + (static_cast<std::size_t>(y) * extent[0] + x) * 4u, 4);
+        tested.Tile(input, actual);
+        Require(actual == expected);
+        tested.Detile(expected, restored);
+        Require(restored == input);
+    }
     unsigned rejected = 0;
     try { (void)DepthTargetLayout(0, 1); } catch (const std::runtime_error&) { ++rejected; }
     try { (void)DepthTargetLayout(16385, 1); } catch (const std::runtime_error&) { ++rejected; }
