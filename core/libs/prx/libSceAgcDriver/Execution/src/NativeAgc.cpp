@@ -54,7 +54,28 @@ void bindShaderRegister(NativeCommandBufferState& target, std::uint32_t offset, 
 }
 NativeCommandBufferState& state(CommandBuffer* buffer) {
     if (!buffer) throw std::invalid_argument("native AGC: null command buffer");
+    if (!buffer->bottom || !buffer->top || buffer->bottom > buffer->top)
+        throw std::invalid_argument("native AGC: invalid command buffer storage");
     return states[buffer];
+}
+NativeCommandBufferState& submittedState(const Packet* packet) {
+    if (!packet) throw std::invalid_argument("native AGC: null submission");
+    if (packet->dw_num == 0) throw std::invalid_argument("native AGC: empty submission");
+    const auto begin=reinterpret_cast<std::uintptr_t>(packet->addr);
+    const auto bytes=static_cast<std::uint64_t>(packet->dw_num)*sizeof(std::uint32_t);
+    if (!begin || bytes>UINTPTR_MAX-begin) throw std::invalid_argument("native AGC: invalid submission range");
+    const auto end=begin+bytes;
+    NativeCommandBufferState* match=nullptr;
+    for (auto& [buffer, native] : states) {
+        const auto lo=reinterpret_cast<std::uintptr_t>(buffer->bottom);
+        const auto hi=reinterpret_cast<std::uintptr_t>(buffer->top);
+        if (begin>=lo && end<=hi) {
+            if (match) throw std::runtime_error("native AGC: submission ambiguously belongs to multiple command buffers");
+            match=&native;
+        }
+    }
+    if (!match) throw std::runtime_error("native AGC: submission was not authored by a lowered native command buffer");
+    return *match;
 }
 std::uint32_t* opaque(CommandBuffer* buffer) {
     // The lowered ABI still returns a command handle because original code may
@@ -163,7 +184,15 @@ std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexAuto(CommandBuffer* b, std::uint3
 std::uint32_t* APS5_VABI aps5NativeAgcDrawIndexOffset(CommandBuffer* b, std::uint32_t, std::uint32_t count, std::uint64_t) {
     std::lock_guard lock(stateMutex); state(b).indexCount=count; return opaque(b);
 }
-int APS5_VABI aps5NativeAgcSubmit(const Packet*) {
-    throw std::runtime_error("native AGC submission reached before native Vulkan lowering is complete");
+int APS5_VABI aps5NativeAgcSubmit(const Packet* packet) {
+    std::lock_guard lock(stateMutex);
+    auto& native=submittedState(packet);
+    if (!native.vertexShader || !native.fragmentShader)
+        throw std::runtime_error("native AGC: graphics submission is missing native vertex or fragment shader binding");
+    if (!native.graphics.Primitive())
+        throw std::runtime_error("native AGC: graphics submission is missing native primitive topology");
+    // Submission now resolves an authored native command object. Vulkan recording
+    // is connected in the next stage; there is deliberately no PM4 fallback.
+    throw std::runtime_error("native AGC: native Vulkan draw compilation is not complete");
 }
 }
