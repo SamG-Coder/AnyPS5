@@ -248,10 +248,13 @@ if(BUILD_TESTING)
     add_test(NAME guest_system_exit_parameters COMMAND guest_system_exit_tests)
     add_test(NAME guest_system_exit COMMAND guest_system_exit_tests --exit)
     add_test(NAME guest_immediate_exit COMMAND guest_system_exit_tests --immediate)
+    add_test(NAME guest_destructors COMMAND guest_system_exit_tests --destructors)
+    set_tests_properties(guest_destructors PROPERTIES
+        PASS_REGULAR_EXPRESSION "Guest destructors completed in reverse order")
     set_tests_properties(guest_system_exit PROPERTIES
         PASS_REGULAR_EXPRESSION "Guest shutdown and atexit completed")
     if(WIN32)
-        set_tests_properties(guest_system_exit guest_system_exit_parameters guest_immediate_exit PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(guest_system_exit guest_system_exit_parameters guest_immediate_exit guest_destructors PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
     add_executable(guest_character_tests tests/GuestCharacter.cpp)
