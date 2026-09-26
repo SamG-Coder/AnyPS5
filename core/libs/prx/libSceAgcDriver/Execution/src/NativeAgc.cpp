@@ -16,6 +16,10 @@ struct NativeShader {
     std::uint64_t headerAddress;
     std::vector<std::uint32_t> code;
     std::vector<std::byte> header;
+    std::optional<ShaderSpecialRegs> specials;
+    std::vector<ShaderSemantic> inputSemantics;
+    std::vector<ShaderSemantic> outputSemantics;
+    std::optional<ShaderUserData> userDataInfo;
 };
 
 struct NativeCommandBufferState {
@@ -121,6 +125,12 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
     std::memcpy(native->code.data(), const_cast<const void*>(code), shader->shader_size);
     native->header.resize(shader->header_size);
     std::memcpy(native->header.data(), shader, shader->header_size);
+    if (shader->specials) native->specials=*shader->specials;
+    if (shader->input_semantics && shader->num_input_semantics)
+        native->inputSemantics.assign(shader->input_semantics,shader->input_semantics+shader->num_input_semantics);
+    if (shader->output_semantics && shader->num_output_semantics)
+        native->outputSemantics.assign(shader->output_semantics,shader->output_semantics+shader->num_output_semantics);
+    if (shader->user_data) native->userDataInfo=*shader->user_data;
     {
         std::lock_guard lock(stateMutex);
         shaders.insert_or_assign(shader, std::move(native));
