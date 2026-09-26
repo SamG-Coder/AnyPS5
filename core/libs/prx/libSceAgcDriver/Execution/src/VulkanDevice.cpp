@@ -536,6 +536,16 @@ void VulkanDevice::WaitDraws() {
     state->drawQueue->Wait();
 }
 
+void VulkanDevice::CollectDraws() {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
+    if (state->drawQueue) state->drawQueue->Collect();
+}
+
+void VulkanDevice::AfterDraws(std::function<void()> callback) {
+    std::lock_guard memoryLock(GuestMemoryTracking::GuestMemoryTrackingMutex_nid_postfix());
+    state->drawQueue->AfterGpu(std::move(callback));
+}
+
 void* VulkanDevice::Window() const {
     return state->window;
 }

@@ -13,6 +13,7 @@
 #include <bit>
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
@@ -153,10 +154,14 @@ public:
 
     void WaitIdle() {
         require(std::this_thread::get_id() != worker.get_id(), "worker cannot wait for itself");
-        std::unique_lock lock(mutex);
-        const auto target = accepted;
-        changed.wait(lock, [&] { return failure != nullptr || completed >= target; });
-        rethrowFailure();
+        {
+            std::unique_lock lock(mutex);
+            const auto target = accepted;
+            changed.wait(lock, [&] { return failure != nullptr || completed >= target; });
+            rethrowFailure();
+        }
+        std::lock_guard gpuLock(gpuMutex);
+        if (device) device->WaitIdle();
     }
 
     void SuspendPoint() {
@@ -582,7 +587,7 @@ private:
                 PerformanceTimer timing("Driver.Packet");
                 CheckFailure();
                 timing.Mark("failure_check");
-                if (opcode == 0x37 || opcode == 0x40 || opcode == 0x49 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
+                if (opcode == 0x37 || opcode == 0x40 || opcode == 0x50 || opcode == 0x42 || opcode == 0x46 || opcode == 0x58 || header == FlipPacketHeader) {
                     std::lock_guard gpuLock(gpuMutex);
                     timing.Mark("gpu_mutex_wait");
                     const auto eventType = opcode == 0x46 ? packet[1] & 0x3fu : 0u;
@@ -590,8 +595,7 @@ private:
                     const auto waitDraws = memoryTransfer || opcode == 0x42 || (opcode == 0x46 && (eventType == 0x07 || eventType == 0x0f || eventType == 0x10));
                     const auto gpuCacheBarrier = opcode == 0x58 && Pm4::UsesGpuCacheBarrier(packet);
                     if (device != nullptr) {
-                        if (opcode == 0x49) device->WaitIdle();
-                        else if (gpuCacheBarrier) device->AcquireGpuMemory();
+                        if (gpuCacheBarrier) device->AcquireGpuMemory();
                         else if (waitDraws) device->WaitDraws();
                         else {
                             const auto scope = header == FlipPacketHeader ? "Driver.FlipWait" : opcode == 0x58 ? "Driver.AcquireMemoryWait" : "Driver.CacheEventWait";
@@ -621,6 +625,21 @@ private:
                     dispatch(queue, direct, submission);
                 } else if (opcode == 0x27 || opcode == 0x35 || opcode == 0x2d) {
                     draw(queue, packet, submission);
+                } else if (opcode == 0x49) {
+                    const auto words = packet[2] >> 29u;
+                    if (words != 0) {
+                        const auto destination = static_cast<std::uint64_t>(packet[3]) | (static_cast<std::uint64_t>(packet[4]) << 32u);
+                        const auto alignment = words == 2 ? std::size_t{8} : std::size_t{4};
+                        std::vector<std::byte> bytes(words * sizeof(std::uint32_t));
+                        std::memcpy(bytes.data(), packet.data() + 5, bytes.size());
+                        auto publish = [destination, alignment, bytes = std::move(bytes)] {
+                            GuestMemory::Write(destination, bytes, alignment);
+                        };
+                        if (device) {
+                            std::lock_guard gpuLock(gpuMutex);
+                            device->AfterDraws(std::move(publish));
+                        } else publish();
+                    }
                 } else if (opcode != 0x42 && opcode != 0x46 && opcode != 0x58) {
                     std::lock_guard gpuLock(gpuMutex);
                     const GuestMemory::MemoryAccessScope memoryScope(device.get(), [](void* context, std::uint64_t address, std::size_t bytes, bool writable) {
@@ -650,23 +669,23 @@ private:
                     timing.Mark("submission_release");
                     std::unique_lock lock(mutex);
                     timing.Mark("queue_mutex_wait");
-                    changed.wait(lock, [&] { return failure || stopping || !pending.empty(); });
+                    changed.wait_for(lock, std::chrono::milliseconds(2), [&] { return failure || stopping || !pending.empty(); });
                     timing.Mark("wait_for_submission");
                     rethrowFailure();
                     if (pending.empty()) {
-                        break;
+                        if (stopping) break;
+                        lock.unlock();
+                        {
+                            std::lock_guard gpuLock(gpuMutex);
+                            if (device) device->CollectDraws();
+                        }
+                        continue;
                     }
                     submission = std::move(pending.front());
                     pending.pop_front();
                     submission.dequeued = FrameTiming::Clock::now();
                 }
                 execute(submission);
-                {
-                    PerformanceContext timingContext(frameTiming.get());
-                    PerformanceTimer timing("Driver.SubmissionCompletion");
-                    std::lock_guard gpuLock(gpuMutex);
-                    if (device) device->WaitIdle();
-                }
                 {
                     PerformanceContext timingContext(frameTiming.get());
                     PerformanceTimer timing("Driver.Completion");
