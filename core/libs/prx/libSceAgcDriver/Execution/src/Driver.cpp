@@ -22,6 +22,7 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -61,7 +62,11 @@ struct Submission {
 
 std::uint32_t readRegister(const Registers& registers, std::uint32_t offset) {
     const auto it = registers.find(offset);
-    require(it != registers.end(), "required shader register has not been written");
+    if (it == registers.end()) {
+        std::ostringstream message;
+        message << "AGC driver: required shader register DWORD 0x" << std::hex << offset << " has not been written";
+        throw std::runtime_error(message.str());
+    }
     return it->second;
 }
 
