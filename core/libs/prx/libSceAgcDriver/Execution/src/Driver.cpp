@@ -761,6 +761,10 @@ private:
 
 }
 
+void RegisterNativeDrawHint(const NativeDrawHint& hint) {
+    Driver::Get().RegisterNativeDraw(hint);
+}
+
 void Submit(const Packet* packet, std::uint32_t queue) {
     Driver::Get().Submit(packet, queue);
 }
