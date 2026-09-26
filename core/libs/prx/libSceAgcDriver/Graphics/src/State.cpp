@@ -192,7 +192,7 @@ State DecodeState(const QueueState& queue) {
     }
     result.hasColorTarget = targetMask != 0;
     Require(!result.hasColorTarget || shaderMask == 0xfu, "partial shader color exports are unsupported");
-    Require(read(cx, 0x202) == 0xcc0010u, "only normal color rendering with copy ROP is supported");
+    Require((read(cx, 0x202) & ~1u) == 0xcc0010u, "only normal color rendering with copy ROP is supported");
     zero(cx, 0x1c4, ~0u, "depth or sample-mask export");
     const auto exportFormat = read(cx, 0x1c5);
     Require(exportFormat == 4 || exportFormat == 9, "only FP16_ABGR or 32_ABGR color export is supported");

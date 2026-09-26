@@ -137,6 +137,21 @@ void hardwareScreenOffsetTests() {
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
 }
 
+void ColorControlTests() {
+    auto queue = makeState();
+    const auto reference = AgcDriver::Graphics::DecodeState(queue);
+    queue.context[0x202] = 0xcc0011;
+    const auto disabledDualQuad = AgcDriver::Graphics::DecodeState(queue);
+    Require(reference.hasColorTarget == disabledDualQuad.hasColorTarget && reference.color.format == disabledDualQuad.color.format, "dual-quad optimization changed the render target");
+    const auto& first = reference.blend;
+    const auto& second = disabledDualQuad.blend;
+    Require(first.blendEnable == second.blendEnable && first.srcColorBlendFactor == second.srcColorBlendFactor && first.dstColorBlendFactor == second.dstColorBlendFactor && first.colorBlendOp == second.colorBlendOp && first.srcAlphaBlendFactor == second.srcAlphaBlendFactor && first.dstAlphaBlendFactor == second.dstAlphaBlendFactor && first.alphaBlendOp == second.alphaBlendOp && first.colorWriteMask == second.colorWriteMask, "dual-quad optimization changed blending");
+    for (const auto value : {0xcc0001u, 0xcc0021u, 0x660011u, 0xcc0019u, 0x1cc0011u}) {
+        queue.context[0x202] = value;
+        expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "copy ROP");
+    }
+}
+
 void ProvokingVertexTests() {
     auto queue = makeState();
     for (const auto primitive : {2u, 4u, 5u, 6u}) {
@@ -1173,6 +1188,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "color-control") {
+            ColorControlTests();
+            std::cout << "Color control tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "provoking") {
             ProvokingVertexTests();
             std::cout << "Provoking vertex tests passed\n";
@@ -1215,6 +1235,7 @@ int main(int argc, char** argv) {
             expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
         }
         stateTests();
+        ColorControlTests();
         ProvokingVertexTests();
         ScanConversionTests();
         hardwareScreenOffsetTests();
