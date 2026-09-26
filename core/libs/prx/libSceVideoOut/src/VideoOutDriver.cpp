@@ -13,7 +13,6 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
-#include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
 #include "prx/libc/include/Shutdown.hpp"
 
 namespace {
@@ -322,7 +321,7 @@ void VideoOutDriver::SubmitFlip(int handle, int index, int flipMode, int64_t fli
     auto request=output->Reserve({static_cast<std::uint32_t>(handle),index,static_cast<std::uint32_t>(flipMode),flipArg});
     // A native port synchronizes its renderer directly before handing the image
     // to presentation; there is no synthetic PS5 wait/flip command.
-    AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();
+    AgcDriverWaitIdle_nid_postfix();
     auto timing=std::make_shared<AgcDriver::FrameTiming>(0);
     request->GpuReady(timing);
 }

@@ -31,6 +31,7 @@ void* NativeAllocateException(std::size_t size) {
 }
 void NativeFreeException(void* object) asm("__cxa_free_exception");
 void NativeFreeException(void* object) { __cxa_free_exception_nid_postfix(object); }
+asm(".globl __cxa_init_primary_exception_nid_no_patch_cut\n.set __cxa_init_primary_exception_nid_no_patch_cut,__cxa_init_primary_exception\n");
 void* NativeInitPrimaryException(void* object, std::type_info* type, void (*destructor)(void*)) noexcept asm("__cxa_init_primary_exception");
 void* NativeInitPrimaryException(void* object, std::type_info* type, void (*destructor)(void*)) noexcept {
     using namespace LibcException;
