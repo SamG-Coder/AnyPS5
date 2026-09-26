@@ -1,5 +1,7 @@
 #include "BdaTests.hpp"
 #include "GraphicsTests.hpp"
+#include "SceShaders.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/ShaderInputState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureDetiler.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/VertexInput.hpp"
@@ -135,6 +137,34 @@ void hardwareScreenOffsetTests() {
     }
     queue.context.erase(0x8d);
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "missing register");
+}
+
+void ShaderHeaderTests() {
+    constexpr std::uint64_t address = 0x100000;
+    std::array<std::byte, 342> header{};
+    Shader shader{};
+    shader.user_data = reinterpret_cast<ShaderUserData*>(address + 288);
+    const auto decode = [&] {
+        std::memcpy(header.data(), &shader, sizeof(shader));
+        return AgcDriver::Graphics::DecodeVertexStageInfo(header, address, {});
+    };
+    Require(!decode().fetchEmbedded, "empty packed user data enabled vertex fetch");
+    expectFailure([&] { AgcDriver::Graphics::DecodeVertexStageInfo(std::span(header).first(341), address, {}); }, "outside the registered shader header");
+    shader.user_data = reinterpret_cast<ShaderUserData*>(address - 1);
+    expectFailure(decode, "precedes the shader header");
+    shader.user_data = reinterpret_cast<ShaderUserData*>(UINT64_MAX);
+    expectFailure(decode, "outside the registered shader header");
+    shader.user_data = nullptr;
+    expectFailure(decode, "missing AGC user-data header");
+    shader.user_data = reinterpret_cast<ShaderUserData*>(address + 288);
+    ShaderUserData user{};
+    user.direct_resource_count = 1;
+    user.direct_resource_offset = reinterpret_cast<std::uint16_t*>(address + 341);
+    std::memcpy(header.data() + 288, &user, 54);
+    expectFailure(decode, "array is outside");
+    user.direct_resource_offset = reinterpret_cast<std::uint16_t*>(UINT64_MAX);
+    std::memcpy(header.data() + 288, &user, 54);
+    expectFailure(decode, "array is outside");
 }
 
 void ColorControlTests() {
@@ -1188,6 +1218,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "shader-headers") {
+            ShaderHeaderTests();
+            std::cout << "Shader header tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "color-control") {
             ColorControlTests();
             std::cout << "Color control tests passed\n";
@@ -1235,6 +1270,7 @@ int main(int argc, char** argv) {
             expectFailure([&] { AgcDriver::Graphics::Draw(context, state, draw, {}); }, "draw modifiers");
         }
         stateTests();
+        ShaderHeaderTests();
         ColorControlTests();
         ProvokingVertexTests();
         ScanConversionTests();
