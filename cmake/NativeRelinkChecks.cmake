@@ -89,3 +89,24 @@ if(BUILD_TESTING AND CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64|amd64|x86_64" AND CMA
         core/relinker/domain/include core/relinker/relinker/include core/relinker/codegen/include)
     add_test(NAME native_function_execution COMMAND native_function_execution_tests)
 endif()
+
+if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
+    add_executable(native_completion_gpu_tests EXCLUDE_FROM_ALL tests/NativeCompletionGpu.cpp)
+    target_include_directories(native_completion_gpu_tests PRIVATE core/libs core/shader/recompiler
+        3rdparty/Vulkan-Headers/include)
+    target_link_libraries(native_completion_gpu_tests PRIVATE libSceAgcDriver libc)
+    if(MINGW)
+        target_compile_options(native_completion_gpu_tests PRIVATE -fno-asynchronous-unwind-tables)
+        configure_windows_unwind(native_completion_gpu_tests)
+    endif()
+    foreach(stage IN ITEMS vert frag)
+        set(completionShader "${CMAKE_CURRENT_BINARY_DIR}/NativeCompletion.${stage}.spv")
+        add_custom_command(OUTPUT "${completionShader}"
+            COMMAND "$<TARGET_FILE:glslang-standalone>" -V --target-env vulkan1.1
+                "${CMAKE_SOURCE_DIR}/core/libs/prx/libSceAgcDriver/tests/shaders/Triangle.${stage}"
+                -o "${completionShader}"
+            DEPENDS glslang-standalone "${CMAKE_SOURCE_DIR}/core/libs/prx/libSceAgcDriver/tests/shaders/Triangle.${stage}"
+            VERBATIM)
+        target_sources(native_completion_gpu_tests PRIVATE "${completionShader}")
+    endforeach()
+endif()
