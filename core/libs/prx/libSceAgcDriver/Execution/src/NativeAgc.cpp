@@ -127,10 +127,23 @@ void appendDraw(NativeCommandBufferState& s, std::uint32_t count, bool indexed, 
         (routing & 0x400000u) ? 32u : 64u, pixel->wave32 ? 32u : 64u, {}, {}};
     s.draws.push_back(std::move(call));
 }
-NativeCommandBufferState& state(CommandBuffer* buffer) {
+std::uint64_t tokenCapacity(const CommandBuffer* buffer) {
     if (!buffer) throw std::invalid_argument("native AGC: null command buffer");
-    if (!buffer->bottom || !buffer->top || buffer->bottom > buffer->top)
-        throw std::invalid_argument("native AGC: invalid command buffer storage");
+    const auto bottom = reinterpret_cast<std::uintptr_t>(buffer->bottom);
+    const auto top = reinterpret_cast<std::uintptr_t>(buffer->top);
+    const auto up = reinterpret_cast<std::uintptr_t>(buffer->cursor_up);
+    const auto down = reinterpret_cast<std::uintptr_t>(buffer->cursor_down);
+    if (!bottom || ((bottom | top | up | down) & 3u) != 0 ||
+        bottom > up || up > down || down > top)
+        throw std::invalid_argument("native AGC: invalid command buffer storage or cursors");
+    const auto available = (down - up) / sizeof(std::uint32_t);
+    if (buffer->reserved_dw > available)
+        throw std::invalid_argument("native AGC: reserved space exceeds command buffer capacity");
+    return available - buffer->reserved_dw;
+}
+NativeCommandBufferState& state(CommandBuffer* buffer) {
+    if (tokenCapacity(buffer) == 0)
+        throw std::runtime_error("native AGC: command token storage exhausted");
     return states[buffer];
 }
 NativeCommandBufferState& submittedState(const Packet* packet) {
@@ -155,7 +168,7 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
 std::uint32_t* opaque(CommandBuffer* buffer) {
     // Preserve pointer identity expected by the source ABI without generating
     // PS5 commands. This DWORD is only an opaque token owned by the ported API.
-    if (!buffer || !buffer->cursor_up || !buffer->cursor_down || buffer->cursor_up>=buffer->cursor_down)
+    if (tokenCapacity(buffer) == 0)
         throw std::runtime_error("native AGC: command token storage exhausted");
     auto* token=buffer->cursor_up++;
     *token=0;

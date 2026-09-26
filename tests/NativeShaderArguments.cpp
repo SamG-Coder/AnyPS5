@@ -44,5 +44,32 @@ int main() {
     rejects([&] { aps5NativeAgcSetUcRegisterRange(&buffer, 0x242, nullptr, 1); });
     rejects([&] { aps5NativeAgcSetShRegisterRange(&buffer, UINT32_MAX, v.data(), 2); });
     check(buffer.cursor_up == cursor);
+    const auto storage = words;
+    const auto validBuffer = buffer;
+    const auto rejectBuffer = [&] {
+        const auto savedCursor = buffer.cursor_up;
+        rejects([&] { aps5NativeAgcSetNumInstances(&buffer, 2); });
+        check(buffer.cursor_up == savedCursor && words == storage);
+        buffer = validBuffer;
+    };
+    buffer.cursor_up = words.data();
+    buffer.bottom = words.data() + 1;
+    rejectBuffer();
+    buffer.cursor_down = words.data() + words.size();
+    buffer.top = words.data() + words.size() - 1;
+    rejectBuffer();
+    buffer.cursor_down = words.data();
+    rejectBuffer();
+    buffer.cursor_up = reinterpret_cast<std::uint32_t*>(reinterpret_cast<std::uintptr_t>(words.data()) + 1);
+    rejectBuffer();
+    buffer.reserved_dw = static_cast<std::uint32_t>(buffer.cursor_down - buffer.cursor_up);
+    rejectBuffer();
+    buffer.reserved_dw = static_cast<std::uint32_t>(buffer.cursor_down - buffer.cursor_up) + 1;
+    rejectBuffer();
+    buffer.reserved_dw = static_cast<std::uint32_t>(buffer.cursor_down - buffer.cursor_up) - 1;
+    check(aps5NativeAgcSetNumInstances(&buffer, 2) == cursor);
+    check(buffer.cursor_up == cursor + 1);
+    rejects([&] { aps5NativeAgcSetNumInstances(&buffer, 3); });
+    check(buffer.cursor_up == cursor + 1);
     return 0;
 }
