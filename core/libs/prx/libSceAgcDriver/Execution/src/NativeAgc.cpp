@@ -108,9 +108,13 @@ NativeCommandBufferState& submittedState(const Packet* packet) {
     return *match;
 }
 std::uint32_t* opaque(CommandBuffer* buffer) {
-    // The lowered ABI still returns a command handle because original code may
-    // retain the value. It is not executable PS5 PM4 and is never interpreted.
-    return buffer ? buffer->cursor_up : nullptr;
+    // Preserve pointer identity expected by the source ABI without generating
+    // PS5 commands. This DWORD is only an opaque token owned by the ported API.
+    if (!buffer || !buffer->cursor_up || !buffer->cursor_down || buffer->cursor_up>=buffer->cursor_down)
+        throw std::runtime_error("native AGC: command token storage exhausted");
+    auto* token=buffer->cursor_up++;
+    *token=0;
+    return token;
 }
 }
 extern "C" {
