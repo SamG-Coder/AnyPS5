@@ -1,6 +1,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 #include <SDL_loadso.h>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -223,11 +224,37 @@ void TestDepth(const Context& context, const char* vertexPath, const char* fragm
     context.Function<PFN_vkDestroyShaderModule>("vkDestroyShaderModule")(context.device, fragment, nullptr);
 }
 
+static void TestReadback(const Context& context) {
+    const VkExtent2D extent{3840, 2160};
+    const DepthTargetLayout layout(extent.width, extent.height);
+    DepthState state{};
+    state.extent = extent;
+    state.bytes = layout.Bytes();
+    DepthSurface surface(context, state);
+    std::vector<float> linear(static_cast<std::size_t>(extent.width) * extent.height);
+    for (std::size_t i = 0; i < linear.size(); ++i) linear[i] = static_cast<float>(i % 1024) / 1024.0f;
+    std::vector<std::byte> tiled(layout.Bytes(), std::byte{0xa5});
+    layout.Tile(std::as_bytes(std::span(linear)), tiled);
+    const auto expected = tiled;
+    for (unsigned iteration = 0; iteration < 3; ++iteration) {
+        CommandBatch batch(context);
+        surface.Upload(batch.Handle(), tiled);
+        surface.Download(batch.Handle());
+        batch.SubmitAndWait();
+        const auto start = std::chrono::steady_clock::now();
+        surface.Read(tiled);
+        const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        Require(tiled == expected, "4K depth readback changed pixels or padding");
+        std::cout << "4K depth readback: " << elapsed << " ms\n";
+    }
+}
+
 int main(int argc, char** argv) {
     try {
         Require(argc == 3, "expected depth vertex and fragment SPIR-V paths");
         Device device;
         TestDepth(device.GetContext(), argv[1], argv[2]);
+        TestReadback(device.GetContext());
         std::cout << "Vulkan D32 occlusion, write masks, CPU clears and tiled readback passed\n";
         return 0;
     } catch (const std::exception& error) {

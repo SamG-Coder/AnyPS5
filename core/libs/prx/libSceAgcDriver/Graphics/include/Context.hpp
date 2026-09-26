@@ -75,7 +75,10 @@ struct Context {
         return function;
     }
 
-    std::uint32_t MemoryType(std::uint32_t mask, VkMemoryPropertyFlags flags) const {
+    std::uint32_t MemoryType(std::uint32_t mask, VkMemoryPropertyFlags flags, VkMemoryPropertyFlags preferred = 0) const {
+        for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
+            if ((mask & (1u << i)) != 0 && (memory.memoryTypes[i].propertyFlags & (flags | preferred)) == (flags | preferred)) return i;
+        }
         for (std::uint32_t i = 0; i < memory.memoryTypeCount; ++i) {
             if ((mask & (1u << i)) != 0 && (memory.memoryTypes[i].propertyFlags & flags) == flags) return i;
         }

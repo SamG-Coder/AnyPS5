@@ -32,7 +32,9 @@ Buffer::Buffer(const Context& context, std::size_t size, VkBufferUsageFlags usag
         if (addressable) allocation.pNext = &flags;
         allocation.allocationSize = requirements.size;
         allocationBytes = requirements.size;
-        allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, properties);
+        const auto preferred = (properties & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0 && (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) != 0
+            ? VK_MEMORY_PROPERTY_HOST_CACHED_BIT : 0u;
+        allocation.memoryTypeIndex = context.MemoryType(requirements.memoryTypeBits, properties, preferred);
         Check(context.Function<PFN_vkAllocateMemory>("vkAllocateMemory")(context.device, &allocation, nullptr, &memory), "vkAllocateMemory buffer");
         Check(context.Function<PFN_vkBindBufferMemory>("vkBindBufferMemory")(context.device, buffer, memory, 0), "vkBindBufferMemory");
         initializeAddress(usage);
