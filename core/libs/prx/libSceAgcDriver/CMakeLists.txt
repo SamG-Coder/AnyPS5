@@ -61,6 +61,7 @@ add_library(libSceAgcDriver SHARED EXCLUDE_FROM_ALL
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetLayout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthTargetLayout.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthState.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/DepthSurface.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/ColorTargetTransfer.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Pipeline.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/Graphics/src/Resources.cpp
@@ -201,6 +202,7 @@ add_executable(agc_driver_graphics_tests EXCLUDE_FROM_ALL
         Graphics/src/State.cpp
         Graphics/src/DepthState.cpp
         Graphics/src/DepthTargetLayout.cpp
+        Graphics/src/DepthSurface.cpp
         Graphics/src/ColorTargetLayout.cpp
         Graphics/src/ColorTargetTransfer.cpp
         Graphics/src/Resources.cpp
@@ -250,8 +252,9 @@ if(BUILD_TESTING)
     add_test(NAME agc_shader_headers COMMAND agc_driver_graphics_tests shader-headers)
     add_test(NAME agc_buffer_alignment COMMAND agc_driver_graphics_tests buffer-alignment)
     add_test(NAME agc_pixel_inputs COMMAND agc_driver_graphics_tests pixel-inputs)
+    add_test(NAME agc_depth_attachment_state COMMAND agc_driver_graphics_tests depth-target)
     if(WIN32)
-        set_tests_properties(agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment agc_pixel_inputs PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_depth_attachment_state agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment agc_pixel_inputs PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
@@ -323,6 +326,24 @@ configure_windows_unwind(agc_driver_bda_device_tests)
 
 option(AGC_BUILD_VISUAL_TEST "Enable the standalone AGC SPIR-V visual test" OFF)
 
+add_executable(agc_depth_device_tests EXCLUDE_FROM_ALL
+        tests/DepthDevice.cpp Graphics/src/DepthSurface.cpp Graphics/src/DepthTargetLayout.cpp
+        Graphics/src/Resources.cpp Graphics/src/BufferAddress.cpp Graphics/src/BufferPool.cpp)
+target_include_directories(agc_depth_device_tests PRIVATE ${LIBS_INCLUDE_DIR}
+        ${CMAKE_SOURCE_DIR}/core/shader/recompiler ${CMAKE_SOURCE_DIR}/3rdparty/Vulkan-Headers/include)
+target_link_libraries(agc_depth_device_tests PRIVATE SDL2-static libc shader_recompiler_agc_driver)
+set_target_properties(agc_depth_device_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_depth_device_tests)
+foreach(stage IN ITEMS vert frag)
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/Depth.${stage}.spv"
+            COMMAND "$<TARGET_FILE:glslang-standalone>" -V
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/Depth.${stage}"
+            -o "${CMAKE_CURRENT_BINARY_DIR}/Depth.${stage}.spv"
+            DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/Depth.${stage}"
+            VERBATIM)
+    target_sources(agc_depth_device_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/Depth.${stage}.spv")
+endforeach()
+
 if(AGC_BUILD_VISUAL_TEST)
     ensure_agc_glslang()
 
@@ -356,6 +377,8 @@ if(AGC_BUILD_VISUAL_TEST)
             Execution/src/GuestMemory.cpp
             Execution/src/BdaFeatures.cpp
             Graphics/src/Draw.cpp
+            Graphics/src/DepthTargetLayout.cpp
+            Graphics/src/DepthSurface.cpp
             Graphics/src/ColorTargetLayout.cpp
             Graphics/src/ColorTargetTransfer.cpp
             Graphics/src/Pipeline.cpp

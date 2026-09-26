@@ -21,6 +21,7 @@ private:
         std::shared_ptr<Pipeline> pipeline;
     };
     Context context;
+    std::shared_ptr<DepthSurface> depthSurface;
     std::list<Entry> entries;
     std::map<std::string, std::list<Entry>::iterator> lookup;
 };

@@ -346,6 +346,33 @@ void DepthClipTests() {
     }
 }
 
+void DepthAttachmentStateTests() {
+    std::vector<std::byte> depthMemory(131071);
+    auto queue = makeState();
+    const auto address = (reinterpret_cast<std::uintptr_t>(depthMemory.data()) + 65535u) & ~std::uintptr_t{65535};
+    for (const auto offset : {0u, 2u}) queue.context[offset] = 0;
+    queue.context[0x200] = 0x76;
+    queue.context[0x10] = 0x80000183;
+    queue.context[7] = 63u | (3u << 16u);
+    queue.context[0x12] = queue.context[0x14] = static_cast<std::uint32_t>(address >> 8u);
+    queue.context[0x1a] = queue.context[0x1c] = static_cast<std::uint32_t>(address >> 40u);
+    const auto combined = AgcDriver::Graphics::DecodeState(queue);
+    Require(combined.depth && combined.hasColorTarget && combined.depth->writeEnabled, "color plus depth state was lost");
+    queue.context[0x8e] = queue.context[0x8f] = queue.context[0x1c5] = 0;
+    queue.context[0x202] = 0xcc0001;
+    queue.context[0xd] = 0x40004000;
+    const auto onlyDepth = AgcDriver::Graphics::DecodeState(queue);
+    Require(onlyDepth.depth && !onlyDepth.hasColorTarget && onlyDepth.renderExtent.width == 64 && onlyDepth.renderExtent.height == 4,
+        "depth-only framebuffer used the screen scissor as its attachment extent");
+    queue.context[0x202] = 0xcc0020;
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "color rendering");
+    queue.context[0x202] = 0xcc0010;
+    queue.context[0x8e] = queue.context[0x8f] = 15;
+    queue.context[0x1c5] = 9;
+    queue.context[7] = 31u | (3u << 16u);
+    expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "depth surface is smaller");
+}
+
 void InitialContextTests() {
     const auto configured = makeState();
     AgcDriver::QueueState queue;
@@ -1221,6 +1248,11 @@ void validationTests() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "depth-target") {
+            DepthAttachmentStateTests();
+            std::cout << "Depth attachment state tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "pixel-inputs") {
             RunPixelInputTests();
             std::cout << "Pixel input tests passed\n";
