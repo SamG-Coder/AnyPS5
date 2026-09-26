@@ -56,11 +56,8 @@ void APS5_VABI pthread_exit_nid_postfix(void* value) {
 }
 
 int APS5_VABI pthread_getschedparam_nid_postfix(Pthread thread, int* policy, KernelSchedParam* param) {
- (void)thread;
- (void)policy;
- (void)param;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!thread || !policy || !param) return 22;
+    return 45;
 }
 
 int APS5_VABI pthread_join_nid_postfix(Pthread thread, void** value) {
@@ -101,11 +98,8 @@ int APS5_VABI pthread_setprio_nid_postfix(Pthread thread, int prio) {
 }
 
 int APS5_VABI pthread_setschedparam_nid_postfix(Pthread thread, int policy, const KernelSchedParam* param) {
- (void)thread;
- (void)policy;
- (void)param;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (!thread || !param || policy < 1 || policy > 3) return 22;
+    return 45;
 }
 
 void APS5_VABI pthread_yield_nid_postfix(void) {

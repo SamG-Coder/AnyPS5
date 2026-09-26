@@ -26,6 +26,8 @@ void APS5_VABI pthread_set_name_np_nid_postfix(Pthread, const char*);
 int APS5_VABI pthread_rename_np_nid_postfix(Pthread, const char*);
 int APS5_VABI pthread_create_nid_postfix(Pthread*, const PthreadAttr*, PthreadEntry, void*);
 int APS5_VABI pthread_join_nid_postfix(Pthread, void**);
+int APS5_VABI pthread_getschedparam_nid_postfix(Pthread, int*, KernelSchedParam*);
+int APS5_VABI pthread_setschedparam_nid_postfix(Pthread, int, const KernelSchedParam*);
 int APS5_VABI pthread_key_create_nid_postfix(PthreadKey*, pthread_key_destructor_func_t);
 int APS5_VABI pthread_key_delete_nid_postfix(PthreadKey);
 void* APS5_VABI pthread_getspecific_nid_postfix(PthreadKey);
@@ -479,6 +481,19 @@ static void CheckAttributes() {
 int main() {
     CheckCancellationSettings();
     const auto mainThread = pthread_self_nid_postfix();
+    int schedulingPolicy = -1;
+    KernelSchedParam schedulingParam{-1};
+    *__error_nid_postfix() = 13;
+    Require(pthread_getschedparam_nid_postfix(mainThread, &schedulingPolicy, &schedulingParam) == 45);
+    Require(schedulingPolicy == -1 && schedulingParam.sched_priority == -1);
+    Require(pthread_getschedparam_nid_postfix(nullptr, &schedulingPolicy, &schedulingParam) == 22);
+    Require(pthread_getschedparam_nid_postfix(mainThread, nullptr, &schedulingParam) == 22);
+    Require(pthread_getschedparam_nid_postfix(mainThread, &schedulingPolicy, nullptr) == 22);
+    Require(pthread_setschedparam_nid_postfix(mainThread, 1, &schedulingParam) == 45);
+    Require(pthread_setschedparam_nid_postfix(mainThread, 4, &schedulingParam) == 22);
+    Require(pthread_setschedparam_nid_postfix(mainThread, 1, nullptr) == 22);
+    Require(pthread_setschedparam_nid_postfix(nullptr, 1, &schedulingParam) == 22);
+    Require(*__error_nid_postfix() == 13);
     int mainClock = 0;
     Require(pthread_getcpuclockid_nid_postfix(mainThread, &mainClock) == 0 && mainClock < 0);
     Require(pthread_getcpuclockid_nid_postfix(nullptr, &mainClock) == 3 && mainClock < 0);
