@@ -1,7 +1,6 @@
 #ifndef CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_DEPTHSTATE_HPP
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_GRAPHICS_INCLUDE_DEPTHSTATE_HPP
 
-#include "prx/libSceAgcDriver/Execution/include/QueueState.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Context.hpp"
 #include <cstddef>
 #include <optional>
@@ -15,8 +14,6 @@ struct DepthState {
     VkCompareOp compare;
     bool writeEnabled;
 };
-
-std::optional<DepthState> DecodeDepthState(const Registers& registers);
 
 }
 
