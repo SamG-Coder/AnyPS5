@@ -36,6 +36,23 @@ int main() {
     reject(page, 3, 0x1012, -1, 0, 45); // fixed
     reject(page, 3, 0x2, 0, 0, 45);    // file-backed
     reject(page, 3, 0x22, -1, 0, 45);  // Linux MAP_ANON is not guest MAP_ANON
+    reject(page, 3, 0x15001002, -1, 0, 45);
+    reject(page, 3, 0x01001012, -1, 0, 45);
+    for (const auto length : {std::size_t{1}, std::size_t{15204352}}) {
+        auto* aligned = static_cast<unsigned char*>(mmap_nid_postfix(nullptr, length, 3, 0x01001002, -1, 0));
+        Require(aligned != failed);
+        const auto alignment = length >= 2 * 1024 * 1024 ? 2 * 1024 * 1024 : page;
+        Require(reinterpret_cast<std::uintptr_t>(aligned) % alignment == 0);
+        Require(aligned[0] == 0 && aligned[length - 1] == 0);
+        aligned[0] = 42;
+        aligned[length - 1] = 73;
+        {
+            GuestAllocations::Mutation mutation;
+            const auto range = mutation.Find(aligned);
+            Require(range.bytes >= length && range.readable && range.writable);
+        }
+        Require(munmap_nid_postfix(aligned, length) == 0);
+    }
 
     auto* memory = static_cast<unsigned char*>(mmap_nid_postfix(nullptr, page * 3 - 1, 3, 0x1002, -1, 0));
     Require(memory != failed && (reinterpret_cast<std::uintptr_t>(memory) & (page - 1)) == 0);

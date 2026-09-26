@@ -13,6 +13,8 @@ constexpr int GuestNoMemory = 12;
 constexpr int GuestNotSupported = 45;
 constexpr int GuestPrivate = 0x2;
 constexpr int GuestAnonymous = 0x1000;
+constexpr int GuestAlignedSuper = 0x01000000;
+constexpr std::size_t SuperAlignment = 2 * 1024 * 1024;
 
 bool RoundLength(std::size_t length, std::size_t& rounded) {
     constexpr auto mask = PS5_PAGE_SIZE - 1;
@@ -38,7 +40,7 @@ void* APS5_VABI mmap_nid_postfix(void* address, std::size_t length, int protecti
     std::size_t rounded;
     if (!RoundLength(length, rounded) || (protection & ~7) != 0)
         return failed(GuestInvalid);
-    if (flags != (GuestPrivate | GuestAnonymous))
+    if ((flags & ~GuestAlignedSuper) != (GuestPrivate | GuestAnonymous))
         return failed(GuestNotSupported);
     if (descriptor != -1 || offset != 0)
         return failed(GuestInvalid);
@@ -46,7 +48,8 @@ void* APS5_VABI mmap_nid_postfix(void* address, std::size_t length, int protecti
     (void)address;
     void* mapped = nullptr;
     try {
-        const auto result = DoMapAnon(&mapped, rounded, protection, 0);
+        const auto alignment = (flags & GuestAlignedSuper) != 0 && rounded >= SuperAlignment ? SuperAlignment : PS5_PAGE_SIZE;
+        const auto result = DoMapAnon(&mapped, rounded, protection, 0, alignment);
         if (result != 0) return failed(GuestNoMemory);
         return mapped;
     } catch (const std::bad_alloc&) {
