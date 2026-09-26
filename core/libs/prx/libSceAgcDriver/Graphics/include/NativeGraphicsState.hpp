@@ -4,14 +4,19 @@
 #include "SceShaders.hpp"
 #include <cstdint>
 #include <optional>
+#include <map>
+#include <span>
 namespace AgcDriver::Graphics {
 class NativeGraphicsState {
 public:
+    NativeGraphicsState();
     void SetContext(std::uint32_t offset, std::uint32_t value);
     void SetUser(std::uint32_t offset, std::uint32_t value);
     const State& Get() const { return state; }
     std::optional<std::uint32_t> Primitive() const { return primitive; }
     bool ReadyForDraw() const;
+    bool MatchesVertexConfiguration(const ShaderSpecialRegs& shader) const;
+    void ValidateShaderContext(std::span<const ShaderRegister> vertex, std::span<const ShaderRegister> fragment) const;
     std::optional<ShaderRecompiler::ShaderPixelStageInfo> PixelStage() const;
 private:
     void updateTopology();
@@ -22,11 +27,17 @@ private:
     void updateBlend();
     State state{};
     std::optional<std::uint32_t> primitive;
+    std::optional<std::uint32_t> geometryControl, geometryUserRegisters;
     std::optional<std::uint32_t> raster;
     std::optional<std::uint32_t> viewportControl;
     std::optional<std::uint32_t> clipControl;
     std::optional<std::uint32_t> viewport[6];
     std::optional<std::uint32_t> screenTl, screenBr, windowTl, windowBr;
+    std::uint32_t genericTl = 0x80000000u, genericBr = 0x40004000u;
+    std::uint32_t viewportTl = 0x80000000u, viewportBr = 0x40004000u, scanMode = 2;
+    std::map<std::uint32_t, std::uint32_t> shaderContext;
+    std::uint32_t interpolationControl = 1;
+    float depthClampMin = 0, depthClampMax = 1;
     std::optional<std::uint32_t> targetMask, shaderMask, colorControl, colorInfo;
     std::optional<std::uint32_t> colorBase, colorBaseExt, colorAttrib2, colorAttrib3;
     std::optional<std::uint32_t> blendControl;

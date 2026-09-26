@@ -312,6 +312,7 @@ bool VideoOutDriver::IsOpen(int handle) {
 }
 
 void VideoOutDriver::SubmitFlip(int handle, int index, int flipMode, int64_t flipArg) {
+    const auto received = AgcDriver::FrameTiming::Clock::now();
     std::shared_ptr<AgcDriver::IVideoOutput> output;
     {
         std::lock_guard lock(mutex);
@@ -322,7 +323,7 @@ void VideoOutDriver::SubmitFlip(int handle, int index, int flipMode, int64_t fli
     // A native port synchronizes its renderer directly before handing the image
     // to presentation; there is no synthetic PS5 wait/flip command.
     AgcDriverWaitIdle_nid_postfix();
-    auto timing=std::make_shared<AgcDriver::FrameTiming>(0);
+    auto timing=AgcDriver::FrameTiming::NativeFlip(received);
     request->GpuReady(timing);
 }
 

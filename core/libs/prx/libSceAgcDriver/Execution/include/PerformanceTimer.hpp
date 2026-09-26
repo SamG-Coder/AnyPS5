@@ -2,6 +2,7 @@
 #define CORE_LIBS_PRX_LIBSCEAGCDRIVER_EXECUTION_INCLUDE_PERFORMANCETIMER_HPP
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,16 @@ public:
     };
 
     explicit FrameTiming(std::uint64_t id) : id(id) {}
+
+    static std::shared_ptr<FrameTiming> NativeFlip(Clock::time_point received) {
+        static std::atomic<std::uint64_t> sequence{0};
+        auto result = std::make_shared<FrameTiming>(sequence.fetch_add(1) + 1);
+        result->native = true;
+        result->start = received;
+        result->flipReached = Clock::now();
+        if (received > result->flipReached) throw std::runtime_error("Frame timing: invalid native flip timestamps");
+        return result;
+    }
 
     Metric* Get(const char* scope, const char* stage) {
         std::lock_guard lock(mutex);
@@ -69,25 +80,33 @@ public:
 
     void Print(std::uint32_t outputHandle, std::int32_t buffer, std::int64_t argument, Clock::time_point finished, Clock::duration interval) {
         std::lock_guard lock(mutex);
-        if (firstSerial == 0 || flipSerial == 0) throw std::runtime_error("Frame timing: incomplete submission lineage");
+        if (!native && (firstSerial == 0 || flipSerial == 0)) throw std::runtime_error("Frame timing: incomplete submission lineage");
         std::ostringstream output;
         output.imbue(std::locale::classic());
         output << std::fixed << std::setprecision(3);
-        output << "[FrameTiming] frame=" << id << " submissions=" << firstSerial << ':' << lastSerial;
-        output << " output=" << outputHandle;
-        output << " flip=" << flipSerial << ':' << flipOffset << " buffer=" << buffer << " argument=" << argument;
-        output << " endpoint=flip_complete display_confirmed=0";
-        output << " first_submit_to_flip_ms=" << milliseconds(finished - start);
-        output << " flip_submit_to_complete_ms=" << milliseconds(finished - flipReceived);
-        output << " first_submit_to_execute_ms=" << milliseconds(executionStart - start);
-        output << " execute_to_flip_packet_ms=" << milliseconds(flipReached - executionStart);
-        output << " flip_packet_to_complete_ms=" << milliseconds(finished - flipReached);
-        auto accounted = Clock::duration::zero();
-        for (const auto scope : {"Driver.Packet", "Driver.Suspend", "Driver.Worker", "Driver.Completion"}) {
-            const auto it = metrics.find({scope, "total"});
-            if (it != metrics.end()) accounted += it->second.total;
+        output << "[FrameTiming] frame=" << id;
+        if (native) {
+            output << " native=1 output=" << outputHandle << " buffer=" << buffer << " argument=" << argument;
+            output << " endpoint=flip_complete display_confirmed=0";
+            output << " submit_to_ready_ms=" << milliseconds(flipReached - start);
+            output << " ready_to_complete_ms=" << milliseconds(finished - flipReached);
+        } else {
+            output << " submissions=" << firstSerial << ':' << lastSerial;
+            output << " output=" << outputHandle;
+            output << " flip=" << flipSerial << ':' << flipOffset << " buffer=" << buffer << " argument=" << argument;
+            output << " endpoint=flip_complete display_confirmed=0";
+            output << " first_submit_to_flip_ms=" << milliseconds(finished - start);
+            output << " flip_submit_to_complete_ms=" << milliseconds(finished - flipReceived);
+            output << " first_submit_to_execute_ms=" << milliseconds(executionStart - start);
+            output << " execute_to_flip_packet_ms=" << milliseconds(flipReached - executionStart);
+            output << " flip_packet_to_complete_ms=" << milliseconds(finished - flipReached);
+            auto accounted = Clock::duration::zero();
+            for (const auto scope : {"Driver.Packet", "Driver.Suspend", "Driver.Worker", "Driver.Completion"}) {
+                const auto it = metrics.find({scope, "total"});
+                if (it != metrics.end()) accounted += it->second.total;
+            }
+            output << " worker_unattributed_ms=" << milliseconds(flipReached - executionStart - accounted);
         }
-        output << " worker_unattributed_ms=" << milliseconds(flipReached - executionStart - accounted);
         if (interval != Clock::duration::zero()) output << " flip_interval_ms=" << milliseconds(interval);
         output << " metrics=inclusive(count,sum_ms,max_ms[,bytes])";
         for (const auto& [key, metric] : metrics) {
@@ -109,6 +128,7 @@ private:
     std::mutex mutex;
     std::map<std::pair<std::string_view, std::string_view>, Metric> metrics;
     std::uint64_t id;
+    bool native = false;
     std::uint64_t firstSerial = 0;
     std::uint64_t lastSerial = 0;
     std::uint64_t flipSerial = 0;

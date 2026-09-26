@@ -4,6 +4,9 @@
 #include "SceShaders.hpp"
 #include <cstdint>
 extern "C" {
+std::uint32_t* APS5_VABI aps5NativeAgcSetCxRegistersIndirect(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetShRegistersIndirect(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
+std::uint32_t* APS5_VABI aps5NativeAgcSetUcRegistersIndirect(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
 int APS5_VABI aps5NativeAgcCreateShader(Shader**, void*, const volatile void*);
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisters(CommandBuffer*, const volatile ShaderRegister*, std::uint32_t);
 std::uint32_t* APS5_VABI aps5NativeAgcSetShRegisterRange(CommandBuffer*, std::uint32_t, const std::uint32_t*, std::uint32_t);

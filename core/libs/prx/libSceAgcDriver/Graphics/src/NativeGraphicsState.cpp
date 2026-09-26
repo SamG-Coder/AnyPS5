@@ -5,15 +5,43 @@
 #include <bit>
 #include <cmath>
 #include <array>
-#include <bit>
+#include <algorithm>
 #include <stdexcept>
 namespace AgcDriver::Graphics {
+NativeGraphicsState::NativeGraphicsState() {
+    raster = 0;
+    clipControl = 0;
+    viewportControl = 0x43f;
+    screenTl = 0;
+    screenBr = 0x40004000u;
+    windowTl = 0x80000000u;
+    windowBr = 0x40004000u;
+    depthControl = 0;
+    depthRenderControl = 0;
+    state.negativeOneToOne = true;
+    updateRaster();
+    updateScissor();
+}
+void NativeGraphicsState::ValidateShaderContext(std::span<const ShaderRegister> vertex,
+    std::span<const ShaderRegister> fragment) const {
+    std::string mismatches;
+    for (const auto& [offset, value] : shaderContext) {
+        if (offset == 0x2d5 || offset == 0x29b) continue;
+        const auto matches = [&](auto records) {
+            return std::any_of(records.begin(), records.end(), [&](const auto& record) {
+                return record.offset == offset && record.value == value;
+            });
+        };
+        if (!matches(vertex) && !matches(fragment)) mismatches += " " + std::to_string(offset);
+    }
+    if (!mismatches.empty()) throw std::runtime_error("native AGC: context configuration differs from compiled shader at offsets" + mismatches);
+}
 std::optional<ShaderRecompiler::ShaderPixelStageInfo> NativeGraphicsState::PixelStage() const {
     if(!psInputControl||!psInputEnable||!psInputAddress||!dbShaderControl||!shaderColorFormat) return std::nullopt;
     const auto inputNum=*psInputControl&0x3fu;
     if(inputNum>32) throw std::runtime_error("native AGC: pixel interpolator count exceeds 32");
     std::array<std::uint32_t,32> settings{};
-    for(std::uint32_t i=0;i<inputNum;++i){if(!interpolants[i]) return std::nullopt; settings[i]=*interpolants[i];}
+    for(std::uint32_t i=0;i<inputNum;++i){if(!interpolants[i]) return std::nullopt; settings[i]=*interpolants[i]; if (!(interpolationControl&1u)) settings[i]&=~0x400u;}
     const auto active=*psInputEnable&*psInputAddress;
     constexpr std::uint32_t known=0x1u|0x2u|0x10u|0x20u|0x80u|0x100u|0x200u|0x400u|0x800u|0x1000u|0x2000u;
     if(active&~known) throw std::runtime_error("native AGC: unsupported pixel input state");
@@ -31,19 +59,75 @@ std::optional<ShaderRecompiler::ShaderPixelStageInfo> NativeGraphicsState::Pixel
 bool NativeGraphicsState::ReadyForDraw() const {
     if (!primitive || !raster || !clipControl) return false;
     for (const auto& v:viewport) if (!v) return false;
+    if (depthClampMin > depthClampMax || depthClampMin > std::min(state.viewport.minDepth, state.viewport.maxDepth) ||
+        depthClampMax < std::max(state.viewport.minDepth, state.viewport.maxDepth))
+        throw std::runtime_error("native AGC: viewport depth clamp restricts the transformed range");
     if (!screenTl || !screenBr) return false;
     if (state.hasColorTarget) {
         if (!targetMask || !shaderMask || !colorControl || !colorInfo || !colorBase || !colorBaseExt || !colorAttrib2 || !colorAttrib3) return false;
     }
     return state.renderExtent.width!=0 && state.renderExtent.height!=0;
 }
+bool NativeGraphicsState::MatchesVertexConfiguration(const ShaderSpecialRegs& shader) const {
+    for (const auto& item : {shader.vgt_shader_stages_en, shader.vgt_gs_out_prim_type}) {
+        const auto found = shaderContext.find(item.offset);
+        if (found != shaderContext.end() && found->second != item.value) return false;
+    }
+    return (!geometryControl || *geometryControl == shader.ge_cntl.value) &&
+        (!geometryUserRegisters || *geometryUserRegisters == shader.ge_user_vgpr_en.value);
+}
 void NativeGraphicsState::SetUser(std::uint32_t o, std::uint32_t v) {
     if (o == 0x242) { primitive=v; updateTopology(); }
+    else if (o == 0x25b) geometryControl=v;
+    else if (o == 0x262) geometryUserRegisters=v;
 }
 void NativeGraphicsState::SetContext(std::uint32_t o, std::uint32_t v) {
+    const auto require = [&](bool supported) {
+        if (!supported) throw std::runtime_error("native AGC: unsupported context value " + std::to_string(v) + " at offset " + std::to_string(o));
+    };
+    switch (o) {
+        case 0x5: case 0xa: case 0xb: case 0x1e:
+        case 0x80: case 0x1c4: case 0x207: case 0x2f8:
+        case 0x2fe: case 0x302: case 0x306: case 0x30a:
+        case 0x310: case 0x31b: case 0x31d:
+            require(v == 0); return;
+        case 0x11: case 0x13: case 0x15: case 0x1b: case 0x1d:
+        case 0x10b: case 0x10c: case 0x10d:
+        case 0x20: case 0x21:
+        case 0x31e: case 0x31f: case 0x321: case 0x323: case 0x324: case 0x325:
+        case 0x398: case 0x3a0: case 0x3a8:
+            return;
+        case 0x83: require(v == 0xffff); return;
+        case 0x8c: require((v & 0xf) == 0xa); return;
+        case 0x8d: require((v & ~0x01ff01ffu) == 0); return;
+        case 0xb4: require(std::isfinite(std::bit_cast<float>(v))); depthClampMin=std::bit_cast<float>(v); return;
+        case 0xb5: require(std::isfinite(std::bit_cast<float>(v))); depthClampMax=std::bit_cast<float>(v); return;
+        case 0x1c3: require(v == 4); return;
+        case 0x201: require((v & ~0x003f0000u) == 0); return;
+        case 0x280: case 0x281: require(v == 0x80008); return;
+        case 0x282: require(v == 8); return;
+        case 0x293: require((v & ~0x06003fffu) == 0); return;
+        case 0x2dc: require((v & ~0x1ff00u) == 0); return;
+        case 0x2f5: case 0x2f6: case 0x2f7: require(v == 0); return;
+        case 0x2f9: require(v == 0x2d); return;
+        case 0x2fa: case 0x2fb: case 0x2fc: case 0x2fd: require(v == 0x3f800000); return;
+        case 0x30e: case 0x30f: require(v == 0xffffffff); return;
+        case 0x313: require(v == 0x6000); return;
+        case 0x1b5: require((v & ~0x7fffu) == 0); interpolationControl=v; return;
+        case 0x1b1: case 0x1b8: case 0x1c2:
+        case 0x1ff: case 0x291: case 0x29b: case 0x2a1: case 0x2ab:
+        case 0x2ce: case 0x2d3: case 0x2d5: case 0x2e4:
+            shaderContext[o] = v; return;
+        case 0x90: genericTl=v; updateScissor(); return;
+        case 0x91: genericBr=v; updateScissor(); return;
+        case 0x94: viewportTl=v; updateScissor(); return;
+        case 0x95: viewportBr=v; updateScissor(); return;
+        case 0x292: require((v & ~0x62u) == 0); scanMode=v; updateScissor(); return;
+        default: break;
+    }
     if (o == 0x205) { raster=v; updateRaster(); return; }
-    if (o == 0x200) depthControl=v;
-    else if (o == 0x0) depthRenderControl=v;
+    if (o == 0x200) { require((v & ~0x007007f6u) == 0); depthControl=v; }
+    else if (o == 0x0) { require(v == 0); depthRenderControl=v; }
     else if (o == 0x2) depthView=v;
     else if (o == 0x10) depthInfo=v;
     else if (o == 0x7) depthSize=v;
@@ -52,7 +136,7 @@ void NativeGraphicsState::SetContext(std::uint32_t o, std::uint32_t v) {
     else if (o == 0x14) depthWriteBase=v;
     else if (o == 0x1c) depthWriteBaseExt=v;
     else goto not_depth;
-    if(depthControl && (*depthControl&2u)==0) { state.depth.reset(); return; }
+    if(depthControl && (*depthControl&2u)==0) { state.depth.reset(); updateScissor(); return; }
     if(depthControl&&depthRenderControl&&depthView&&depthInfo&&depthSize&&depthReadBase&&depthReadBaseExt){
         if((*depthControl&~0x007007f6u)!=0 || *depthRenderControl!=0 || *depthView!=0 || *depthInfo!=0x80000183u)
             throw std::runtime_error("native AGC: unsupported depth configuration");
@@ -70,17 +154,18 @@ void NativeGraphicsState::SetContext(std::uint32_t o, std::uint32_t v) {
         constexpr VkCompareOp cmp[]{VK_COMPARE_OP_NEVER,VK_COMPARE_OP_LESS,VK_COMPARE_OP_EQUAL,VK_COMPARE_OP_LESS_OR_EQUAL,VK_COMPARE_OP_GREATER,VK_COMPARE_OP_NOT_EQUAL,VK_COMPARE_OP_GREATER_OR_EQUAL,VK_COMPARE_OP_ALWAYS};
         state.depth=DepthState{address,extent,DepthTargetLayout(extent.width,extent.height).Bytes(),cmp[(*depthControl>>4u)&7u],write};
         if(!state.hasColorTarget) state.renderExtent=extent;
+        updateScissor();
     }
     return;
 not_depth:
     if (o == 0x1b6) { psInputControl=v; return; }
     if (o == 0x1b3) { psInputEnable=v; return; }
     if (o == 0x1b4) { psInputAddress=v; return; }
-    if (o == 0x203) { dbShaderControl=v; return; }
+    if (o == 0x203) { require((v & ~0x9870u) == 0); dbShaderControl=v; return; }
     if (o == 0x1c5) { shaderColorFormat=v; return; }
     if (o >= 0x191 && o < 0x191+32) { interpolants[o-0x191]=v; return; }
-    if (o == 0x206) { viewportControl=v; return; }
-    if (o == 0x204) { clipControl=v; state.negativeOneToOne=(v&0x80000u)==0; updateViewport(); return; }
+    if (o == 0x206) { require(v == 0x43f); viewportControl=v; return; }
+    if (o == 0x204) { require((v & ~0x01080000u) == 0); clipControl=v; state.negativeOneToOne=(v&0x80000u)==0; updateViewport(); return; }
     if (o >= 0x10f && o <= 0x114) { viewport[o-0x10f]=v; updateViewport(); return; }
     if (o == 0xc) screenTl=v;
     else if (o == 0xd) screenBr=v;
@@ -96,14 +181,14 @@ not_depth:
     else if (o == 0x3b8) { colorAttrib3=v; updateColorTarget(); return; }
     else if (o == 0x1e0) { blendControl=v; updateBlend(); return; }
     else if (o >= 0x105 && o <= 0x108) { blendConstant[o-0x105]=v; updateBlend(); return; }
-    else return;
+    else throw std::runtime_error("native AGC: context register has no native lowering at offset " + std::to_string(o));
     updateScissor();
 }
 void NativeGraphicsState::updateTopology() {
     if (!primitive) return;
     state.rectList=false;
     switch (*primitive) {
-        case 1: state.topology=VK_PRIMITIVE_TOPOLOGY_POINT_LIST; break;
+        case 1: throw std::runtime_error("native AGC: point size and sprite outputs require native lowering");
         case 2: state.topology=VK_PRIMITIVE_TOPOLOGY_LINE_LIST; break;
         case 4: state.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; break;
         case 5: state.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN; break;
@@ -154,6 +239,7 @@ void NativeGraphicsState::updateColorTarget() {
     if ((*targetMask & ~0xfu)!=0 || *shaderMask!=0xfu) throw std::runtime_error("native AGC: unsupported color target mask");
     if ((*colorControl & ~1u)!=0xcc0010u) throw std::runtime_error("native AGC: unsupported color control");
     const auto info=*colorInfo, number=(info>>8u)&7u, swap=(info>>11u)&3u;
+    if ((info & ~0x00029f7cu) != 0) throw std::runtime_error("native AGC: compressed color targets unsupported");
     if (((info>>2u)&0x1fu)!=10 || (number!=0&&number!=6) || swap>1 || (info&0x8000u)==0) throw std::runtime_error("native AGC: unsupported color target format");
     state.color.tileMode=DecodeColorTileMode(*colorAttrib3);
     state.color.extent={((*colorAttrib2>>14u)&0x3fffu)+1u,(*colorAttrib2&0x3fffu)+1u};
@@ -164,6 +250,7 @@ void NativeGraphicsState::updateColorTarget() {
     state.color.format=swap==0?(number==0?VK_FORMAT_R8G8B8A8_UNORM:VK_FORMAT_R8G8B8A8_SRGB):(number==0?VK_FORMAT_B8G8R8A8_UNORM:VK_FORMAT_B8G8R8A8_SRGB);
     state.color.componentMapping=0xe4u;
     state.renderExtent=state.color.extent;
+    updateScissor();
 }
 void NativeGraphicsState::updateBlend() {
     if (!targetMask || !blendControl || *targetMask==0) return;
@@ -184,10 +271,24 @@ void NativeGraphicsState::updateBlend() {
 }
 void NativeGraphicsState::updateScissor() {
     if (!screenTl || !screenBr) return;
-    const auto tl=*screenTl, br=*screenBr;
-    const auto x=tl&0xffffu, y=tl>>16u, right=br&0xffffu, bottom=br>>16u;
-    if(x>right||y>bottom) throw std::runtime_error("native AGC: inverted screen scissor");
-    state.scissor={{static_cast<std::int32_t>(x),static_cast<std::int32_t>(y)},{right-x,bottom-y}};
-    state.renderExtent={right,bottom};
+    if (!state.hasColorTarget && !state.depth) state.renderExtent={*screenBr & 0xffffu,*screenBr >> 16u};
+    state.scissor={{0,0},state.renderExtent};
+    const auto intersect = [&](std::uint32_t tl, std::uint32_t br, bool screen) {
+        if (!screen && ((tl & 0x80008000u) != 0x80000000u || (br & 0x80008000u) != 0))
+            throw std::runtime_error("native AGC: unsupported scissor window offsets");
+        const auto x=tl&0xffffu, y=(tl>>16u)&(screen?0xffffu:0x7fffu), right=br&0xffffu, bottom=br>>16u;
+        if(x>right||y>bottom) throw std::runtime_error("native AGC: inverted scissor");
+        const auto oldRight=static_cast<std::uint32_t>(state.scissor.offset.x)+state.scissor.extent.width;
+        const auto oldBottom=static_cast<std::uint32_t>(state.scissor.offset.y)+state.scissor.extent.height;
+        const auto left=std::max(static_cast<std::uint32_t>(state.scissor.offset.x),x);
+        const auto top=std::max(static_cast<std::uint32_t>(state.scissor.offset.y),y);
+        state.scissor={{static_cast<std::int32_t>(left),static_cast<std::int32_t>(top)},
+            {std::min(oldRight,right)>left?std::min(oldRight,right)-left:0,
+             std::min(oldBottom,bottom)>top?std::min(oldBottom,bottom)-top:0}};
+    };
+    intersect(*screenTl,*screenBr,true);
+    if(windowTl&&windowBr) intersect(*windowTl,*windowBr,false);
+    intersect(genericTl,genericBr,false);
+    if(scanMode&2u) intersect(viewportTl,viewportBr,false);
 }
 }

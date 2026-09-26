@@ -64,13 +64,15 @@ endif()
 
 if(BUILD_TESTING AND AGC_NATIVE_RELINKED_ONLY)
     add_executable(native_shader_argument_tests tests/NativeShaderArguments.cpp)
-    target_include_directories(native_shader_argument_tests PRIVATE core/libs 3rdparty/Vulkan-Headers/include)
+    target_include_directories(native_shader_argument_tests PRIVATE core/libs core/shader/recompiler 3rdparty/Vulkan-Headers/include)
     target_link_libraries(native_shader_argument_tests PRIVATE libSceAgcDriver libc)
     add_test(NAME native_shader_arguments COMMAND native_shader_argument_tests)
+    add_test(NAME native_indirect_value COMMAND native_shader_argument_tests --indirect-value)
+    add_test(NAME native_indirect_layout COMMAND native_shader_argument_tests --indirect-layout)
     add_test(NAME native_flip_failure COMMAND native_shader_argument_tests --flip-failure)
     add_test(NAME native_flip_ready_failure COMMAND native_shader_argument_tests --flip-ready-failure)
     if(WIN32)
-        set_tests_properties(native_shader_arguments native_flip_failure native_flip_ready_failure PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(native_shader_arguments native_flip_failure native_flip_ready_failure native_indirect_value native_indirect_layout PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceAgcDriver>")
     endif()
 endif()

@@ -32,7 +32,7 @@ def strict_image():
     data[0x1000:0x1080] = b"\xcc" * 0x80
     data[0x1000:0x100d] = b"\x55\xbf\x13\x00\x00\x00\xe8\x35\x00\x00\x00\x5d\xc3"
     data[0x1040:0x1047] = b"\xff\x15" + struct.pack("<i", 0x2800 - 0x1046) + b"\xc3"
-    strings = b"\0-HOOCn0JY48#A#A\0libSceAgc\0"
+    strings = b"\0unknownNative#A#A\0libSceAgc\0"
     library = strings.index(b"libSceAgc")
     data[0x2600:0x2600 + len(strings)] = strings
     struct.pack_into("<IBBHQQ", data, 0x2698, 1, 0x12, 0, 0, 0, 0)

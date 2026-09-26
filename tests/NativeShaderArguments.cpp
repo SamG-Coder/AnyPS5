@@ -2,6 +2,9 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VideoOutput.hpp"
 #include "prx/libSceAgcDriver/Execution/include/NativeGraphicsRuntime.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/NativeRegisterBindings.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/NativeGraphicsState.hpp"
+#include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <thread>
 #include <functional>
 #include <array>
@@ -24,6 +27,71 @@ struct Allocation {
     CommandBuffer nested{nestedWords.data(), nestedWords.data() + nestedWords.size(),
         nestedWords.data(), nestedWords.data() + nestedWords.size(), nullptr, nullptr, 0};
 };
+void graphicsState() {
+    AgcDriver::Graphics::NativeGraphicsState graphics;
+    check(!graphics.ReadyForDraw());
+    graphics.SetContext(0x90, 0x800a0014);
+    graphics.SetContext(0x91, 0x003c0064);
+    auto scissor = graphics.Get().scissor;
+    check(scissor.offset.x == 20 && scissor.offset.y == 10);
+    check(scissor.extent.width == 80 && scissor.extent.height == 50);
+    graphics.SetContext(0x94, 0x8014001e);
+    graphics.SetContext(0x95, 0x00320050);
+    scissor = graphics.Get().scissor;
+    check(scissor.offset.x == 30 && scissor.offset.y == 20);
+    check(scissor.extent.width == 50 && scissor.extent.height == 30);
+    graphics.SetContext(0x292, 0);
+    check(graphics.Get().scissor.extent.width == 80);
+    graphics.SetContext(0x8e, 15);
+    graphics.SetContext(0x8f, 15);
+    graphics.SetContext(0x202, 0xcc0010);
+    graphics.SetContext(0x318, 0x1000);
+    graphics.SetContext(0x390, 0);
+    graphics.SetContext(0x31c, 0x8028);
+    graphics.SetContext(0x3b0, (63u << 14) | 31u);
+    graphics.SetContext(0x3b8, 0x09000000);
+    check(graphics.Get().renderExtent.width == 64 && graphics.Get().renderExtent.height == 32);
+    scissor = graphics.Get().scissor;
+    check(scissor.extent.width == 44 && scissor.extent.height == 22);
+    rejects([&] { graphics.SetContext(0x200, 1); });
+    rejects([&] { graphics.SetContext(0x0, 1); });
+    rejects([&] { graphics.SetContext(0x31c, 0x10008028); });
+    rejects([&] { graphics.SetContext(0x206, 0); });
+    rejects([&] { graphics.SetContext(0x201, 1); });
+    rejects([&] { graphics.SetContext(0x999, 0); });
+    AgcDriver::Graphics::NativeGraphicsState shader;
+    const std::array<ShaderRegister,1> metadata{{{0x1c2, 1}}};
+    shader.SetContext(0x1c2, 1);
+    shader.ValidateShaderContext(metadata, {});
+    rejects([&] { shader.ValidateShaderContext({}, {}); });
+    shader.SetContext(0x1c2, 2);
+    rejects([&] { shader.ValidateShaderContext(metadata, {}); });
+    shader.SetContext(0x1b6, 1);
+    shader.SetContext(0x1b3, 2);
+    shader.SetContext(0x1b4, 2);
+    shader.SetContext(0x203, 0);
+    shader.SetContext(0x1c5, 4);
+    shader.SetContext(0x191, 0x400);
+    check(shader.PixelStage()->interpolatorSettings[0] == 0x400);
+    shader.SetContext(0x1b5, 0);
+    check(shader.PixelStage()->interpolatorSettings[0] == 0);
+    AgcDriver::Graphics::NativeGraphicsState viewport;
+    viewport.SetUser(0x242, 4);
+    viewport.SetContext(0x10f, 0x3f800000);
+    viewport.SetContext(0x110, 0x3f800000);
+    viewport.SetContext(0x111, 0xbf800000);
+    viewport.SetContext(0x112, 0x3f800000);
+    viewport.SetContext(0x113, 0x3f000000);
+    viewport.SetContext(0x114, 0x3f000000);
+    check(viewport.ReadyForDraw());
+    check(viewport.Get().viewport.minDepth == 0 && viewport.Get().viewport.maxDepth == 1);
+    viewport.SetContext(0xb4, 0xbf800000);
+    viewport.SetContext(0xb5, 0x40000000);
+    check(viewport.ReadyForDraw());
+    viewport.SetContext(0xb5, 0x3f000000);
+    rejects([&] { viewport.ReadyForDraw(); });
+    rejects([&] { viewport.SetContext(0xb4, 0x7fc00000); });
+}
 bool APS5_VABI allocate(CommandBuffer* buffer, std::uint32_t count, void* userData) {
     auto& allocation = *static_cast<Allocation*>(userData);
     allocation.requested = count;
@@ -103,6 +171,7 @@ public:
     }
     void GpuReady(const std::shared_ptr<AgcDriver::FrameTiming>& timing) override {
         check(timing != nullptr && waited && marker.value == 42);
+        timing->Print(78, 2, 0, AgcDriver::FrameTiming::Clock::now(), {});
         bool unlocked = false;
         std::thread other([&] {
             auto& mutex = AgcDriver::NativeGraphicsRuntime::Get().Mutex();
@@ -215,6 +284,92 @@ void descriptorLifetime() {
     check(aps5NativeAgcSubmit(&submission) == 0);
     check(aps5NativeAgcSubmit(&submission) == 0);
 }
+void contextBindings() {
+    using AgcDriver::Graphics::NativeRegisterBindings;
+    std::array<ShaderRegister, 3> first{{{0x205, 1}, {0x204, 2}, {0x205, 3}}};
+    NativeRegisterBindings state;
+    state.Bind(first.data(), first.size());
+    const auto draw = state;
+    std::array<ShaderRegister, 1> second{{{0x205, 4}}};
+    NativeRegisterBindings replacement;
+    replacement.Bind(second.data(), second.size());
+    state.Merge(replacement);
+    first[2].value = 5;
+    second[0].value = 6;
+    check(draw.Resolve().at(0x205) == 5);
+    check(state.Resolve().at(0x205) == 6 && state.Resolve().at(0x204) == 2);
+    auto direct = state;
+    direct.Write(0x205, 11);
+    check(direct.Resolve().at(0x205) == 11 && state.Resolve().at(0x205) == 6);
+    NativeRegisterBindings directInput;
+    directInput.Write(0x204, 12);
+    direct.Merge(directInput);
+    check(direct.Resolve().at(0x204) == 12);
+    first[0].offset = 0x200;
+    rejects([&] { state.Resolve(); });
+    first[0].offset = 0x205;
+    rejects([&] { state.Bind(nullptr, 1); });
+    rejects([&] { state.Bind(first.data(), 0x4000); });
+    rejects([&] { state.Bind(reinterpret_cast<const ShaderRegister*>(reinterpret_cast<std::uintptr_t>(first.data()) + 1), 1); });
+    first[0].offset = 0x10000;
+    rejects([&] { state.Bind(first.data(), 1); });
+    first[0].offset = 0x205;
+    check(state.Resolve().at(0x205) == 6);
+    NativeRegisterBindings empty;
+    empty.Bind(first.data(), 0);
+    check(empty.Empty());
+    static std::array<std::uint32_t, 16> words;
+    words.fill(0xabcdef01);
+    CommandBuffer command{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    check(aps5NativeAgcSetCxRegistersIndirect(&command, first.data(), first.size()) == words.data());
+    check(command.cursor_up == words.data() + 5);
+    for (std::size_t i = 0; i < words.size(); ++i) check(words[i] == (i < 5 ? 0x80000000u : 0xabcdef01u));
+    command.cursor_down = command.cursor_up + 4;
+    rejects([&] { aps5NativeAgcSetCxRegistersIndirect(&command, second.data(), second.size()); });
+    check(command.cursor_up == words.data() + 5);
+    first[0].offset = 0x10000;
+    rejects([&] { aps5NativeAgcSetCxRegistersIndirect(&command, first.data(), first.size()); });
+    check(command.cursor_up == words.data() + 5);
+}
+void deferredRegisters(bool mutateLayout) {
+    static std::array<std::uint32_t, 32> words{};
+    CommandBuffer command{words.data(), words.data() + words.size(), words.data(),
+        words.data() + words.size(), nullptr, nullptr, 0};
+    ShaderRegister shader{0x8b, 0}, user{0x243, 0};
+    Label marker{17};
+    aps5NativeAgcReleaseMem(&command, 0x2d, 0xc, 1, 0, nullptr, 0, 0, 0, 0, 0, 0);
+    aps5NativeAgcSetShRegistersIndirect(&command, &shader, 1);
+    aps5NativeAgcSetUcRegistersIndirect(&command, &user, 1);
+    aps5NativeAgcDrawIndex(&command, 3, reinterpret_cast<void*>(0x1000), 0);
+    aps5NativeAgcReleaseMem(&command, 0x28, 0, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    check(command.cursor_up == words.data() + 32);
+    if (mutateLayout) user.offset = 0x242;
+    else user.value = 2;
+    const Packet packet{words.data(), 32, 0, {0, 0, 0}};
+    try {
+        aps5NativeAgcSubmit(&packet);
+        check(false);
+    } catch (const std::runtime_error& error) {
+        check(std::string(error.what()).find(mutateLayout ? "mutated register binding layout" : "unsupported native index size") != std::string::npos);
+    }
+    check(marker.value == 17);
+}
+void recordingRestart() {
+    static std::array<std::uint32_t, 32> words{};
+    CommandBuffer command{words.data(), words.data() + words.size(), words.data() + 4,
+        words.data() + words.size(), nullptr, nullptr, 0};
+    Label marker{17};
+    aps5NativeAgcSetIndexCount(&command, 7);
+    aps5NativeAgcReleaseMem(&command, 0x28, 0, 0, 0, &marker, 1, 42, 0, 0, 0, 0);
+    command.cursor_up = words.data() + 6;
+    rejects([&] { aps5NativeAgcSetIndexCount(&command, 9); });
+    command.cursor_up = words.data() + 4;
+    aps5NativeAgcSetIndexCount(&command, 9);
+    const Packet packet{words.data(), 6, 0, {0, 0, 0}};
+    check(aps5NativeAgcSubmit(&packet) == 0);
+    check(marker.value == 17);
+}
 void descriptorReuse() {
     static std::array<std::uint32_t, 16> first{}, second{};
     CommandBuffer descriptor{first.data(), first.data() + first.size(), first.data(),
@@ -284,7 +439,7 @@ void rangeStorage() {
         check(setter(&buffer, offset, &value, 1) == allocation.words.data());
         check(allocation.requested == 3 && value == 0xffffffffu);
         check(buffer.cursor_up == allocation.words.data() + 3);
-        check(allocation.words[0] == 0 && allocation.words[1] == 0 && allocation.words[2] == 0);
+        check(allocation.words[0] == 0x80000000u && allocation.words[1] == 0x80000000u && allocation.words[2] == 0x80000000u);
         check(allocation.words[3] == 0xabcdef01u);
         const auto cursor = buffer.cursor_up;
         const auto words = allocation.words;
@@ -317,7 +472,7 @@ void scalarStorage() {
     check(aps5NativeAgcSetNumInstances(&buffer, 2) == words.data() + 8);
     check(buffer.cursor_up == words.data() + 10);
     for (unsigned i = 0; i < words.size(); ++i)
-        check(words[i] == (i < 10 ? 0u : 0xabcdef01u));
+        check(words[i] == (i < 10 ? 0x80000000u : 0xabcdef01u));
     rejects([&] { aps5NativeAgcSetIndexCount(&buffer, 8); });
     check(buffer.cursor_up == words.data() + 10);
     for (unsigned mode = 0; mode < 3; ++mode) {
@@ -351,10 +506,18 @@ void scalarStorage() {
 int main(int argc, char** argv) {
     if (argc > 1) {
         const std::string mode = argv[1];
+        if (mode == "--indirect-value" || mode == "--indirect-layout") {
+            check(argc == 2);
+            deferredRegisters(mode == "--indirect-layout");
+            return 0;
+        }
         check(argc == 2 && (mode == "--flip-failure" || mode == "--flip-ready-failure"));
         terminalFlip(mode == "--flip-failure", mode == "--flip-ready-failure");
         return 0;
     }
+    graphicsState();
+    recordingRestart();
+    contextBindings();
     terminalFlip(false);
     renderingDependency();
     terminalCompletion();
