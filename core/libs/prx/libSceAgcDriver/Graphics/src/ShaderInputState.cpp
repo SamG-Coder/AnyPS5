@@ -30,14 +30,15 @@ std::uint32_t read(const Registers& registers, std::uint32_t offset) {
     return it->second;
 }
 
-template <typename T> T _readHeaderPod(std::span<const std::byte> header, std::uint64_t headerAddress, const void* pointer) {
+template <typename T, std::size_t Bytes = sizeof(T)> T _readHeaderPod(std::span<const std::byte> header, std::uint64_t headerAddress, const void* pointer) {
+    static_assert(Bytes <= sizeof(T));
     if (pointer == nullptr) throw std::runtime_error("AGC graphics: null AGC header pointer");
     const auto address = reinterpret_cast<std::uint64_t>(pointer);
     if (address < headerAddress) throw std::runtime_error("AGC graphics: AGC header pointer precedes the shader header");
     const auto offset = address - headerAddress;
-    if (offset + sizeof(T) > header.size()) throw std::runtime_error("AGC graphics: AGC header pointer is outside the registered shader header");
-    T value;
-    std::memcpy(&value, header.data() + offset, sizeof(T));
+    if (offset > header.size() || Bytes > header.size() - offset) throw std::runtime_error("AGC graphics: AGC header pointer is outside the registered shader header");
+    T value{};
+    std::memcpy(&value, header.data() + offset, Bytes);
     return value;
 }
 
@@ -48,7 +49,7 @@ template <typename T> void _readHeaderArray(std::span<const std::byte> header, s
     if (address < headerAddress) throw std::runtime_error("AGC graphics: AGC header array pointer precedes the shader header");
     const auto offset = address - headerAddress;
     const auto bytes = static_cast<std::uint64_t>(count) * sizeof(T);
-    if (offset + bytes > header.size()) throw std::runtime_error("AGC graphics: AGC header array is outside the registered shader header");
+    if (offset > header.size() || bytes > header.size() - offset) throw std::runtime_error("AGC graphics: AGC header array is outside the registered shader header");
     std::memcpy(destination, header.data() + offset, bytes);
 }
 
@@ -146,7 +147,8 @@ ShaderRecompiler::ShaderVertexStageInfo DecodeVertexStageInfo(std::span<const st
     std::memcpy(&shader, header.data(), sizeof(Shader));
     ShaderRecompiler::ShaderVertexStageInfo info{};
     if (shader.user_data == nullptr) throw std::runtime_error("AGC graphics: missing AGC user-data header");
-    const auto userDataHeader = _readHeaderPod<ShaderUserData>(header, headerAddress, shader.user_data);
+    constexpr auto userDataBytes = offsetof(ShaderUserData, sharp_resource_count) + sizeof(ShaderUserData::sharp_resource_count);
+    const auto userDataHeader = _readHeaderPod<ShaderUserData, userDataBytes>(header, headerAddress, shader.user_data);
     if (userDataHeader.direct_resource_count > ShaderRegs::AGC_DIRECT_RESOURCE_TYPE_COUNT) throw std::runtime_error("AGC graphics: AGC direct-resource count exceeds the known resource domain");
     std::array<std::uint16_t, ShaderRegs::AGC_DIRECT_RESOURCE_TYPE_COUNT> directOffsets{};
     directOffsets.fill(ShaderRegs::AGC_ILLEGAL_DIRECT_OFFSET);
