@@ -1,6 +1,7 @@
 #include <relinker/analysis/AgcImportLowering.hpp>
 #include <relinker/analysis/AgcLoweringAnalyzer.hpp>
 #include <unordered_map>
+#include <nid/NidCompute.hpp>
 namespace Relinker {
 void AgcImportLowering::Apply(std::vector<NidReference>& references) {
     static const std::unordered_map<std::string, std::string> native = {
@@ -20,8 +21,18 @@ void AgcImportLowering::Apply(std::vector<NidReference>& references) {
     };
     for (auto& reference : references) {
         if (!AgcLoweringAnalyzer::IsAgcLibrary(reference.Library)) continue;
-        const auto found = native.find(reference.Nid);
-        if (found != native.end()) reference.Nid = found->second;
+        auto found = native.find(reference.Nid);
+        if (found == native.end()) {
+            for (const auto& [source, target] : native) {
+                if (reference.Nid == Nid::ComputeNid(source, reference.Library)) {
+                    reference.Nid = target;
+                    found = native.end();
+                    break;
+                }
+            }
+        } else {
+            reference.Nid = found->second;
+        }
     }
 }
 }
