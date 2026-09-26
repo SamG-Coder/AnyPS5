@@ -316,6 +316,9 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VCmpxClassF32:
         emitFloatClassCompare(inst, true);
         return true;
+    case RdnaOpcode::VCmpxClassF16:
+        emitHalfClassCompare(inst);
+        return true;
     case RdnaOpcode::VCvtF32Ubyte0:
         vCvtF32Ubyte(inst, 0u);
         return true;

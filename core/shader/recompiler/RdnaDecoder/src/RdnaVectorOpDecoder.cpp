@@ -258,6 +258,7 @@ constexpr VopcOpcodeInfo vopcOpcodes[] = {
     {0x95u, RdnaOpcode::VCmpxNeI32},
     {0x96u, RdnaOpcode::VCmpxGeI32},
     {0x98u, RdnaOpcode::VCmpxClassF32},
+    {0x9fu, RdnaOpcode::VCmpxClassF16},
     {0xa9u, RdnaOpcode::VCmpLtU16},
     {0xaau, RdnaOpcode::VCmpEqU16},
     {0xabu, RdnaOpcode::VCmpLeU16},
@@ -647,7 +648,8 @@ bool isVopcFloatCompareOpcode(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpxNeqF16:
         case RdnaOpcode::VCmpxNltF16:
         case RdnaOpcode::VCmpClassF32:
-        case RdnaOpcode::VCmpxClassF32: return true;
+        case RdnaOpcode::VCmpxClassF32:
+        case RdnaOpcode::VCmpxClassF16: return true;
         default: return false;
     }
 }
@@ -1112,6 +1114,7 @@ bool isVopcCompareExec(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpxNeI32:
         case RdnaOpcode::VCmpxGeI32:
         case RdnaOpcode::VCmpxClassF32:
+        case RdnaOpcode::VCmpxClassF16:
         case RdnaOpcode::VCmpxLtU32:
         case RdnaOpcode::VCmpxEqU32:
         case RdnaOpcode::VCmpxLeU32:

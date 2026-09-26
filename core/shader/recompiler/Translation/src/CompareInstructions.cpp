@@ -70,6 +70,32 @@ void TranslationContext::emitFloatClassCompare(const RdnaInstruction& inst, bool
     emitCompareResult(inst, IrU1(ir.Emit(IrOpcode::FPCmpClass32, IrType::U1, {value, mask})), false, cmpx);
 }
 
+void TranslationContext::emitHalfClassCompare(const RdnaInstruction& inst) {
+    const auto& operand = sourceAt(inst, 0u);
+    if (operand.kind == RdnaOperandKind::FloatInlineConstant) {
+        emitFloatClassCompare(inst, true);
+        return;
+    }
+    IrValue* bits = &readU16AsU32(operand, false).Value();
+    if (operand.absolute) bits = &ir.BitwiseAnd(*bits, ir.Constant(0x7fffu));
+    if (operand.negate) bits = &ir.BitwiseXor(*bits, ir.Constant(0x8000u));
+    auto& negative = ir.INotEqual(ir.BitwiseAnd(*bits, ir.Constant(0x8000u)), ir.Constant(0u));
+    auto& exponent = ir.BitwiseAnd(*bits, ir.Constant(0x7c00u));
+    auto& fractionZero = ir.IEqual(ir.BitwiseAnd(*bits, ir.Constant(0x3ffu)), ir.Constant(0u));
+    auto& quiet = ir.INotEqual(ir.BitwiseAnd(*bits, ir.Constant(0x200u)), ir.Constant(0u));
+    auto& normalClass = ir.Select(negative, ir.Constant(8u), ir.Constant(256u));
+    auto& zeroClass = ir.Select(negative, ir.Constant(32u), ir.Constant(64u));
+    auto& subnormalClass = ir.Select(negative, ir.Constant(16u), ir.Constant(128u));
+    auto& infinityClass = ir.Select(negative, ir.Constant(4u), ir.Constant(512u));
+    auto& nanClass = ir.Select(quiet, ir.Constant(2u), ir.Constant(1u));
+    auto& finiteClass = ir.Select(ir.IEqual(exponent, ir.Constant(0u)),
+                                ir.Select(fractionZero, zeroClass, subnormalClass), normalClass);
+    auto& valueClass = ir.Select(ir.IEqual(exponent, ir.Constant(0x7c00u)),
+                               ir.Select(fractionZero, infinityClass, nanClass), finiteClass);
+    const auto mask = readU32(sourceAt(inst, 1u));
+    emitCompareResult(inst, IrU1(ir.INotEqual(ir.BitwiseAnd(valueClass, mask.Value()), ir.Constant(0u))), false, true);
+}
+
 void TranslateCompareInstruction(TranslationContext& context, const RdnaInstruction& instruction) {
     throw std::runtime_error("TranslateCompareInstruction not implemented");
 }

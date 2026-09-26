@@ -114,6 +114,7 @@ private:
     void emitFloatCompare(const RdnaInstruction& inst, IrOpcode opcode, bool half, bool cmpx);
     void emitFloatOrderedCompare(const RdnaInstruction& inst, bool ordered);
     void emitFloatClassCompare(const RdnaInstruction& inst, bool cmpx);
+    void emitHalfClassCompare(const RdnaInstruction& inst);
     void vCvtF32Ubyte(const RdnaInstruction& inst, std::uint32_t byteIndex);
     void vCvtF32U32(const RdnaInstruction& inst);
     void vCvtF32I32(const RdnaInstruction& inst);
