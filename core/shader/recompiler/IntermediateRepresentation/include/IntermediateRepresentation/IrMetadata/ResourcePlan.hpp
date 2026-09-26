@@ -54,6 +54,7 @@ struct IrResourcePlan {
     std::uint64_t shaderHash = 0;
     std::uint32_t userDataBase = 0;
     std::uint32_t userDataCount = 64;
+    std::vector<std::uint32_t> requiredUserData;
     std::vector<std::unique_ptr<IrValue>> valueStorage;
     std::vector<MemoryInfo> memoryInfo;
     std::vector<DescriptorSource> descriptorSources;

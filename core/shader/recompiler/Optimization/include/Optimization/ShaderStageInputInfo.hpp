@@ -190,6 +190,7 @@ struct ShaderStageInputInfo {
     const ShaderVertexInputInfo* vertex = nullptr;
     const ShaderPixelInputInfo* pixel = nullptr;
     const ShaderComputeInputInfo* compute = nullptr;
+    std::shared_ptr<const void> owner;
 };
 
 }

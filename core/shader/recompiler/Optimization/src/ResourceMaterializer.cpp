@@ -601,6 +601,7 @@ IrResourcePlan ResourceMaterializer::ExtractPlan(const IrProgram& program) const
     plan.shaderHash = source.shaderHash;
     plan.userDataBase = source.userDataBase;
     plan.userDataCount = source.userDataCount;
+    plan.requiredUserData = source.requiredUserData;
     plan.memoryInfo = source.memoryInfo;
     plan.descriptorSources = source.descriptorSources;
     plan.controlFlow = source.controlFlow;

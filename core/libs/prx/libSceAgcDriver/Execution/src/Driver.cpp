@@ -392,6 +392,7 @@ private:
             std::uint32_t firstUserSgpr = 8;
             std::vector<std::uint32_t> userData;
             std::array<ShaderRecompiler::MemoryRegion, 2> memory;
+            std::uint64_t missingUserData = 0;
         };
         const auto programAddress = [&](std::uint32_t base) {
             const auto high = readRegister(queue.shader, base + 1);
@@ -416,7 +417,13 @@ private:
                 {},
                 {{{snapshot.codeAddress, std::as_bytes(std::span(snapshot.code))}, {snapshot.headerAddress, snapshot.header}}}
             };
-            for (std::uint32_t i = 0; i < userCount; ++i) result.userData.push_back(readRegister(queue.shader, userDataBase + i));
+            for (std::uint32_t i = 0; i < userCount; ++i) {
+                const auto found = queue.shader.find(userDataBase + i);
+                if (found == queue.shader.end() && stage == ShaderRecompiler::ShaderStage::Fragment) {
+                    result.missingUserData |= std::uint64_t{1} << i;
+                    result.userData.push_back(0);
+                } else result.userData.push_back(readRegister(queue.shader, userDataBase + i));
+            }
             return result;
         };
         using Stage = ShaderRecompiler::ShaderStage;
@@ -496,7 +503,7 @@ private:
                 ShaderRecompiler::GraphicsCompileContext{program.firstUserSgpr, linked, graphics.stages.mesh, graphics.stages.tessellation, {drawParameters.indexAddress, drawParameters.indexCount, drawParameters.indexSize, drawParameters.instanceCount}}
             };
             PerformanceTimer shaderTiming("Driver.GraphicsShader");
-            shaderMemory.Capture(request);
+            shaderMemory.Capture(request, program.missingUserData);
             shaderTiming.Mark("memory_capture");
             memory = shaderMemory.Regions();
             request.context.memory = memory;

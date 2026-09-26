@@ -112,6 +112,13 @@ IrProgram PrepareResourceProgram(const RecompileRequest& request) {
         deadCodeEliminator.Eliminate(program);
     }
 
+    for (const auto& block : program.Blocks()) {
+        for (const IrValue* instruction : block->Instructions()) {
+            if (instruction->Opcode() == IrOpcode::GetUserData && instruction->HasUses())
+                program.Resources().requiredUserData.push_back(instruction->Argument(0)->Register().index);
+        }
+    }
+
     constexpr SrtWalker srtWalker;
     srtWalker.BuildPlan(program);
     deadCodeEliminator.Eliminate(program);
@@ -165,7 +172,7 @@ struct SourceKeyHash {
 std::shared_ptr<SourceEntry> getSource(const RecompileRequest& request) {
     static std::shared_mutex mutex;
     static std::unordered_map<std::vector<std::uint64_t>, std::shared_ptr<SourceEntry>, SourceKeyHash> sources;
-    thread_local std::vector<std::uint64_t> key;
+    std::vector<std::uint64_t> key;
     RecompileCacheKey::Build(request, key);
     std::shared_ptr<SourceEntry> source;
     {

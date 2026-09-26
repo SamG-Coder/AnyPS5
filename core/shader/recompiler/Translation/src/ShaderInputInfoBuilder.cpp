@@ -8,10 +8,6 @@ namespace ShaderRecompiler {
 
 namespace {
 
-thread_local ShaderPixelInputInfo pixelStorage;
-thread_local ShaderComputeInputInfo computeStorage;
-thread_local ShaderVertexInputInfo vertexStorage;
-
 IrShaderStage _toIrShaderStage(ShaderStageKind stage) {
     switch (stage) {
     case ShaderStageKind::Vertex: return IrShaderStage::Vertex;
@@ -74,7 +70,8 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
             throw std::runtime_error("ShaderInputInfoBuilder: GuestContext.compute is not set");
         }
         const auto& compute = *context.compute;
-        computeStorage = ShaderComputeInputInfo{};
+        auto storage = std::make_shared<ShaderComputeInputInfo>();
+        auto& computeStorage = *storage;
         computeStorage.threadsNum[0] = compute.numThreads[0];
         computeStorage.threadsNum[1] = compute.numThreads[1];
         computeStorage.threadsNum[2] = compute.numThreads[2];
@@ -87,6 +84,7 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
         computeStorage.threadIdsNum = static_cast<int>(compute.threadIdComponentCount);
         ShaderStageInputInfo result;
         result.compute = &computeStorage;
+        result.owner = std::move(storage);
         return result;
     }
     case ShaderStageKind::Pixel: {
@@ -94,7 +92,8 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
             throw std::runtime_error("ShaderInputInfoBuilder: GuestContext.pixel is not set");
         }
         const auto& pixel = *context.pixel;
-        pixelStorage = ShaderPixelInputInfo{};
+        auto storage = std::make_shared<ShaderPixelInputInfo>();
+        auto& pixelStorage = *storage;
         for (std::uint32_t i = 0; i < 32; ++i) {
             pixelStorage.interpolatorSettings[i] = pixel.interpolatorSettings[i];
         }
@@ -126,6 +125,7 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
         pixelStorage.psExecuteOnNoop = pixel.executeOnNoop;
         ShaderStageInputInfo result;
         result.pixel = &pixelStorage;
+        result.owner = std::move(storage);
         return result;
     }
     case ShaderStageKind::Vertex:
@@ -138,7 +138,8 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
         }
         const auto& vertex = *context.vertex;
         if (vertex.resourcesNum > vertex.resources.size()) throw std::runtime_error("ShaderInputInfoBuilder: invalid vertex resource count");
-        vertexStorage = ShaderVertexInputInfo{};
+        auto storage = std::make_shared<ShaderVertexInputInfo>();
+        auto& vertexStorage = *storage;
         vertexStorage.logicalStage = _toIrShaderStage(stage);
         vertexStorage.fetchEmbedded = vertex.fetchEmbedded;
         vertexStorage.fetchExternal = false;
@@ -155,6 +156,7 @@ ShaderStageInputInfo BuildShaderStageInputInfo(ShaderStageKind stage, const Gues
         _detectVertexBuffers(vertexStorage);
         ShaderStageInputInfo result;
         result.vertex = &vertexStorage;
+        result.owner = std::move(storage);
         return result;
     }
     case ShaderStageKind::Unknown:
