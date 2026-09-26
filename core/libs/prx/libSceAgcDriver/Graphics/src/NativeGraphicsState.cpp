@@ -3,8 +3,30 @@
 #include "prx/libSceAgcDriver/Graphics/include/ColorTargetLayout.hpp"
 #include <bit>
 #include <cmath>
+#include <array>
+#include <bit>
 #include <stdexcept>
 namespace AgcDriver::Graphics {
+std::optional<ShaderRecompiler::ShaderPixelStageInfo> NativeGraphicsState::PixelStage() const {
+    if(!psInputControl||!psInputEnable||!psInputAddress||!dbShaderControl||!shaderColorFormat) return std::nullopt;
+    const auto inputNum=*psInputControl&0x3fu;
+    if(inputNum>32) throw std::runtime_error("native AGC: pixel interpolator count exceeds 32");
+    std::array<std::uint32_t,32> settings{};
+    for(std::uint32_t i=0;i<inputNum;++i){if(!interpolants[i]) return std::nullopt; settings[i]=*interpolants[i];}
+    const auto active=*psInputEnable&*psInputAddress;
+    constexpr std::uint32_t known=0x1u|0x2u|0x10u|0x20u|0x80u|0x100u|0x200u|0x400u|0x800u|0x1000u|0x2000u;
+    if(active&~known) throw std::runtime_error("native AGC: unsupported pixel input state");
+    std::array<std::uint8_t,8> modes{},mapping{}; mapping.fill(0xe4u);
+    for(std::uint32_t i=0;i<8;++i)modes[i]=static_cast<std::uint8_t>((*shaderColorFormat>>(4u*i))&0xfu);
+    if(state.hasColorTarget) mapping[0]=state.color.componentMapping;
+    const bool perspective=(active&0x2u)!=0, kill=(*dbShaderControl&0x40u)!=0, depth=(*dbShaderControl&1u)!=0, mask=(*dbShaderControl&0x100u)!=0;
+    const auto z=(*dbShaderControl>>4u)&3u;
+    return ShaderRecompiler::ShaderPixelStageInfo{inputNum,settings,(*psInputControl&0x8000u)!=0,
+        perspective?((active&1u)?2u:0u):0u,perspective,(active&0x100u)!=0,(active&0x200u)!=0,(active&0x400u)!=0,(active&0x800u)!=0,
+        (active&0x1000u)!=0,(active&0x2000u)!=0,(active&0x11u)==0x11u,(active&0x20u)!=0,kill,depth,mask,
+        z==1u&&!kill&&!depth&&!mask,(*dbShaderControl&0x400u)!=0,modes,mapping,
+        2u*static_cast<std::uint32_t>(std::popcount(active&0x33u))+((active&0x80u)?1u:0u),(active&0x80u)!=0};
+}
 bool NativeGraphicsState::ReadyForDraw() const {
     if (!primitive || !raster || !clipControl) return false;
     for (const auto& v:viewport) if (!v) return false;
@@ -19,6 +41,12 @@ void NativeGraphicsState::SetUser(std::uint32_t o, std::uint32_t v) {
 }
 void NativeGraphicsState::SetContext(std::uint32_t o, std::uint32_t v) {
     if (o == 0x205) { raster=v; updateRaster(); return; }
+    if (o == 0x1b6) { psInputControl=v; return; }
+    if (o == 0x1b3) { psInputEnable=v; return; }
+    if (o == 0x1b4) { psInputAddress=v; return; }
+    if (o == 0x203) { dbShaderControl=v; return; }
+    if (o == 0x1c5) { shaderColorFormat=v; return; }
+    if (o >= 0x191 && o < 0x191+32) { interpolants[o-0x191]=v; return; }
     if (o == 0x206) { viewportControl=v; return; }
     if (o == 0x204) { clipControl=v; state.negativeOneToOne=(v&0x80000u)==0; updateViewport(); return; }
     if (o >= 0x10f && o <= 0x114) { viewport[o-0x10f]=v; updateViewport(); return; }
