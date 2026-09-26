@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/NativeAgc.hpp"
+#include "prx/libSceAgc/Shader/include/ShaderUtils.hpp"
 #include <mutex>
 #include <cstring>
 #include <memory>
@@ -43,7 +44,21 @@ int APS5_VABI aps5NativeAgcCreateShader(Shader** dst, void* header, const volati
         throw std::invalid_argument("native AGC: invalid shader header");
     if (shader->header_size < sizeof(Shader) || shader->shader_size == 0 || (shader->shader_size & 3u) != 0)
         throw std::invalid_argument("native AGC: invalid shader size");
+    ResolveRelativePtr(shader->cx_registers);
+    ResolveRelativePtr(shader->sh_registers);
+    ResolveRelativePtr(shader->user_data);
+    ResolveRelativePtr(shader->specials);
+    ResolveRelativePtr(shader->input_semantics);
+    ResolveRelativePtr(shader->output_semantics);
+    if (shader->user_data) {
+        ResolveRelativePtr(shader->user_data->direct_resource_offset);
+        for (auto& item : shader->user_data->sharp_resource_offset) ResolveRelativePtr(item);
+    }
     shader->code = code;
+    const auto base = reinterpret_cast<std::uint64_t>(code);
+    if ((base & 0xffu) != 0) throw std::invalid_argument("native AGC: shader code is not 256-byte aligned");
+    const auto patch = PatchProgramAddressRegister(shader->sh_registers, shader->num_sh_registers, shader->type, base);
+    if (patch != 0) return patch;
     auto native = std::make_shared<NativeShader>();
     {
         std::lock_guard lock(stateMutex);
