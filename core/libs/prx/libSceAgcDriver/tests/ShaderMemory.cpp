@@ -2,6 +2,7 @@
 #include "ControlFlow/RequestSerializer.hpp"
 #include "Optimization/RequestMemoryView.hpp"
 #include "Optimization/ResourceProgram.hpp"
+#include "Translation/ShaderInputInfoBuilder.hpp"
 #if ANYPS5_ENABLE_SPIRV_TOOLS
 #include "SpirvBackend/SpirvOptimizer.hpp"
 #endif
@@ -66,12 +67,40 @@ void verifyRegisterSources() {
     require(!EquivalentValue(plan, &samplerRegister, &firstVector), "different register types were merged");
 }
 
+void verifyInputOwnership() {
+    using namespace ShaderRecompiler;
+    GuestContext context{};
+    context.waveSize = 64;
+    context.vertex = ShaderVertexStageInfo{};
+    context.vertex->fetchAttribReg = 7;
+    const auto first = BuildShaderStageInputInfo(ShaderStageKind::Vertex, context);
+    context.vertex->fetchAttribReg = 13;
+    const auto second = BuildShaderStageInputInfo(ShaderStageKind::Vertex, context);
+    require(first.vertex->fetchAttribReg == 7 && second.vertex->fetchAttribReg == 13, "vertex input descriptions overwrite each other");
+    context.pixel = ShaderPixelStageInfo{};
+    context.pixel->posX = true;
+    const auto pixel = BuildShaderStageInputInfo(ShaderStageKind::Pixel, context);
+    context.pixel->posX = false;
+    const auto otherPixel = BuildShaderStageInputInfo(ShaderStageKind::Pixel, context);
+    require(pixel.pixel->psPosX && !otherPixel.pixel->psPosX, "pixel input descriptions overwrite each other");
+    context.compute = ShaderComputeStageInfo{};
+    context.compute->numThreads = {2, 1, 1};
+    const auto compute = BuildShaderStageInputInfo(ShaderStageKind::Compute, context);
+    context.compute->numThreads[0] = 4;
+    const auto otherCompute = BuildShaderStageInputInfo(ShaderStageKind::Compute, context);
+    require(compute.compute->threadsNum[0] == 2 && otherCompute.compute->threadsNum[0] == 4, "compute input descriptions overwrite each other");
+    auto future = std::async(std::launch::async, [context] { return BuildShaderStageInputInfo(ShaderStageKind::Vertex, context); });
+    const auto retained = future.get();
+    require(retained.vertex->fetchAttribReg == 13, "shader input description did not survive its worker thread");
+}
+
 }
 
 int main() {
     try {
         using namespace ShaderRecompiler;
         verifyRegisterSources();
+        verifyInputOwnership();
 #if ANYPS5_ENABLE_SPIRV_TOOLS
         const std::vector<std::uint32_t> minimalSpirv{
             0x07230203u, 0x00010000u, 0u, 5u, 0u,
@@ -110,6 +139,36 @@ int main() {
 
         expectFailure([&] { static_cast<void>(Recompile(request)); }, "SrtWalker::EvaluateRuntimeSources", "missing snapshot unexpectedly read live memory");
         AgcDriver::ShaderMemory memory({});
+        expectFailure([&] { memory.Capture(request, 1); }, "consumes unwritten user-data SGPR 8", "missing pointer SGPR was read");
+        expectFailure([&] { memory.Capture(request, 2); }, "consumes unwritten user-data SGPR 9", "missing high pointer SGPR was read");
+        require(memory.Regions().empty(), "missing user data triggered guest memory reads");
+        {
+            const std::array<std::uint32_t, 1> emptyCode{0xbf810000u};
+            const std::array<std::uint32_t, 2> reserved{};
+            auto empty = request;
+            empty.shader.stage = ShaderStage::Fragment;
+            empty.shader.code = emptyCode;
+            empty.context.vertex.reset();
+            empty.context.pixel = ShaderPixelStageInfo{};
+            empty.context.userDataBaseRegister = 0;
+            empty.context.userData = reserved;
+            AgcDriver::ShaderMemory unused({});
+            unused.Capture(empty, 3);
+            require(GetResourcePlan(empty)->requiredUserData.empty(), "empty fragment shader consumes reserved user data");
+            require(unused.Regions().empty(), "empty fragment shader read guest memory");
+            require(!Recompile(empty).spirv.empty(), "empty fragment shader did not compile");
+            const std::array<std::uint32_t, 2> deadRead{0xbe820300u, 0xbf810000u};
+            empty.shader.code = deadRead;
+            unused.Capture(empty, 3);
+            require(GetResourcePlan(empty)->requiredUserData.empty(), "dead scalar read requires guest user data");
+            const std::array<std::uint32_t, 4> directCode{0x7e000200u, 0xf800080fu, 0u, 0xbf810000u};
+            empty.shader.code = directCode;
+            empty.context.pixel->targetOutputMode[0] = 9;
+            empty.context.pixel->targetExportMapping.fill(0xe4);
+            expectFailure([&] { unused.Capture(empty, 1); }, "consumes unwritten user-data SGPR 0", "direct shader input was defaulted");
+            unused.Capture(empty, 2);
+            expectFailure([&] { unused.Capture(empty, 1); }, "consumes unwritten user-data SGPR 0", "cached plan bypassed input validation");
+        }
         memory.Capture(request);
         auto regions = memory.Regions();
         require(regions.size() == 3, "nested pointer reads were not captured");

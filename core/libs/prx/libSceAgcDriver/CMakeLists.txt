@@ -155,6 +155,13 @@ target_include_directories(agc_shader_memory_tests PRIVATE ${LIBS_INCLUDE_DIR})
 target_link_libraries(agc_shader_memory_tests PRIVATE shader_recompiler_agc_driver libc)
 set_target_properties(agc_shader_memory_tests PROPERTIES CXX_EXTENSIONS OFF)
 configure_windows_unwind(agc_shader_memory_tests)
+if(BUILD_TESTING)
+    add_test(NAME agc_shader_memory COMMAND agc_shader_memory_tests)
+    if(WIN32)
+        set_tests_properties(agc_shader_memory PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
 
 add_executable(agc_driver_flip_tests EXCLUDE_FROM_ALL
         tests/Flip.cpp
@@ -253,8 +260,9 @@ if(BUILD_TESTING)
     add_test(NAME agc_buffer_alignment COMMAND agc_driver_graphics_tests buffer-alignment)
     add_test(NAME agc_pixel_inputs COMMAND agc_driver_graphics_tests pixel-inputs)
     add_test(NAME agc_depth_attachment_state COMMAND agc_driver_graphics_tests depth-target)
+    add_test(NAME agc_depth_shader COMMAND agc_driver_graphics_tests depth-shader)
     if(WIN32)
-        set_tests_properties(agc_depth_attachment_state agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment agc_pixel_inputs PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_depth_shader agc_depth_attachment_state agc_shader_stages agc_scan_conversion agc_clipping_state agc_provoking_vertex agc_color_control agc_shader_headers agc_buffer_alignment agc_pixel_inputs PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()

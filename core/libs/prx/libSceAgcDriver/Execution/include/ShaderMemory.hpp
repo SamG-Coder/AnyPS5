@@ -9,7 +9,7 @@ namespace AgcDriver {
 class ShaderMemory {
 public:
     explicit ShaderMemory(std::span<const ShaderRecompiler::MemoryRegion> initial);
-    void Capture(const ShaderRecompiler::RecompileRequest& request);
+    void Capture(const ShaderRecompiler::RecompileRequest& request, std::uint64_t missingUserData = 0);
     [[nodiscard]] std::vector<ShaderRecompiler::MemoryRegion> Regions() const;
 
 private:

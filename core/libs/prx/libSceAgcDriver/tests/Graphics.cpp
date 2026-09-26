@@ -12,6 +12,7 @@
 #include <bit>
 #include <cstring>
 #include <initializer_list>
+#include <future>
 #include <iostream>
 #include <map>
 #include <string_view>
@@ -1243,11 +1244,46 @@ void validationTests() {
     }
 }
 
+void DepthOnlyShaderTests() {
+    using namespace ShaderRecompiler;
+    using namespace AgcDriver::Graphics;
+    RecompileResult vertex;
+    vertex.spirv = makeModule({});
+    const std::array<std::uint32_t, 1> code{0xbf810000u};
+    RecompileRequest request{};
+    request.shader = {ShaderStage::Fragment, 0x10000u, code, 0, {}};
+    request.context.waveSize = 64;
+    request.context.pixel = ShaderPixelStageInfo{};
+    request.target.vulkanVersion = 0x00401000u;
+    request.target.spirvVersion = 0x00010300u;
+    request.target.subgroupSize = 64;
+    auto fragment = Recompile(request);
+    const std::array<CompiledShader, 2> shaders{{{ShaderStage::Vertex, &vertex, 0}, {ShaderStage::Fragment, &fragment, 0}}};
+    State state{};
+    state.stages.path = ShaderPath::Vertex;
+    const VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+    ValidateShaders(shaders, state, subgroup, false);
+    state.hasColorTarget = true;
+    expectFailure([&] { ValidateShaders(shaders, state, subgroup, false); }, "must export one float4");
+    expectFailure([&] { ValidateShaderPair(vertex, fragment); }, "must export one float4");
+    state.hasColorTarget = false;
+    ValidateShaders(shaders, state, subgroup, false);
+    std::array<std::future<void>, 4> workers;
+    for (auto& worker : workers)
+        worker = std::async(std::launch::async, [&] { ValidateShaders(shaders, state, subgroup, false); });
+    for (auto& worker : workers) worker.get();
+}
+
 
 }
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "depth-shader") {
+            DepthOnlyShaderTests();
+            std::cout << "Depth-only shader interface tests passed\n";
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "depth-target") {
             DepthAttachmentStateTests();
             std::cout << "Depth attachment state tests passed\n";

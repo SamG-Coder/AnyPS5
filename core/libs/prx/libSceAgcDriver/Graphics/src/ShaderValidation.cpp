@@ -5,6 +5,7 @@
 #include <spirv/unified1/spirv.hpp>
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -520,7 +521,9 @@ std::shared_ptr<const ValidatedInterface> inspectCached(const CompiledShader& co
     const auto code = std::as_bytes(std::span(shader.spirv));
     if (!code.empty()) key.append(reinterpret_cast<const char*>(code.data()), code.size());
     timing.Mark("key", key.size());
-    static thread_local std::map<std::string, std::shared_ptr<const ValidatedInterface>> cache;
+    static std::map<std::string, std::shared_ptr<const ValidatedInterface>> cache;
+    static std::mutex cacheMutex;
+    const std::lock_guard lock(cacheMutex);
     const auto found = cache.find(key);
     if (found != cache.end()) {
         timing.Mark("hit");
@@ -561,13 +564,16 @@ void ValidateShaders(std::span<const CompiledShader> shaders, const State& state
         }
         previous = current;
     }
-    Require(previous->outputs.size() == 1 && previous->outputs.contains(0) && previous->outputs.at(0) == "vertex:f32x4", "fragment shader must export one float4 color at location zero");
+    Require((!state.hasColorTarget && previous->outputs.empty()) ||
+        (previous->outputs.size() == 1 && previous->outputs.contains(0) && previous->outputs.at(0) == "vertex:f32x4"),
+        "fragment shader must export one float4 color at location zero when color writes are enabled");
 }
 
 void ValidateShaderPair(const ShaderRecompiler::RecompileResult& vertex, const ShaderRecompiler::RecompileResult& fragment) {
     const std::array<CompiledShader, 2> shaders{{{ShaderRecompiler::ShaderStage::Vertex, &vertex, 0}, {ShaderRecompiler::ShaderStage::Fragment, &fragment, static_cast<std::uint32_t>(vertex.pushConstants.size())}}};
     State state{};
     state.stages.path = ShaderPath::Vertex;
+    state.hasColorTarget = true;
     ValidateShaders(shaders, state, VkPhysicalDeviceSubgroupProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES}, false);
 }
 

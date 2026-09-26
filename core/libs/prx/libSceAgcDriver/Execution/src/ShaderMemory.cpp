@@ -45,8 +45,15 @@ bool ShaderMemory::read(void* context, std::uint64_t address, std::uint32_t* val
     return true;
 }
 
-void ShaderMemory::Capture(const ShaderRecompiler::RecompileRequest& request) {
+void ShaderMemory::Capture(const ShaderRecompiler::RecompileRequest& request, std::uint64_t missingUserData) {
     const auto plan = ShaderRecompiler::GetResourcePlan(request);
+    for (const auto reg : plan->requiredUserData) {
+        if (reg < plan->userDataBase || reg - plan->userDataBase >= plan->userDataCount)
+            throw std::runtime_error("AGC driver: required user-data register is outside the declared bank");
+        const auto index = reg - plan->userDataBase;
+        if (index < 64 && (missingUserData & (std::uint64_t{1} << index)) != 0)
+            throw std::runtime_error("AGC driver: shader consumes unwritten user-data SGPR " + std::to_string(reg));
+    }
     constexpr ShaderRecompiler::ResourceMaterializer materializer;
     ShaderRecompiler::SrtRuntime runtime;
     runtime.userData = request.context.userData;
