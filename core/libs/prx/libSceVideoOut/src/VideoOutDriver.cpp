@@ -320,8 +320,9 @@ void VideoOutDriver::SubmitFlip(int handle, int index, int flipMode, int64_t fli
         output=outputs[handle];
     }
     auto request=output->Reserve({static_cast<std::uint32_t>(handle),index,static_cast<std::uint32_t>(flipMode),flipArg});
-    // A native port does not manufacture a GPU command to request presentation.
-    // Rendering completion is enforced by the shared native graphics runtime.
+    // A native port synchronizes its renderer directly before handing the image
+    // to presentation; there is no synthetic PS5 wait/flip command.
+    AgcDriver::NativeGraphicsRuntime::Get().WaitDraws();
     auto timing=std::make_shared<AgcDriver::FrameTiming>(0);
     request->GpuReady(timing);
 }
