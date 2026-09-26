@@ -238,8 +238,9 @@ configure_windows_unwind(agc_driver_graphics_tests)
 if(BUILD_TESTING)
     set_target_properties(agc_driver_graphics_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME agc_shader_stages COMMAND agc_driver_graphics_tests stages)
+    add_test(NAME agc_scan_conversion COMMAND agc_driver_graphics_tests scan)
     if(WIN32)
-        set_tests_properties(agc_shader_stages PROPERTIES ENVIRONMENT_MODIFICATION
+        set_tests_properties(agc_shader_stages agc_scan_conversion PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
