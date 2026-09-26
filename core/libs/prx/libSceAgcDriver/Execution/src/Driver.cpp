@@ -364,10 +364,15 @@ private:
             if (original != nullptr) {
                 const auto* originalPacket = original + cursor;
                 const auto found = nativeDrawHints.find(originalPacket);
-                if (found != nativeDrawHints.end() &&
-                    found->second.words.size() == count &&
-                    std::equal(found->second.words.begin(), found->second.words.end(), commands.begin() + static_cast<std::ptrdiff_t>(cursor))) {
-                    nativeDraw = found->second.hint;
+                if (found != nativeDrawHints.end()) {
+                    if (found->second.words.size() == count &&
+                        std::equal(found->second.words.begin(), found->second.words.end(), commands.begin() + static_cast<std::ptrdiff_t>(cursor))) {
+                        nativeDraw = found->second.hint;
+                    }
+                    // Command-buffer storage is routinely recycled. A hint describes
+                    // this emitted packet instance only; a later emission registers a
+                    // fresh native operation for the reused address.
+                    nativeDrawHints.erase(found);
                 }
             }
             plan.push_back({cursor, count, header, (header >> 8u) & 0xffu, nativeDraw});
