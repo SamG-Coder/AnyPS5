@@ -258,6 +258,12 @@ constexpr VopcOpcodeInfo vopcOpcodes[] = {
     {0x95u, RdnaOpcode::VCmpxNeI32},
     {0x96u, RdnaOpcode::VCmpxGeI32},
     {0x98u, RdnaOpcode::VCmpxClassF32},
+    {0x99u, RdnaOpcode::VCmpxLtI16},
+    {0x9au, RdnaOpcode::VCmpxEqI16},
+    {0x9bu, RdnaOpcode::VCmpxLeI16},
+    {0x9cu, RdnaOpcode::VCmpxGtI16},
+    {0x9du, RdnaOpcode::VCmpxNeI16},
+    {0x9eu, RdnaOpcode::VCmpxGeI16},
     {0x9fu, RdnaOpcode::VCmpxClassF16},
     {0xa9u, RdnaOpcode::VCmpLtU16},
     {0xaau, RdnaOpcode::VCmpEqU16},
@@ -1125,6 +1131,12 @@ bool isVopcCompareExec(RdnaOpcode opcode) {
         case RdnaOpcode::VCmpxNeU64:
         case RdnaOpcode::VCmpxLtU16:
         case RdnaOpcode::VCmpxGtU16:
+        case RdnaOpcode::VCmpxLtI16:
+        case RdnaOpcode::VCmpxEqI16:
+        case RdnaOpcode::VCmpxLeI16:
+        case RdnaOpcode::VCmpxGtI16:
+        case RdnaOpcode::VCmpxNeI16:
+        case RdnaOpcode::VCmpxGeI16:
         case RdnaOpcode::VCmpxLtF16:
         case RdnaOpcode::VCmpxEqF16:
         case RdnaOpcode::VCmpxLeF16:
@@ -1407,6 +1419,10 @@ void checkNativeVop3Modifiers(RdnaOpcode opcode, bool permlane, bool carryInOut,
         return;
     }
     if (carryInOut || scalarDst) {
+        const bool signedShortExec = opcode >= RdnaOpcode::VCmpxLtI16 && opcode <= RdnaOpcode::VCmpxGeI16;
+        if (signedShortExec && (abs != 0u || opSel != 0u)) {
+            throw std::invalid_argument("VOP3 signed short comparison modifiers are not implemented");
+        }
         if (clamp != 0u || omod != 0u || neg != 0u) {
             throw std::invalid_argument("VOP3 source modifiers are not implemented");
         }

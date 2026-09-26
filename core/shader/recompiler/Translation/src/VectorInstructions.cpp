@@ -178,6 +178,24 @@ bool TranslationContext::emitVector(const RdnaInstruction& inst) {
     case RdnaOpcode::VCmpGtI16:
         emitInteger16Compare(inst, IrOpcode::SGreaterThan32, true, false);
         return true;
+    case RdnaOpcode::VCmpxLtI16:
+        emitInteger16Compare(inst, IrOpcode::SLessThan32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxEqI16:
+        emitInteger16Compare(inst, IrOpcode::IEqual32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxLeI16:
+        emitInteger16Compare(inst, IrOpcode::SLessThanEqual32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxGtI16:
+        emitInteger16Compare(inst, IrOpcode::SGreaterThan32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxNeI16:
+        emitInteger16Compare(inst, IrOpcode::INotEqual32, true, true);
+        return true;
+    case RdnaOpcode::VCmpxGeI16:
+        emitInteger16Compare(inst, IrOpcode::SGreaterThanEqual32, true, true);
+        return true;
     case RdnaOpcode::VCmpGeI16:
         emitInteger16Compare(inst, IrOpcode::SGreaterThanEqual32, true, false);
         return true;
