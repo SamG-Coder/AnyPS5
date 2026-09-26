@@ -74,7 +74,7 @@ private:
     IrValue* makeImageAddress(const RdnaInstruction& inst, const RdnaOperand& base);
     IrValue* constructU32x4(const RdnaOperand& base, std::uint32_t count);
     void writeImageComponents(const RdnaOperand& dst, IrValue* value, const MemoryInfo& memory, std::uint32_t componentLimit);
-    BufferAddress readBufferAddress(const RdnaInstruction& inst, std::uint32_t sourceOffset);
+    BufferAddress readBufferAddress(const RdnaInstruction& inst);
     IrU32 widenSubdword(IrValue* value, std::uint32_t bits, bool sign);
     IrValue* narrowSubdword(IrU32 value, std::uint32_t bits);
     bool sLoad(const RdnaInstruction& inst, bool raw);
