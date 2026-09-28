@@ -538,7 +538,14 @@ void VideoOutDriver::vblankLoop(std::stop_token token) {
             const auto next = start + std::chrono::duration_cast<std::chrono::steady_clock::duration>(Frame(frame));
             {
                 std::unique_lock lock(flipQueue->mutex);
-                flipQueue->changed.wait_until(lock, next, [&] { return token.stop_requested() || flipQueue->failure; });
+                while (!token.stop_requested() && !flipQueue->failure) {
+                    const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(next - std::chrono::steady_clock::now()).count();
+                    if (remaining <= 0) break;
+                    const KernelTimespec delay{remaining / 1000000000, remaining % 1000000000};
+                    lock.unlock();
+                    sceKernelNanosleep(&delay, nullptr);
+                    lock.lock();
+                }
                 if (token.stop_requested() || flipQueue->failure) return;
             }
             vblankEnd();
