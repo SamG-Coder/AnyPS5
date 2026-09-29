@@ -4401,7 +4401,12 @@ private:
             const auto& program = programs[i];
             if (program.binary.stage == Stage::Fragment || roles[i] == Role::GeometryBack) return;
             decodeReads[i].clear();
-            vertexInfos[i] = Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, program.userData, &decodeReads[i]);
+            std::span<const std::uint32_t> vertexUserData = program.userData;
+            if (program.binary.stage == Stage::Mesh) {
+                require(vertexUserData.size() >= 8u, "mesh vertex metadata requires eight hidden user words");
+                vertexUserData = vertexUserData.subspan(8u);
+            }
+            vertexInfos[i] = Graphics::DecodeVertexStageInfo(program.binary.header, program.binary.headerAddress, vertexUserData, &decodeReads[i]);
         };
         if (!registerKey) {
             for (std::size_t i = 0; i < programs.size(); ++i) decodeVertexInfo(i);
