@@ -442,6 +442,7 @@ void writeMeshConfiguration(Writer& writer, const MeshConfiguration& configurati
     writer.WriteU32(configuration.ldsSizeDwords);
     writer.WriteU32(configuration.provokingVertex);
     writer.WriteU32(configuration.esgsItemSize);
+    writer.WriteBool(configuration.passthrough);
 }
 
 MeshConfiguration readMeshConfiguration(Reader& reader, std::uint32_t version) {
@@ -455,6 +456,7 @@ MeshConfiguration readMeshConfiguration(Reader& reader, std::uint32_t version) {
     configuration.ldsSizeDwords = reader.ReadU32();
     configuration.provokingVertex = reader.ReadU32();
     configuration.esgsItemSize = version >= 4u ? reader.ReadU32() : 4u;
+    configuration.passthrough = version >= 5u ? reader.ReadBool() : false;
     return configuration;
 }
 

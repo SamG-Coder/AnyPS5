@@ -238,6 +238,9 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
         const std::uint32_t size = mesh.InputPrimitiveSize();
         const std::uint32_t stepCount = mesh.InputPrimitiveStep();
         const std::uint32_t waveSize = options.waveSize;
+        if (mesh.passthrough && mesh.inputPrimitive != 4u && mesh.inputPrimitive != 6u) {
+            throw std::runtime_error("passthrough mesh translation requires triangle list or strip topology");
+        }
         if (mesh.primitivesPerGroup == 0u || mesh.verticesPerGroup != mesh.InputVertexCount(mesh.primitivesPerGroup) || mesh.verticesPerGroup > totalThreads || mesh.primitivesPerGroup > totalThreads || totalThreads % waveSize != 0u || totalThreads > 15u * waveSize || mesh.esgsItemSize == 0u || mesh.esgsItemSize * mesh.verticesPerGroup > 0xffffu) {
             throw std::runtime_error("mesh shader translation configuration is not supported (wave " + std::to_string(options.waveSize) + ", primitives per group " + std::to_string(mesh.primitivesPerGroup) + ", vertices per group " + std::to_string(mesh.verticesPerGroup) + ", threads " + std::to_string(totalThreads) + ", ESGS item size " + std::to_string(mesh.esgsItemSize) + ")");
         }
@@ -275,6 +278,13 @@ void emitEntryPrologue(IrProgram& program, IrBlock& entryBlock, const TranslateO
         IrValue& third = size == 3u ? entryIr.IMul(entryIr.IAdd(vertex, u32(2u)), item) : u32(0u);
         entryIr.SetVectorReg(static_cast<VectorReg>(0), entryIr.BitwiseOr(entryIr.BitwiseAnd(first, u32(0xffffu)), entryIr.ShiftLeftLogical(second, u32(16u))));
         entryIr.SetVectorReg(static_cast<VectorReg>(1), entryIr.BitwiseAnd(third, u32(0xffffu)));
+        if (mesh.passthrough) {
+            IrValue& firstIndex = entryIr.IAdd(vertex, parity);
+            IrValue& secondIndex = entryIr.ISub(entryIr.IAdd(vertex, u32(1u)), parity);
+            IrValue& thirdIndex = entryIr.IAdd(vertex, u32(2u));
+            entryIr.SetVectorReg(static_cast<VectorReg>(0), entryIr.BitwiseOr(firstIndex, entryIr.BitwiseOr(entryIr.ShiftLeftLogical(secondIndex, u32(10u)), entryIr.ShiftLeftLogical(thirdIndex, u32(20u)))));
+            entryIr.SetVectorReg(static_cast<VectorReg>(1), u32(0u));
+        }
         entryIr.SetVectorReg(static_cast<VectorReg>(2), entryIr.IAdd(firstPrimitive, local));
         entryIr.SetVectorReg(static_cast<VectorReg>(3), u32(0u));
         entryIr.SetVectorReg(static_cast<VectorReg>(4), u32(0u));

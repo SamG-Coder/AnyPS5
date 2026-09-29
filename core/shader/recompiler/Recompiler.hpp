@@ -225,6 +225,7 @@ struct MeshConfiguration {
     std::uint32_t ldsSizeDwords;
     std::uint32_t provokingVertex;
     std::uint32_t esgsItemSize = 0;
+    bool passthrough = false;
 };
 
 struct TessellationConfiguration {

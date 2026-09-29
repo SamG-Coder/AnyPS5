@@ -186,7 +186,7 @@ void hardwareScreenOffsetTests() {
 
 void ShaderStageTests() {
     auto queue = makeState();
-    for (const auto routing : {0x2000u, 0x2010u, 0x02002000u, 0x02002010u}) {
+    for (const auto routing : {0x2000u, 0x2010u}) {
         for (const auto vertexWave32 : {false, true}) {
             for (const auto fragmentWave32 : {false, true}) {
                 queue.context[0x2d5] = routing | (vertexWave32 ? 0x00400000u : 0u);
@@ -210,6 +210,17 @@ void ShaderStageTests() {
     auto stages = AgcDriver::Graphics::DecodeState(queue).stages;
     Require(stages.path == AgcDriver::Graphics::ShaderPath::Geometry && stages.mesh && stages.mesh->primitivesPerGroup == 21 && stages.mesh->verticesPerGroup == 63, "geometry assembly changed");
     Require(stages.mesh->maxVertices == 64 && stages.mesh->maxPrimitives == 21 && stages.mesh->threadsPerGroup == 64 && stages.mesh->esgsItemSize == 4, "geometry subgroup outputs changed");
+    for (const auto routing : {0x02002000u, 0x02002010u, 0x02402000u, 0x02402010u}) {
+        queue.context[0x2d5] = routing;
+        queue.context[0x2ce] = 0;
+        queue.context[0x29b] = 0;
+        const auto pass = AgcDriver::Graphics::DecodeState(queue).stages;
+        Require(pass.path == AgcDriver::Graphics::ShaderPath::Geometry && pass.mesh && pass.mesh->passthrough && pass.mesh->verticesPerGroup == 63 && pass.mesh->primitivesPerGroup == 21, "passthrough subgroup assembly changed");
+        Require(pass.vertexWaveSize == ((routing & 0x00400000u) ? 32u : 64u), "passthrough wave size changed");
+    }
+    queue.context[0x2d5] = 0x2020;
+    queue.context[0x2ce] = 3;
+    queue.context[0x29b] = 2;
     queue.context[0x2ab] = 0;
     expectFailure([&] { AgcDriver::Graphics::DecodeState(queue); }, "invalid VGT_ESGS_RING_ITEMSIZE");
     queue.context[0x2ab] = 4;

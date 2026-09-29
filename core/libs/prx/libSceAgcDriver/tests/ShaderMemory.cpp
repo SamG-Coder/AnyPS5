@@ -449,6 +449,13 @@ void verifyMeshConfiguration() {
     other.graphics = GraphicsCompileContext{0u, {}, otherMesh, std::nullopt, {}};
     RecompileCacheKey::Build(other, key);
     require(key != first && RecompileCacheKey::ContextHash(request) != RecompileCacheKey::ContextHash(other), "the cache keys ignore the mesh configuration");
+    otherMesh = mesh;
+    otherMesh.passthrough = true;
+    other.graphics = GraphicsCompileContext{0u, {}, otherMesh, std::nullopt, {}};
+    RecompileCacheKey::Build(other, key);
+    require(key != first && RecompileCacheKey::ContextHash(request) != RecompileCacheKey::ContextHash(other), "the cache keys ignore passthrough input layout");
+    const auto passReplay = RequestSerializer{}.Deserialize(RequestSerializer{}.Serialize(other));
+    require(passReplay.request.graphics->mesh->passthrough && !replay.request.graphics->mesh->passthrough, "passthrough input layout was lost in serialization");
 }
 
 ShaderRecompiler::ShaderPixelStageInfo twoParameterPixel() {
