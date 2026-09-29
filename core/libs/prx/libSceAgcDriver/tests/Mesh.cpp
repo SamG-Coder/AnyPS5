@@ -180,7 +180,11 @@ void CheckTriangles(const char* what) {
 
 int main() {
     try {
+#ifdef _WIN32
+        _putenv_s("APS5_NO_SHADER_DISK_CACHE", "1");
+#else
         setenv("APS5_NO_SHADER_DISK_CACHE", "1", 1);
+#endif
         for (std::uint32_t triangle = 0; triangle < Triangles; ++triangle) {
             const auto vertices = TriangleVertices(triangle);
             for (std::uint32_t k = 0; k < 3; ++k) {
