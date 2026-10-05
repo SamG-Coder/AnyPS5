@@ -15,8 +15,16 @@ struct Image {
     std::vector<std::uint8_t> pixels;
 };
 
+struct Header {
+    std::uint32_t width;
+    std::uint32_t height;
+    std::uint32_t channels;
+};
+
 std::vector<std::uint8_t> Encode(std::span<const std::uint8_t> pixels, std::uint32_t width, std::uint32_t height,
                                  std::uint32_t channels, int quality);
+
+std::optional<Header> ParseHeader(std::span<const std::uint8_t> jpeg);
 
 std::optional<Image> Decode(std::span<const std::uint8_t> jpeg);
 

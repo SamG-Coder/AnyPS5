@@ -4,8 +4,8 @@
 #include <cstdint>
 
 constexpr int PAD_OK = 0;
-constexpr int PAD_ERROR_INVALID_ARG = -2137915390;
-constexpr int PAD_ERROR_INVALID_HANDLE = -2137915384;
+constexpr int PAD_ERROR_INVALID_ARG = -2137915391;
+constexpr int PAD_ERROR_INVALID_HANDLE = -2137915389;
 
 constexpr int PAD_PORT_TYPE_STANDARD = 0;
 constexpr int PAD_PORT_TYPE_SPECIAL = 2;

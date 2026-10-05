@@ -92,6 +92,14 @@ bool RayTracingStrict() {
     return strict;
 }
 
+bool RayTracingMiss() {
+    static const bool miss = [] {
+        const char* text = std::getenv("APS5_RAYTRACING");
+        return text != nullptr && std::strcmp(text, "miss") == 0;
+    }();
+    return miss;
+}
+
 DebugProbe DebugProbeConfig() {
     static const DebugProbe parsed = [] {
         DebugProbe result;

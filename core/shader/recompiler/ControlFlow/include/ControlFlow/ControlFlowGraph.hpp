@@ -19,6 +19,7 @@ enum class BranchCondition {
     ExecZero,
     ExecNonZero,
     ScalarInstruction,
+    IndirectTarget,
     GotoVariable,
     Unknown
 };
@@ -96,11 +97,16 @@ struct StronglyConnectedComponent {
 };
 
 struct ControlFlowGraph {
+    struct CodeTableLoad {
+        std::uint32_t programCounter = 0;
+        std::vector<std::uint64_t> values;
+    };
     std::vector<BasicBlock> blocks;
     std::vector<NaturalLoop> naturalLoops;
     std::vector<BackEdge> backEdges;
     std::vector<StronglyConnectedComponent> components;
     std::vector<std::uint32_t> codeTableLoadProgramCounters;
+    std::vector<CodeTableLoad> codeTableLoads;
     std::uint32_t entryBlock = InvalidControlFlowId;
     bool irreducible = false;
     bool unsupported = false;

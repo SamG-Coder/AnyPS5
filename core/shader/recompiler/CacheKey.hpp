@@ -34,6 +34,7 @@ public:
         append(key, request.target);
         append(key, DebugProbeActive());
         append(key, RayTracingStrict());
+        append(key, RayTracingMiss());
     }
 
     // A hash over every field Build appends except the code, the target and the probe flag: the
@@ -139,6 +140,7 @@ private:
         append(key, value.sampleMaskExportEnable);
         append(key, value.earlyZ);
         append(key, value.executeOnNoop);
+        append(key, value.conservativeZExport);
         append(key, value.targetOutputMode);
         append(key, value.targetExportMapping);
     }
@@ -198,6 +200,7 @@ private:
         append(key, value.maxWorkgroupSharedMemoryBytes);
         append(key, value.mesh);
         append(key, value.tessellation);
+        append(key, value.nonConstantImageOffsets);
     }
 };
 

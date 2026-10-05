@@ -32,10 +32,15 @@ jobs:
           key: linux
           save: ${{ github.event_name == 'push' }}
           evict-old-files: job
+      - name: Install lavapipe for the GPU execution tests
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
       - run: cmake -S . -B build $CONFIGURE
       - run: cmake --build build
       - run: cmake --build build --target libs
-      - run: ctest --test-dir build --output-on-failure --timeout 120
+      - run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3
+        env:
+          ANYPS5_REQUIRE_VULKAN: 1
+          GALLIUM_OVERRIDE_CPU_CAPS: avx
 
   windows:
     runs-on: windows-latest
@@ -73,4 +78,4 @@ jobs:
       - shell: cmd
         run: cmake --build build --target libs
       - shell: cmd
-        run: ctest --test-dir build --output-on-failure --timeout 120
+        run: ctest --test-dir build --output-on-failure --timeout 120 --repeat until-fail:3

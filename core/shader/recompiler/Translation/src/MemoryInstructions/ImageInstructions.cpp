@@ -34,7 +34,9 @@ MemoryInfo imageMemoryInfoFromInstruction(const RdnaInstruction& inst) {
     memory.imageSampleFlags = inst.imageSampleFlags;
     memory.imageDimension = inst.imageDimension;
     memory.imageAddressComponents = inst.imageAddressComponents;
-    memory.imageHasMip = inst.op == RdnaOpcode::ImageLoadMip || inst.op == RdnaOpcode::ImageStoreMip;
+    memory.imageHasMip = inst.op == RdnaOpcode::ImageLoadMip || inst.op == RdnaOpcode::ImageStoreMip || inst.op == RdnaOpcode::ImageLoadMipPck || inst.op == RdnaOpcode::ImageLoadMipPckSgn || inst.op == RdnaOpcode::ImageStoreMipPck;
+    memory.imagePacked = inst.op == RdnaOpcode::ImageLoadPck || inst.op == RdnaOpcode::ImageLoadPckSgn || inst.op == RdnaOpcode::ImageLoadMipPck || inst.op == RdnaOpcode::ImageLoadMipPckSgn || inst.op == RdnaOpcode::ImageStorePck || inst.op == RdnaOpcode::ImageStoreMipPck;
+    memory.dataSigned = inst.op == RdnaOpcode::ImageLoadPckSgn || inst.op == RdnaOpcode::ImageLoadMipPckSgn;
     memory.imageR128 = inst.imageR128;
     return memory;
 }
@@ -45,6 +47,13 @@ bool TranslationContext::imageBvhIntersectRay(const RdnaInstruction& inst) {
     if (RayTracingStrict()) {
         throw std::runtime_error("ray tracing is not implemented");
     }
+    if (RayTracingMiss()) {
+        IrValue& miss = ir.Constant(0xffffffffu);
+        for (std::uint32_t i = 0u; i < inst.dataDwordCount; ++i) {
+            writeOperand(offsetOperand(inst.destination, i), &miss);
+        }
+        return true;
+    }
     if (inst.dataDwordCount != 4u || inst.imageD16) {
         throw std::runtime_error("image_bvh_intersect_ray returns four dwords");
     }
@@ -52,6 +61,7 @@ bool TranslationContext::imageBvhIntersectRay(const RdnaInstruction& inst) {
     memory.kind = ResourceKind::Global;
     memory.dataDwords = 4u;
     memory.imageSampleFlags = inst.imageA16 ? RdnaImageSampleFlagA16 : 0u;
+    memory.addressIsFull = inst.op == RdnaOpcode::ImageBvh64IntersectRay;
     IrValue* descriptor = constructU32x4(inst.source1, 4u);
     IrValue* address = makeImageAddress(inst, inst.source0);
     IrValue& result = ir.Emit(IrOpcode::ImageBvhIntersectRay, IrOpcodeType(IrOpcode::ImageBvhIntersectRay), {descriptor, address, &ir.GetExec()}, addMemoryInfo(memory, inst.programCounter));
@@ -65,11 +75,18 @@ bool TranslationContext::imageAtomic(const RdnaInstruction& inst, IrOpcode opcod
     const MemoryInfo memory = imageMemoryInfoFromInstruction(inst);
     IrValue* resource = getImageResource(memory);
     IrValue* address = makeImageAddress(inst, inst.source0);
+    const MemoryFlags flags = addMemoryInfo(memory, inst.programCounter);
     const IrU32 value = readU32(inst.destination);
     IrValue& exec = ir.GetExec();
-    IrValue& result = ir.Emit(opcode, IrOpcodeType(opcode), {resource, address, &value.Value(), &exec}, addMemoryInfo(memory, inst.programCounter));
+    IrValue* result;
+    if (opcode == IrOpcode::ImageAtomicCmpSwap32 || opcode == IrOpcode::ImageAtomicFCmpSwap32) {
+        const IrU32 comparator = readU32(offsetOperand(inst.destination, 1u));
+        result = &ir.Emit(opcode, IrOpcodeType(opcode), {resource, address, &value.Value(), &comparator.Value(), &exec}, flags);
+    } else {
+        result = &ir.Emit(opcode, IrOpcodeType(opcode), {resource, address, &value.Value(), &exec}, flags);
+    }
     if (inst.glc) {
-        writeOperand(inst.destination, &result);
+        writeOperand(inst.destination, result);
     }
     return true;
 }

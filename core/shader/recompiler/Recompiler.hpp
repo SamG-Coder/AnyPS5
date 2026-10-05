@@ -98,6 +98,12 @@ constexpr std::uint32_t PixelInputVgpr(std::uint32_t inputAddr, PixelInput input
     return vgpr;
 }
 
+enum class ConservativeZExport : std::uint8_t {
+    AnyZ,
+    LessThanZ,
+    GreaterThanZ
+};
+
 struct ShaderPixelStageInfo {
     std::uint32_t interpolatorCount;
     std::array<std::uint32_t, 32> interpolatorSettings;
@@ -119,6 +125,7 @@ struct ShaderPixelStageInfo {
     bool sampleMaskExportEnable;
     bool earlyZ;
     bool executeOnNoop;
+    ConservativeZExport conservativeZExport;
     std::array<std::uint8_t, 8> targetOutputMode;
     std::array<std::uint8_t, 8> targetExportMapping;
 };
@@ -189,6 +196,7 @@ struct SpirvTarget {
     std::uint32_t maxWorkgroupSharedMemoryBytes;
     std::optional<MeshTargetLimits> mesh;
     std::optional<TessellationTargetLimits> tessellation;
+    bool nonConstantImageOffsets = false;
 };
 
 struct BindingLayout {
@@ -237,6 +245,10 @@ struct TessellationConfiguration {
 
 inline constexpr std::uint32_t MeshDrawPushOffsetBytes = 104;
 inline constexpr std::uint32_t MeshDrawPushBytes = 24;
+inline constexpr std::uint32_t MeshArgumentAddressDword = 4;
+inline constexpr std::uint32_t MeshArgumentIndexCountDword = 3;
+inline constexpr std::uint32_t MeshArgumentFirstIndexDword = 4;
+inline constexpr std::uint32_t MeshArgumentBytes = 20;
 inline constexpr std::uint32_t MeshIndexBufferUserWord = 4;
 
 struct GraphicsDrawParameters {
@@ -305,6 +317,7 @@ struct DescriptorBinding {
     // Guest image elements the shader stores to (or updates atomically); the others are only read.
     std::vector<bool> imageWritten;
     std::vector<bool> imageDepthCompare;
+    std::vector<bool> imageAtomic;
     // Guest buffer elements the shader updates atomically (one entry per element of a GuestBuffers
     // binding, empty otherwise). An atomic on a host-imported range is a serialized PCIe round trip
     // (~0.4-0.5 us each on NVIDIA), so a driver may keep these elements in device-local memory.
@@ -329,6 +342,7 @@ struct FragmentParameter {
     std::uint32_t sourceLocation;
     bool flat;
     bool perVertex;
+    bool custom = false;
 };
 
 // Compiled SPIR-V shared between a cached variant and every result materialized from it: results
@@ -391,6 +405,7 @@ struct RecompileResult {
     bool instanceOffsetShared = false;
     bool vertexOffsetConflict = false;
     bool instanceOffsetConflict = false;
+    std::uint32_t hostSubgroupSize = 0;
     std::vector<std::uint32_t> parameterExports;
     std::vector<FragmentParameter> fragmentParameters;
     bool cacheHit = false;
@@ -416,6 +431,7 @@ struct ResourceCapture;
 void SetDebugProbeActive(bool active);
 [[nodiscard]] bool DebugProbeActive();
 [[nodiscard]] bool RayTracingStrict();
+[[nodiscard]] bool RayTracingMiss();
 
 struct RectListShaders {
     RecompileResult control;

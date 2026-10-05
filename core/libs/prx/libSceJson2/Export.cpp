@@ -269,8 +269,11 @@ public:
     }
 
 private:
+    static constexpr std::size_t MaxNestingDepth = 512;
+
     const char* _text;
     const char* _end;
+    std::size_t _depth = 0;
 
     void skip() { while (_text < _end && (*_text == ' ' || *_text == '\t' || *_text == '\n' || *_text == '\r')) ++_text; }
     bool literal(const char* word) {
@@ -386,10 +389,12 @@ private:
                 return true;
             }
             case '[': {
+                if (_depth == MaxNestingDepth) return false;
                 ++_text;
+                ++_depth;
                 SetType(out, TypeArray);
                 skip();
-                if (_text < _end && *_text == ']') { ++_text; return true; }
+                if (_text < _end && *_text == ']') { ++_text; --_depth; return true; }
                 for (;;) {
                     Value item{};
                     Construct(item);
@@ -398,15 +403,17 @@ private:
                     if (!value(*item.node)) return false;
                     skip();
                     if (_text < _end && *_text == ',') { ++_text; continue; }
-                    if (_text < _end && *_text == ']') { ++_text; return true; }
+                    if (_text < _end && *_text == ']') { ++_text; --_depth; return true; }
                     return false;
                 }
             }
             case '{': {
+                if (_depth == MaxNestingDepth) return false;
                 ++_text;
+                ++_depth;
                 SetType(out, TypeObject);
                 skip();
-                if (_text < _end && *_text == '}') { ++_text; return true; }
+                if (_text < _end && *_text == '}') { ++_text; --_depth; return true; }
                 for (;;) {
                     skip();
                     std::string key;
@@ -422,7 +429,7 @@ private:
                     if (!value(*pair.value.node)) return false;
                     skip();
                     if (_text < _end && *_text == ',') { ++_text; continue; }
-                    if (_text < _end && *_text == '}') { ++_text; return true; }
+                    if (_text < _end && *_text == '}') { ++_text; --_depth; return true; }
                     return false;
                 }
             }
@@ -734,4 +741,10 @@ int APS5_VABI _ZN3sce4Json6Parser5parseERNS0_5ValueEPKcm(Value* out, const char*
     return 0;
 }
 
+
+APS5_EXPORT("6i18OJSvFWk", sceJson2Unknown00);
+int APS5_VABI sceJson2Unknown00(void) {
+    NotImplemented_nid_no_patch("6i18OJSvFWk");
+    return 0;
+}
 }

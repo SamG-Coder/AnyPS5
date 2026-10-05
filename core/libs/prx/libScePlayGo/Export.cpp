@@ -9,16 +9,20 @@
 #include <string>
 
 // The game is fully installed on the host, so every chunk is local and nothing is pending.
-static constexpr int SCE_PLAYGO_ERROR_BAD_POINTER = static_cast<int>(0x80B20004);
-static constexpr int SCE_PLAYGO_ERROR_BAD_HANDLE = static_cast<int>(0x80B20005);
+static constexpr int SCE_PLAYGO_ERROR_BAD_POINTER = static_cast<int>(0x80B2000A);
+static constexpr int SCE_PLAYGO_ERROR_BAD_HANDLE = static_cast<int>(0x80B20009);
 static constexpr int PLAYGO_HANDLE = 1;
+static constexpr int8_t PLAYGO_LOCUS_NOT_DOWNLOADED = 0;
+static constexpr int8_t PLAYGO_LOCUS_LOCAL_SLOW = 2;
 static constexpr int8_t PLAYGO_LOCUS_LOCAL_FAST = 3;
+static constexpr uint64_t PLAYGO_LANGUAGE_MASK_ALL = ~0ull;
 static constexpr int32_t PLAYGO_INSTALL_SPEED_FULL = 2;
 
 static int32_t g_installSpeed = PLAYGO_INSTALL_SPEED_FULL;
 
 static constexpr int SCE_PLAYGO_ERROR_BAD_CHUNK_ID = static_cast<int>(0x80B2000C);
-static constexpr int SCE_PLAYGO_ERROR_BAD_SIZE = static_cast<int>(0x80B2000D);
+static constexpr int SCE_PLAYGO_ERROR_BAD_SIZE = static_cast<int>(0x80B2000B);
+static constexpr int SCE_PLAYGO_ERROR_BAD_LOCUS = static_cast<int>(0x80B20010);
 
 // The package's chunk table is not part of the dump, so the chunk set comes from the title's
 // playgo-chunkdefs.xml: every listed chunk plus chunks 0 through the default chunk. Games probe
@@ -96,10 +100,10 @@ int APS5_VABI scePlayGoGetInstallSpeed(int handle, int32_t* out_speed) {
 }
 
 int APS5_VABI scePlayGoGetLanguageMask(int handle, uint64_t* out_language_mask) {
- (void)handle;
- (void)out_language_mask;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (handle != PLAYGO_HANDLE) return SCE_PLAYGO_ERROR_BAD_HANDLE;
+    if (!out_language_mask) return SCE_PLAYGO_ERROR_BAD_POINTER;
+    *out_language_mask = PLAYGO_LANGUAGE_MASK_ALL;
+    return 0;
 }
 
 int APS5_VABI scePlayGoGetLocus(int handle, const uint16_t* chunk_ids, uint32_t number_of_entries, int8_t* out_loci) {
@@ -176,11 +180,16 @@ int APS5_VABI scePlayGoSetInstallSpeed(int handle, int32_t speed) {
 }
 
 int APS5_VABI scePlayGoSetToDoList(int handle, const PlayGoToDo* todo_list, uint32_t number_of_entries) {
- (void)handle;
- (void)todo_list;
- (void)number_of_entries;
- NotImplemented_nid_no_patch(__func__);
- return 0;
+    if (handle != PLAYGO_HANDLE) return SCE_PLAYGO_ERROR_BAD_HANDLE;
+    if (!todo_list) return SCE_PLAYGO_ERROR_BAD_POINTER;
+    if (number_of_entries == 0) return SCE_PLAYGO_ERROR_BAD_SIZE;
+    const auto& valid = ValidChunks();
+    for (uint32_t index = 0; index < number_of_entries; ++index) {
+        if (!valid.contains(todo_list[index].chunk_id)) return SCE_PLAYGO_ERROR_BAD_CHUNK_ID;
+        const int8_t locus = todo_list[index].locus;
+        if (locus != PLAYGO_LOCUS_NOT_DOWNLOADED && locus != PLAYGO_LOCUS_LOCAL_SLOW && locus != PLAYGO_LOCUS_LOCAL_FAST) return SCE_PLAYGO_ERROR_BAD_LOCUS;
+    }
+    return 0;
 }
 
 int APS5_VABI scePlayGoTerminate(void) {

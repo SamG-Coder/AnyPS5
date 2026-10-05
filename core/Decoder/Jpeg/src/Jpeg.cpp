@@ -47,6 +47,17 @@ std::vector<std::uint8_t> Encode(std::span<const std::uint8_t> pixels, std::uint
     return output;
 }
 
+std::optional<Header> ParseHeader(std::span<const std::uint8_t> jpeg) {
+    if (jpeg.empty() || jpeg.size() > INT_MAX) return std::nullopt;
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    if (!stbi_info_from_memory(jpeg.data(), static_cast<int>(jpeg.size()), &width, &height, &channels)) return std::nullopt;
+    if (width <= 0 || height <= 0 || channels <= 0) return std::nullopt;
+    return Header{static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), static_cast<std::uint32_t>(channels)};
+}
+
 std::optional<Image> Decode(std::span<const std::uint8_t> jpeg) {
     if (jpeg.empty() || jpeg.size() > INT_MAX) return std::nullopt;
 

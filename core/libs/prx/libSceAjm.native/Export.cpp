@@ -14,13 +14,6 @@ static void AjmStub(const char* name) {
 
 extern "C" {
 
-int APS5_VABI sceAjmBatchCancel(uint32_t context, uint32_t batch) {
- (void)context;
- (void)batch;
- AjmStub(__func__);
- return 0;
-}
-
 int APS5_VABI sceAjmBatchJobControl(AjmBatchInfo* info, uint32_t instance, uint64_t flags, const void* sideband_input, size_t sideband_input_size, void* sideband_output, size_t sideband_output_size) {
  (void)info;
  (void)instance;
@@ -29,18 +22,6 @@ int APS5_VABI sceAjmBatchJobControl(AjmBatchInfo* info, uint32_t instance, uint6
  (void)sideband_input_size;
  (void)sideband_output;
  (void)sideband_output_size;
- AjmStub(__func__);
- return 0;
-}
-
-int APS5_VABI sceAjmBatchJobDecodeSingle(AjmBatchInfo* info, uint32_t instance, const void* bitstream_input, size_t bitstream_input_size, void* pcm_output, size_t pcm_output_size, void* result) {
- (void)info;
- (void)instance;
- (void)bitstream_input;
- (void)bitstream_input_size;
- (void)pcm_output;
- (void)pcm_output_size;
- (void)result;
  AjmStub(__func__);
  return 0;
 }
@@ -64,23 +45,6 @@ int APS5_VABI sceAjmBatchJobEncode(AjmBatchInfo* info, uint32_t instance, const 
  (void)pcm_input_size;
  (void)bitstream_output;
  (void)bitstream_output_size;
- (void)result;
- AjmStub(__func__);
- return 0;
-}
-
-int APS5_VABI sceAjmBatchJobGetCodecInfo(AjmBatchInfo* info, uint32_t instance, void* result, size_t result_size) {
- (void)info;
- (void)instance;
- (void)result;
- (void)result_size;
- AjmStub(__func__);
- return 0;
-}
-
-int APS5_VABI sceAjmBatchJobGetGaplessDecode(AjmBatchInfo* info, uint32_t instance, void* result) {
- (void)info;
- (void)instance;
  (void)result;
  AjmStub(__func__);
  return 0;
@@ -127,11 +91,6 @@ const char* APS5_VABI sceAjmStrError(int error) {
  (void)error;
  AjmStub(__func__);
  return nullptr;
-}
-
-int APS5_VABI sceAjmDecMp3ParseFrame() {
- AjmStub(__func__);
- return 0;
 }
 
 }

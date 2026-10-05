@@ -17,36 +17,25 @@ std::size_t X64InstructionDecoder::Decode(const std::uint8_t* data, std::size_t 
     while (pos < available) {
         const std::uint8_t b = data[pos];
 
+        if (b >= RexMin && b <= RexMax) {
+            rexPresent = true;
+            rex = b;
+            pos += 1;
+            continue;
+        }
+
         if (b == PrefixRepne) {
             repnePrefix = true;
-            pos += 1;
-            continue;
-        }
-
-        if (b == PrefixLock || b == PrefixRep ||
-            b == PrefixSegCs || b == PrefixSegSs || b == PrefixSegDs || b == PrefixSegEs ||
-            b == PrefixSegFs || b == PrefixSegGs) {
-            pos += 1;
-            continue;
-        }
-
-        if (b == PrefixOperandSize) {
+        } else if (b == PrefixOperandSize) {
             operandSizeOverride = true;
-            pos += 1;
-            continue;
+        } else if (b != PrefixLock && b != PrefixRep && b != PrefixAddressSize &&
+                   b != PrefixSegCs && b != PrefixSegSs && b != PrefixSegDs &&
+                   b != PrefixSegEs && b != PrefixSegFs && b != PrefixSegGs) {
+            break;
         }
 
-        if (b == PrefixAddressSize) {
-            pos += 1;
-            continue;
-        }
-
-        break;
-    }
-
-    if (pos < available && data[pos] >= RexMin && data[pos] <= RexMax) {
-        rexPresent = true;
-        rex = data[pos];
+        rexPresent = false;
+        rex = 0;
         pos += 1;
     }
 
@@ -340,40 +329,57 @@ DecodedInstructionInfo X64InstructionDecoder::DecodeInstruction(
 
     while (pos < info.Length) {
         std::uint8_t b = data[pos];
+        if (b >= RexMin && b <= RexMax) {
+            info.RexPrefix = b;
+            ++pos;
+            continue;
+        }
         if (b == PrefixLock || b == PrefixRepne || b == PrefixRep ||
             b == PrefixSegCs || b == PrefixSegSs || b == PrefixSegDs ||
             b == PrefixSegEs || b == PrefixSegFs || b == PrefixSegGs ||
             b == PrefixOperandSize || b == PrefixAddressSize) {
             if (b >= PrefixSegFs && b <= PrefixSegGs)
                 info.SegmentPrefix = b;
+            info.RexPrefix = 0;
             ++pos;
             continue;
         }
         break;
     }
 
-    if (pos < info.Length && data[pos] >= RexMin && data[pos] <= RexMax)
-        info.RexPrefix = data[pos++];
-
     info.OpcodeOffset = pos;
 
     if (pos >= info.Length)
         return info;
 
+    const auto readModRm = [&](const std::size_t modrmPos) {
+        const std::uint8_t modrm = data[modrmPos];
+        info.HasModRm = true;
+        info.ModRmByte = modrm;
+        info.ModRmRegField = (modrm >> ModRmRegShift) & ModRmRegMask;
+        const std::uint8_t mod = (modrm >> ModRmModShift) & ModRmModMask;
+        const std::uint8_t rm = modrm & ModRmRmMask;
+        if (mod == ModRmModIndirect && rm == ModRmRmRipRelative) {
+            info.HasRipRelativeDisp = true;
+            info.RipRelativeDispOffset = modrmPos + 1;
+        }
+    };
+
     std::uint8_t op = data[pos++];
     bool twoByteOpcode = false;
 
-    if (op == OneByteVex2 || op == OneByteVex3) {
-        info.FlowKind = ControlFlowKind::Sequential;
-        return info;
-    }
-    if (op == EvexPrefix) {
+    if (op == OneByteVex2 || op == OneByteVex3 || op == EvexPrefix) {
+        pos += (op == OneByteVex2 ? 1 : (op == OneByteVex3 ? 2 : EvexPrefixLength - 1)) + 1;
+        if (pos < info.Length)
+            readModRm(pos);
         info.FlowKind = ControlFlowKind::Sequential;
         return info;
     }
     if (op == TwoByteOpcodeEscape && pos < info.Length) {
         twoByteOpcode = true;
         op = data[pos++];
+        if (op == ThreeByteEscape38 || op == ThreeByteEscape3A)
+            ++pos;
     }
 
     info.Opcode = op;
@@ -514,6 +520,7 @@ DecodedInstructionInfo X64InstructionDecoder::DecodeInstruction(
             op == TwoByteGrp15 || op == TwoByteXadd ||
             op == TwoByteGrp9 || op == TwoByteNopModRm ||
             op == TwoByteEndbr || op == TwoByteMovImm8ModRm ||
+            op == ThreeByteEscape38 || op == ThreeByteEscape3A ||
             (op >= TwoByteShiftImm8Min && op <= TwoByteShiftImm8Max) ||
             op == TwoByteShldImm8 || op == TwoByteShrdImm8 ||
             op == TwoByteShufpsImm8 || op == TwoByteShufpdImm8 ||
@@ -527,18 +534,8 @@ DecodedInstructionInfo X64InstructionDecoder::DecodeInstruction(
             hasModRm = true;
     }
 
-    if (hasModRm && pos < info.Length) {
-        std::uint8_t modrm = data[pos];
-        info.HasModRm = true;
-        info.ModRmByte = modrm;
-        info.ModRmRegField = (modrm >> ModRmRegShift) & ModRmRegMask;
-        std::uint8_t mod = (modrm >> ModRmModShift) & ModRmModMask;
-        std::uint8_t rm = modrm & ModRmRmMask;
-        if (mod == ModRmModIndirect && rm == ModRmRmRipRelative) {
-            info.HasRipRelativeDisp = true;
-            info.RipRelativeDispOffset = pos + 1;
-        }
-    }
+    if (hasModRm && pos < info.Length)
+        readModRm(pos);
 
     info.FlowKind = ControlFlowKind::Sequential;
     return info;

@@ -8,6 +8,7 @@
 #include <thread>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/GuestArena.hpp"
 #include "prx/libkernel/KernelErrors.hpp"
 
 #ifdef _WIN32
@@ -49,6 +50,11 @@ void SetState(std::int32_t id, std::int32_t state) {
 }
 
 std::int64_t NativePread(std::int32_t fd, void* buf, std::size_t nbyte, std::int64_t offset) {
+    const GuestArena::HostWrite destination(buf, nbyte);
+    if (!destination.Open()) {
+        errno = EFAULT;
+        return -1;
+    }
 #ifdef _WIN32
     if (nbyte > static_cast<std::size_t>(std::numeric_limits<unsigned int>::max())) {
         throw std::runtime_error("sceKernelAioSubmitReadCommands: nbytes exceeds platform limit");
@@ -110,6 +116,7 @@ int SubmitCommands(KernelAioRwRequest* req, std::int32_t size, bool write, std::
             const int error = errno;
             req[i].result->return_value = static_cast<std::int64_t>(SCE_KERNEL_ERROR_EIO);
             if (error == EBADF) req[i].result->return_value = static_cast<std::int64_t>(SCE_KERNEL_ERROR_EBADF);
+            if (error == EFAULT) req[i].result->return_value = static_cast<std::int64_t>(SCE_KERNEL_ERROR_EFAULT);
             req[i].result->state = AioAborted;
             aborted = true;
         } else {

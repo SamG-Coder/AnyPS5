@@ -88,7 +88,7 @@ public:
             }
             const auto base = cursor + done;
             shared->aliases.push_back(base);
-            views.emplace(base, View{shared, protection, 0, false, owned, offset + done});
+            views.emplace(base, View{shared, protection, 0, false, owned, offset + done, 0});
             invalidate(*shared);
         }
     }
@@ -113,6 +113,34 @@ public:
         if (!VirtualProtect(reinterpret_cast<void*>(base), pageBytes, view.protection, &previous)) fail("resume shared memory write");
         view.armed = false;
         return true;
+    }
+
+    bool BeginHostWrite(std::uintptr_t address, std::size_t bytes) {
+        std::lock_guard lock(mutex);
+        const auto first = views.lower_bound(address & ~(pageBytes - 1));
+        const auto end = address + bytes;
+        for (auto it = first; it != views.end() && it->first < end; ++it) {
+            if (!writable(it->second.protection)) return false;
+        }
+        for (auto it = first; it != views.end() && it->first < end; ++it) {
+            auto& view = it->second;
+            ++view.hostWrites;
+            invalidate(*view.page);
+            if (!view.armed) continue;
+            DWORD previous;
+            if (!VirtualProtect(reinterpret_cast<void*>(it->first), pageBytes, view.protection, &previous)) fail("open shared memory to a host write");
+            view.armed = false;
+        }
+        return true;
+    }
+
+    void EndHostWrite(std::uintptr_t address, std::size_t bytes) {
+        std::lock_guard lock(mutex);
+        const auto end = address + bytes;
+        for (auto it = views.lower_bound(address & ~(pageBytes - 1)); it != views.end() && it->first < end; ++it) {
+            --it->second.hostWrites;
+            invalidate(*it->second.page);
+        }
     }
 
     void* MapAlias(std::uintptr_t address, std::size_t bytes) {
@@ -190,7 +218,7 @@ public:
                 if (clear) {
                     for (const auto alias : view.page->aliases) {
                         auto& other = views.at(alias);
-                        if (!writable(other.protection) || other.armed) continue;
+                        if (!writable(other.protection) || other.armed || other.hostWrites != 0) continue;
                         DWORD previous;
                         const DWORD protection = other.protection == PAGE_EXECUTE_READWRITE ? PAGE_EXECUTE_READ : PAGE_READONLY;
                         if (!VirtualProtect(reinterpret_cast<void*>(alias), pageBytes, protection, &previous)) fail("arm shared memory write tracking");
@@ -236,6 +264,7 @@ private:
         bool armed;
         std::shared_ptr<Section> section;
         std::uint64_t offset;
+        std::uint32_t hostWrites;
     };
     void forgetClean(std::uintptr_t start, std::uintptr_t end) {
         auto it = cleanRanges.lower_bound(start);

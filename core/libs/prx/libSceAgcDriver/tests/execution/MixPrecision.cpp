@@ -1,6 +1,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
+#include "VulkanTestDevice.hpp"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -134,9 +135,10 @@ void Check() {
 
 int main() {
     try {
-        AgcDriver::VulkanDevice device;
+        const auto device = OpenVulkanTestDevice();
+        if (!device) return VulkanTestSkipped;
         FillInput();
-        Run(device);
+        Run(*device);
         Check();
         std::puts("mix precision tests passed");
         return 0;

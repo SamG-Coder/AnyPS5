@@ -4,6 +4,7 @@
 #include <array>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <list>
 #include <mutex>
@@ -24,22 +25,35 @@
 
 static constexpr int VIDEO_OUT_ERROR_INVALID_VALUE = -2144796671;
 static constexpr int VIDEO_OUT_ERROR_INVALID_ADDRESS = -2144796670;
-static constexpr int VIDEO_OUT_ERROR_INVALID_HANDLE = -2144796669;
-static constexpr int VIDEO_OUT_ERROR_INVALID_EVENT_QUEUE = -2144796668;
-static constexpr int VIDEO_OUT_ERROR_INVALID_INDEX = -2144796667;
-static constexpr int VIDEO_OUT_ERROR_INVALID_OPTION = -2144796666;
-static constexpr int VIDEO_OUT_ERROR_INVALID_CATEGORY = -2144796664;
-static constexpr int VIDEO_OUT_ERROR_SLOT_OCCUPIED = -2144796663;
-static constexpr int VIDEO_OUT_ERROR_RESOURCE_BUSY = -2144796656;
+static constexpr int VIDEO_OUT_ERROR_INVALID_HANDLE = -2144796661;
+static constexpr int VIDEO_OUT_ERROR_INVALID_EVENT_QUEUE = -2144796660;
+static constexpr int VIDEO_OUT_ERROR_INVALID_INDEX = -2144796662;
+static constexpr int VIDEO_OUT_ERROR_INVALID_OPTION = -2144796646;
+static constexpr int VIDEO_OUT_ERROR_INVALID_CATEGORY = -2144796643;
+static constexpr int VIDEO_OUT_ERROR_SLOT_OCCUPIED = -2144796656;
+static constexpr int VIDEO_OUT_ERROR_RESOURCE_BUSY = -2144796663;
 static constexpr int VIDEO_OUT_ERROR_FLIP_QUEUE_FULL = -2144796654;
-static constexpr int VIDEO_OUT_ERROR_UNSUPPORTED_OUTPUT_MODE = -2144796634;
-static constexpr int VIDEO_OUT_ERROR_UNAVAILABLE_OUTPUT_MODE = -2144796633;
-static constexpr int VIDEO_OUT_ERROR_INVALID_EVENT = -2144796624;
+static constexpr int VIDEO_OUT_ERROR_UNSUPPORTED_OUTPUT_MODE = -2144796650;
+static constexpr int VIDEO_OUT_ERROR_UNAVAILABLE_OUTPUT_MODE = -2144796647;
+static constexpr int VIDEO_OUT_ERROR_INVALID_EVENT = -2144796659;
 
 static constexpr int VIDEO_OUT_BUS_TYPE_MAIN = 0;
-static constexpr std::uint32_t VIDEO_OUT_OPEN_PARAM_SIZE = 16;
 static constexpr int VIDEO_OUT_BUS_TYPE_OVERLAY = 1;
 static constexpr int VIDEO_OUT_BUS_TYPE_SUB = 2;
+
+static constexpr std::uint32_t VIDEO_OUT_OPEN_PARAM_FIRST_WORD = 16;
+static constexpr std::int32_t VIDEO_OUT_SERVICE_THREAD_PRIORITY_HIGHEST = 256;
+static constexpr std::int32_t VIDEO_OUT_SERVICE_THREAD_PRIORITY_LOWEST = 767;
+static constexpr std::uint64_t VIDEO_OUT_SERVICE_THREAD_AFFINITY_ALL = 0x1FFF;
+
+struct VideoOutOpenParam {
+    std::uint32_t firstWord;
+    std::uint32_t setPriority;
+    std::int32_t priority;
+    std::uint32_t setAffinity;
+    std::uint64_t affinity;
+};
+static_assert(offsetof(VideoOutOpenParam, affinity) == 16);
 
 static constexpr int VIDEO_OUT_BUFFER_NUM_MAX = 16;
 static constexpr int VIDEO_OUT_BUFFER_ATTRIBUTE_NUM_MAX = 4;
@@ -48,6 +62,9 @@ static constexpr std::size_t VIDEO_OUT_FLIP_QUEUE_CAPACITY = 16;
 
 static constexpr int VIDEO_OUT_BUFFER_ATTRIBUTE_CATEGORY_UNCOMPRESSED = 0;
 static constexpr int VIDEO_OUT_BUFFER_ATTRIBUTE_CATEGORY_COMPRESSED = 1;
+static constexpr std::uint64_t VIDEO_OUT_BUFFER_ATTRIBUTE_OPTION_NONE = 0;
+static constexpr std::uint64_t VIDEO_OUT_BUFFER_ATTRIBUTE_OPTION_STRICT_COLORIMETRY = 8;
+static constexpr std::uint32_t VIDEO_OUT_DCC_CONTROL_BLOCK_LAYOUT = 0x10026c;
 
 static constexpr int VIDEO_OUT_EVENT_FLIP = 0;
 static constexpr int VIDEO_OUT_EVENT_VBLANK = 1;

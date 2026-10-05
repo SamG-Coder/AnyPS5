@@ -57,6 +57,7 @@ void SetLightBar(bool valid, std::uint8_t r, std::uint8_t g, std::uint8_t b);
 void SetTriggerCommand(int trigger, const std::uint8_t* command);
 void ResetOrientation();
 void SetMotionEnabled(bool enabled);
+void SetTiltCorrection(bool enabled);
 }
 
 extern "C" void PadPublishInput_nid_postfix(const PadInputState& input);

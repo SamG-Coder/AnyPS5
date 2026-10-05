@@ -57,6 +57,7 @@ int NativeError() {
         case EAGAIN: return 35;
         case EADDRINUSE: return 48;
         case EADDRNOTAVAIL: return 49;
+        case EACCES: return 13;
         case EMSGSIZE: return 40;
         case ENETUNREACH: return 51;
         case EHOSTUNREACH: return 65;
@@ -65,6 +66,10 @@ int NativeError() {
         case ECONNABORTED: return 53;
         case EISCONN: return 56;
         case ENOTCONN: return 57;
+        case ENOBUFS: return 55;
+        case ETIMEDOUT: return 60;
+        case EINTR: return 4;
+        case EINVAL: return 22;
         default: return 5;
     }
 #endif

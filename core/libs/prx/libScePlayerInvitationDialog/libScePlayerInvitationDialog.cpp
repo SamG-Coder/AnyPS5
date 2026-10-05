@@ -1,6 +1,7 @@
 #include "prx/libScePlayerInvitationDialog/libScePlayerInvitationDialog.h"
 
 #include <mutex>
+#include "prx/libc/include/General.hpp"
 #include "prx/libc/include/general/LogMacros.hpp"
 
 namespace {
@@ -63,6 +64,12 @@ std::int32_t APS5_VABI scePlayerInvitationDialogTerminate(void) {
     std::lock_guard lock(g_dialog_mutex);
     APS5_LOG_OUT("status=%d", status());
     g_dialog_status = PlayerInvitationDialogStatus::None;
+    return 0;
+}
+
+std::int32_t APS5_VABI scePlayerInvitationDialogGetResult(void* result) {
+    (void)result;
+    NotImplemented_nid_no_patch(__func__);
     return 0;
 }
 

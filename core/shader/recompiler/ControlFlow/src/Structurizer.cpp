@@ -501,6 +501,47 @@ bool isInnermostLoopControlConditional(const ControlFlowGraph& graph, const Basi
     return (isControlTarget(trueTarget) && (isControlTarget(falseTarget) || isInsideLoopConstruct(graph, *loop, falseTarget))) || (isControlTarget(falseTarget) && isInsideLoopConstruct(graph, *loop, trueTarget));
 }
 
+std::uint32_t exitTailSelectionMerge(const ControlFlowGraph& graph, const BasicBlock& block) {
+    if (block.terminator.kind != TerminatorKind::ConditionalBranch) {
+        return InvalidControlFlowId;
+    }
+    const auto* loop = findInnermostContainingLoop(graph, block.id);
+    if (loop == nullptr || loop->mergeBlock == InvalidControlFlowId || loop->continueBlock == InvalidControlFlowId || block.id == loop->continueBlock) {
+        return InvalidControlFlowId;
+    }
+    const auto trueTarget = block.terminator.trueBlock;
+    const auto falseTarget = block.terminator.falseBlock;
+    const bool trueInBody = contains(loop->blocks, trueTarget);
+    if (trueInBody == contains(loop->blocks, falseTarget)) {
+        return InvalidControlFlowId;
+    }
+    const auto body = trueInBody ? trueTarget : falseTarget;
+    const auto tail = trueInBody ? falseTarget : trueTarget;
+    if (tail == loop->mergeBlock || tail == loop->continueBlock || !isInsideLoopConstruct(graph, *loop, tail) || !graph.Dominates(block.id, body) || !graph.Dominates(block.id, tail)) {
+        return InvalidControlFlowId;
+    }
+    std::vector<std::uint32_t> pending{tail};
+    std::vector<std::uint32_t> seen;
+    while (!pending.empty()) {
+        const auto blockId = pending.back();
+        pending.pop_back();
+        if (contains(seen, blockId)) {
+            continue;
+        }
+        seen.push_back(blockId);
+        for (const auto successor : graph.FindBlock(blockId).successors) {
+            if (successor == loop->mergeBlock) {
+                continue;
+            }
+            if (contains(loop->blocks, successor) || !graph.Dominates(tail, successor) || !isInsideLoopConstruct(graph, *loop, successor)) {
+                return InvalidControlFlowId;
+            }
+            pending.push_back(successor);
+        }
+    }
+    return body;
+}
+
 bool mergeLeavesContainingLoop(const ControlFlowGraph& graph, std::uint32_t header, std::uint32_t merge) {
     for (const auto& loop : graph.naturalLoops) {
         if (loop.headerBlock != header && isInsideLoopConstruct(graph, loop, header) && !isInsideLoopConstruct(graph, loop, merge)) {
@@ -550,6 +591,28 @@ bool splitSharedMergeBlock(ControlFlowGraph& graph, std::uint32_t merge, const s
 
     moveBlockBefore(graph, syntheticMerge, merge);
     return true;
+}
+
+bool splitOneReturnJoin(ControlFlowGraph& graph) {
+    for (const auto& block : graph.blocks) {
+        if (block.terminator.kind != TerminatorKind::ConditionalBranch || findInnermostContainingLoop(graph, block.id) != nullptr || findSelectionMerge(graph, block) != InvalidControlFlowId) {
+            continue;
+        }
+        const auto returns = [&](std::uint32_t target) { return graph.Dominates(block.id, target) && hasLinearPathToTerminal(graph, target); };
+        const auto joinsEnclosing = [&](std::uint32_t target) {
+            const auto& predecessors = graph.FindBlock(target).predecessors;
+            return !graph.Dominates(block.id, target) && std::all_of(predecessors.begin(), predecessors.end(), [&](std::uint32_t predecessor) {
+                return graph.Dominates(block.id, predecessor) || graph.Dominates(predecessor, block.id);
+            });
+        };
+        const auto trueTarget = block.terminator.trueBlock;
+        const auto falseTarget = block.terminator.falseBlock;
+        const auto join = returns(trueTarget) && joinsEnclosing(falseTarget) ? falseTarget : returns(falseTarget) && joinsEnclosing(trueTarget) ? trueTarget : InvalidControlFlowId;
+        if (join != InvalidControlFlowId && splitSharedMergeBlock(graph, join, dominatedBlocks(graph, block.id, join))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool splitOneLoopMerge(ControlFlowGraph& graph) {
@@ -1116,11 +1179,15 @@ void Structurizer::Structurize(ControlFlowGraph& graph) const {
         header.terminator.continueBlock = loop.continueBlock;
     }
 
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> exitTails;
     for (auto& block : graph.blocks) {
         if (block.terminator.kind != TerminatorKind::ConditionalBranch || block.terminator.loopHeader) {
             continue;
         }
         if (isInnermostLoopControlConditional(graph, block)) {
+            if (const auto merge = exitTailSelectionMerge(graph, block); merge != InvalidControlFlowId) {
+                exitTails.emplace_back(block.id, merge);
+            }
             continue;
         }
 
@@ -1131,6 +1198,13 @@ void Structurizer::Structurize(ControlFlowGraph& graph) const {
 
         reserveMergeBlock(block.id, merge);
         block.terminator.mergeBlock = merge;
+    }
+    for (const auto& [header, merge] : exitTails) {
+        if (mergeHeaders.contains(merge)) {
+            continue;
+        }
+        reserveMergeBlock(header, merge);
+        graph.FindBlock(header).terminator.mergeBlock = merge;
     }
 }
 
@@ -1349,7 +1423,7 @@ void Structurizer::splitSharedMergeBlocks(ControlFlowGraph& graph) const {
     }
     SplitBudget budget{programWords, std::max(CloneWordLimit, programWords / CloneBudgetDivisor), std::max(CloneWordLimit, programWords), nextGotoVariable};
     for (std::uint32_t splits = 0; splits < splitBudget; ++splits) {
-        if (!splitOneLoopMerge(graph) && !splitOneSelectionMerge(graph, budget, [this](ControlFlowGraph& candidate) { recomputeAnalyses(candidate); })) {
+        if (!splitOneLoopMerge(graph) && !splitOneSelectionMerge(graph, budget, [this](ControlFlowGraph& candidate) { recomputeAnalyses(candidate); }) && !splitOneReturnJoin(graph)) {
             return;
         }
         rebuildPredecessors(graph);

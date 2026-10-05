@@ -1,4 +1,5 @@
 #include "prx/libkernel/File/include/DirectoryDescriptor.hpp"
+#include "prx/libkernel/KernelErrors.hpp"
 
 #ifdef _WIN32
 
@@ -54,7 +55,7 @@ void ForgetDirectoryDescriptor(int fd) {
 int ReadDirectoryDescriptor(int fd, char* buf, int nbytes) {
     std::lock_guard lock(g_mutex);
     const auto found = g_directories.find(fd);
-    if (found == g_directories.end()) return -1;
+    if (found == g_directories.end()) return SCE_KERNEL_ERROR_ENOTDIR;
     auto& state = found->second;
     if (!state.loaded) {
         state.loaded = true;
@@ -70,7 +71,10 @@ int ReadDirectoryDescriptor(int fd, char* buf, int nbytes) {
     while (state.cursor < state.entries.size()) {
         const auto& [name, type] = state.entries[state.cursor];
         const std::size_t record = (8 + name.size() + 1 + 3) & ~std::size_t{3};
-        if (used + record > static_cast<std::size_t>(nbytes)) break;
+        if (used + record > static_cast<std::size_t>(nbytes)) {
+            if (used == 0) return SCE_KERNEL_ERROR_EINVAL;
+            break;
+        }
         char* out = buf + used;
         std::memset(out, 0, record);
         const auto fileNumber = static_cast<std::uint32_t>(state.cursor + 1);

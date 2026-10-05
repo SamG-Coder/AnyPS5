@@ -2,6 +2,7 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libc/include/GuestArena.hpp"
 #include "prx/libkernel/Apr/include/AprCommandBuffer.hpp"
 #include "prx/libkernel/File/include/NativeStat.hpp"
 #include "prx/libkernel/Equeue/Equeue.hpp"
@@ -121,6 +122,23 @@ AprFile _file(std::uint32_t id) {
     return g_files[id];
 }
 
+constexpr std::uint32_t INVALID_FILE_ID = 0xFFFFFFFFu;
+constexpr int SCE_KERNEL_ERROR_ENOENT = static_cast<int>(0x80020002);
+
+int _resolveForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!paths || !ids) return _fail(GUEST_EINVAL);
+    for (uint32_t index = 0; index < count; ++index) {
+        const std::string path = prefix ? (paths[index] ? std::string(prefix) + paths[index] : std::string()) : (paths[index] ? std::string(paths[index]) : std::string());
+        const bool resolved = !path.empty() && _resolve(path.c_str(), &ids[index], sizes ? &sizes[index] : nullptr);
+        if (!resolved) {
+            ids[index] = INVALID_FILE_ID;
+            if (sizes) sizes[index] = 0;
+        }
+        if (results) results[index] = resolved ? 0 : SCE_KERNEL_ERROR_ENOENT;
+    }
+    return 0;
+}
+
 void _readFile(const Apr::ReadFileCommand& command) {
     const auto file = _file(command.fileId);
     static const bool trace = std::getenv("APS5_TRACE_APR") != nullptr;
@@ -128,8 +146,12 @@ void _readFile(const Apr::ReadFileCommand& command) {
     std::ifstream stream(file.path, std::ios::binary);
     if (!stream) throw std::runtime_error("APR: cannot open " + file.path.string());
     stream.seekg(static_cast<std::streamoff>(command.offset));
+    const GuestArena::HostWrite destination(reinterpret_cast<void*>(command.destination), command.size);
+    if (!destination.Open()) throw std::runtime_error("APR: the read destination of " + file.path.string() + " is not writable guest memory");
     stream.read(reinterpret_cast<char*>(command.destination), static_cast<std::streamsize>(command.size));
     if (stream.bad()) throw std::runtime_error("APR: read failed for " + file.path.string());
+    const auto read = static_cast<std::uint64_t>(stream.gcount());
+    if (read != command.size) throw std::runtime_error("APR: read of " + file.path.string() + " at offset " + std::to_string(command.offset) + " returned " + std::to_string(read) + " of " + std::to_string(command.size) + " bytes");
 }
 
 void _writeAddress(const Apr::WriteAddressCommand& command) {
@@ -139,19 +161,73 @@ void _writeAddress(const Apr::WriteAddressCommand& command) {
 
 std::array<std::atomic<std::uint32_t>, 256> g_counters{};
 
+std::mutex g_counterWrites;
+
 std::uint32_t _counter(std::uint32_t index) {
     return g_counters[index % g_counters.size()].load(std::memory_order_acquire);
 }
 
+struct CounterField {
+    std::uint32_t bits;
+    std::uint32_t shift;
+};
+
+CounterField _counterField(Apr::CounterAccess access) {
+    const auto value = static_cast<std::uint32_t>(access);
+    if (value == 0) return {64, 0};
+    if (value == 1) return {32, 0};
+    if (value < 4) return {16, (value - 2) * 16};
+    if (value < 8) return {8, (value - 4) * 8};
+    throw std::runtime_error("APR: counter access " + std::to_string(value) + " not implemented");
+}
+
+std::uint64_t _fieldMask(std::uint32_t bits) {
+    return bits == 64 ? ~std::uint64_t{0} : (std::uint64_t{1} << bits) - 1u;
+}
+
+std::uint64_t _readCounter(std::uint32_t index, Apr::CounterAccess access) {
+    const auto field = _counterField(access);
+    if (field.bits == 64) return _counter(index) | static_cast<std::uint64_t>(_counter(index + 1u)) << 32u;
+    return (_counter(index) >> field.shift) & _fieldMask(field.bits);
+}
+
+std::uint64_t _applyCounterOperation(Apr::CounterOperation operation, std::uint64_t current, std::uint64_t value) {
+    switch (operation) {
+        case Apr::CounterOperation::Store: return value;
+        case Apr::CounterOperation::AtomicOr: return current | value;
+        case Apr::CounterOperation::AtomicAndComplement: return current & ~value;
+        case Apr::CounterOperation::AtomicXor: return current ^ value;
+        case Apr::CounterOperation::AtomicAdd: return current + value;
+    }
+    throw std::runtime_error("APR: counter operation " + std::to_string(static_cast<std::uint32_t>(operation)) + " not implemented");
+}
+
+void _writeCounter(const Apr::WriteCounterCommand& command) {
+    const auto field = _counterField(command.access);
+    const std::lock_guard lock(g_counterWrites);
+    const std::uint64_t current = _readCounter(command.counter, command.access);
+    const std::uint64_t next = _applyCounterOperation(command.operation, current, command.value) & _fieldMask(field.bits);
+    auto& low = g_counters[command.counter % g_counters.size()];
+    if (field.bits == 64) {
+        g_counters[(command.counter + 1u) % g_counters.size()].store(static_cast<std::uint32_t>(next >> 32u), std::memory_order_release);
+        low.store(static_cast<std::uint32_t>(next), std::memory_order_release);
+        return;
+    }
+    const auto mask = static_cast<std::uint32_t>(_fieldMask(field.bits) << field.shift);
+    const auto bits = static_cast<std::uint32_t>(next << field.shift);
+    low.store((low.load(std::memory_order_relaxed) & ~mask) | bits, std::memory_order_release);
+}
+
 bool _waitSatisfied(std::uint32_t compare, std::uint64_t value, std::uint64_t reference) {
+    constexpr std::uint64_t sign = std::uint64_t{1} << 63u;
     switch (compare) {
-        case 0: return true;
-        case 1: return value < reference;
-        case 2: return value <= reference;
-        case 3: return value == reference;
-        case 4: return value != reference;
-        case 5: return value >= reference;
-        case 6: return value > reference;
+        case 0: return value == reference;
+        case 1: return value > reference;
+        case 2: return value < reference;
+        case 3: return value != reference;
+        case 4: return value - reference < sign;
+        case 5: return (value ^ sign) > (reference ^ sign);
+        case 6: return (value ^ sign) < (reference ^ sign);
         default: throw std::runtime_error("APR: wait compare function " + std::to_string(compare) + " not implemented");
     }
 }
@@ -172,6 +248,9 @@ void _execute(const Apr::CommandBufferObject& buffer) {
         if (header.bytes < sizeof(header) || cursor + header.bytes > buffer.offset) throw std::runtime_error("APR: malformed command");
         switch (header.opcode) {
         case Apr::Opcode::Nop:
+        case Apr::Opcode::PushMarker:
+        case Apr::Opcode::PopMarker:
+        case Apr::Opcode::SetMarker:
             break;
         case Apr::Opcode::ReadFile: {
             Apr::ReadFileCommand command;
@@ -186,18 +265,20 @@ void _execute(const Apr::CommandBufferObject& buffer) {
             break;
         }
         case Apr::Opcode::WriteCounter: {
-            const auto command = _read<Apr::WriteCounterCommand>(buffer, cursor);
-            g_counters[command.counter % g_counters.size()].store(command.value, std::memory_order_release);
+            _writeCounter(_read<Apr::WriteCounterCommand>(buffer, cursor));
             break;
         }
         case Apr::Opcode::WaitOnAddress:
         case Apr::Opcode::WaitOnCounter: {
             const auto command = _read<Apr::WaitCommand>(buffer, cursor);
+            const bool counter = header.opcode == Apr::Opcode::WaitOnCounter;
+            const std::uint32_t unused = counter ? 64u - _counterField(command.access).bits : 0u;
             const auto current = [&]() -> std::uint64_t {
-                if (header.opcode == Apr::Opcode::WaitOnCounter) return _counter(command.counter);
+                if (counter) return _readCounter(command.counter, command.access);
                 return std::atomic_ref<std::uint64_t>(*reinterpret_cast<std::uint64_t*>(command.address)).load(std::memory_order_acquire);
             };
-            while (!_waitSatisfied(command.compare, current() & command.mask, command.reference & command.mask)) std::this_thread::sleep_for(std::chrono::microseconds(50));
+            const std::uint64_t reference = (command.reference & command.mask) << unused;
+            while (!_waitSatisfied(command.compare, (current() & command.mask) << unused, reference)) std::this_thread::sleep_for(std::chrono::microseconds(50));
             break;
         }
         case Apr::Opcode::WriteKernelEventQueue: {
@@ -306,6 +387,25 @@ int APS5_VABI sceKernelAprSubmitCommandBufferAndGetResult(const Apr::CommandBuff
 int APS5_VABI sceKernelAprWaitCommandBuffer(uint32_t id) {
     (void)id;
     return 0;
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsToIdsForEach(const char** paths, uint32_t count, uint32_t* ids, int* results) {
+    return _resolveForEach(nullptr, paths, count, ids, nullptr, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsToIdsAndFileSizesForEach(const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!sizes) return _fail(GUEST_EINVAL);
+    return _resolveForEach(nullptr, paths, count, ids, sizes, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsWithPrefixToIdsForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, int* results) {
+    if (!prefix) return _fail(GUEST_EINVAL);
+    return _resolveForEach(prefix, paths, count, ids, nullptr, results);
+}
+
+int APS5_VABI sceKernelAprResolveFilepathsWithPrefixToIdsAndFileSizesForEach(const char* prefix, const char** paths, uint32_t count, uint32_t* ids, uint64_t* sizes, int* results) {
+    if (!prefix || !sizes) return _fail(GUEST_EINVAL);
+    return _resolveForEach(prefix, paths, count, ids, sizes, results);
 }
 
 }

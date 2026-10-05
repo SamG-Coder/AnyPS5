@@ -19,6 +19,7 @@ namespace {
     Quat orientation;
     std::uint64_t lastFuseTime = 0;
     float biasIntegral[3] = {0.0f, 0.0f, 0.0f};
+    bool tiltCorrection = true;
     std::uint8_t nextTouchId = 0;
     bool prevTouchActive[2] = {false, false};
     std::uint8_t touchIds[2] = {0, 0};
@@ -32,7 +33,7 @@ namespace {
     void fuse(float dt, const std::array<float, 3>& accel, const std::array<float, 3>& gyro) {
         float gx = gyro[0], gy = gyro[1], gz = gyro[2];
         const float an = std::sqrt(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2]);
-        if (an > 1.0f) {
+        if (tiltCorrection && an > 1.0f) {
             const float ax = accel[0] / an, ay = accel[1] / an, az = accel[2] / an;
             const float vx = 2.0f * (orientation.x * orientation.y + orientation.w * orientation.z);
             const float vy = orientation.w * orientation.w - orientation.x * orientation.x + orientation.y * orientation.y - orientation.z * orientation.z;
@@ -253,6 +254,12 @@ void Pad::SetTriggerCommand(int trigger, const std::uint8_t* command) {
 void Pad::ResetOrientation() {
     std::lock_guard lock(stateMutex);
     orientation = Quat{};
+    biasIntegral[0] = biasIntegral[1] = biasIntegral[2] = 0.0f;
+}
+
+void Pad::SetTiltCorrection(bool enabled) {
+    std::lock_guard lock(stateMutex);
+    tiltCorrection = enabled;
     biasIntegral[0] = biasIntegral[1] = biasIntegral[2] = 0.0f;
 }
 

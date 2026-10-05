@@ -22,6 +22,7 @@
 
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libSceSaveData/SaveDataFile.hpp"
 
 namespace savedata {
 
@@ -288,34 +289,7 @@ std::filesystem::path save_blocks_path(const std::filesystem::path& directory) {
 }
 
 bool write_blob(const std::filesystem::path& path, const void* data, std::size_t size) {
-    std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
-    auto temporary = path;
-    temporary += ".tmp";
-    {
-        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-        if (!file) {
-            return false;
-        }
-        if (size != 0) {
-            file.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
-        }
-        file.flush();
-        if (!file) {
-            return false;
-        }
-    }
-    error.clear();
-    std::filesystem::rename(temporary, path, error);
-    if (error) {
-        std::error_code ignored;
-        std::filesystem::remove(path, ignored);
-        error.clear();
-        std::filesystem::rename(temporary, path, error);
-    }
-    std::error_code leftovers;
-    std::filesystem::remove(temporary, leftovers);
-    return !error;
+    return replace_file(path, data, size);
 }
 
 bool read_blob(const std::filesystem::path& path, void* data, std::size_t size) {

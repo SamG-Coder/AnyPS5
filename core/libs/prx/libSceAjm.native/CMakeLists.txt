@@ -29,3 +29,21 @@ target_include_directories(libSceAjm.native PRIVATE
 )
 target_link_libraries(libSceAjm.native PRIVATE atrac9 ffmpeg libc libkernel)
 configure_windows_unwind(libSceAjm.native)
+
+if(MINGW)
+    foreach(runtimeLinkFlag IN ITEMS -static-libgcc -static-libstdc++ -static)
+        string(REPLACE "${runtimeLinkFlag}" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+    endforeach()
+endif()
+
+if(BUILD_TESTING)
+    add_test_executable(guest_ajm_tests ${LIBS_INCLUDE_DIR}/tests/GuestAjm.cpp)
+    target_include_directories(guest_ajm_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(guest_ajm_tests PRIVATE libSceAjm.native libc)
+    configure_windows_unwind(guest_ajm_tests)
+    add_test(NAME guest_ajm COMMAND guest_ajm_tests)
+    if(WIN32)
+        set_tests_properties(guest_ajm PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceAjm.native>")
+    endif()
+endif()

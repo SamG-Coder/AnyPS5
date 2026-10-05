@@ -204,9 +204,14 @@ int APS5_VABI sceHttp2WaitAsync(int req_id, Http2AsyncResult* result, uint32_t* 
     return ERROR_NETWORK;
 }
 
-int APS5_VABI sceHttp2AbortRequest() {
- NotImplemented_nid_no_patch(__func__);
- return 0;
+int APS5_VABI sceHttp2AbortRequest(int req_id) {
+    (void)req_id;
+    return 0;
+}
+
+int APS5_VABI sceHttp2GetMemoryPoolStats() {
+    NotImplemented_nid_no_patch(__func__);
+    return 0;
 }
 
 }

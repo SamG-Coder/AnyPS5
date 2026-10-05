@@ -2,6 +2,7 @@
 #define CORE_SHADER_RECOMPILIER_OPTIMIZATION_INCLUDE_OPTIMIZATION_SHADERSTAGEINPUTINFO_HPP
 
 #include "IntermediateRepresentation/IrMetadata.hpp"
+#include "Recompiler.hpp"
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -107,7 +108,7 @@ struct ShaderMeshInputInfo: ShaderWorkgroupInputInfo {
         return inputPrimitive == 1u ? 1u : inputPrimitive == 2u ? 2u : 3u;
     }
     [[nodiscard]] std::uint32_t InputPrimitiveStep() const {
-        return inputPrimitive == 6u ? 1u : InputPrimitiveSize();
+        return inputPrimitive == 5u || inputPrimitive == 6u ? 1u : InputPrimitiveSize();
     }
     [[nodiscard]] std::uint32_t InputPrimitiveCount(std::uint32_t vertices) const {
         return vertices < InputPrimitiveSize() ? 0u : (vertices - InputPrimitiveSize()) / InputPrimitiveStep() + 1u;
@@ -183,6 +184,7 @@ struct ShaderPixelInputInfo {
     bool psSampleShading = false;
     bool psEarlyZ = false;
     bool psExecuteOnNoop = false;
+    ConservativeZExport psConservativeZExport = ConservativeZExport::AnyZ;
     ShaderStageRuntime stage;
 
     bool HasPositionInput() const {

@@ -4,7 +4,7 @@ Tool for automatic executables porting to Linux and Windows.
 
 Includes a [relinker](core/relinker) that converts executable to the target system's native format and implementations of [system prx libraries](core/libs/prx) suitable for dynamic linking. No emulation or separate runtime process.
 
-
+[Usage](docs/user/USAGE.md), [Build instructions](docs/dev/BUILD.md), [Technical debt of the project](docs/dev/TechnicalDebt.md), [code style conventions](docs/dev/CONVENTIONS.md), [contributing](CONTRIBUTING.md)
 
 ## Status
 
@@ -21,18 +21,6 @@ Dreaming Sarah (2D platformer) runs at a stable 60 fps on a GTX 1050 Ti / i5-750
 Unsupported or unexpected states strictly throw `std::runtime_error`. `what()` is printed to stderr and the process terminates.
 
 The [shader recompiler](core/shader/recompiler/Recompiler.cpp) successfully produces SPIR-V (validated via [Spirv-Tools](3rdparty/SPIRV-Tools) when built with `ANYPS5_ENABLE_SPIRV_TOOLS`).
-
-[Technical debt of the project](docs/dev/TechnicalDebt.md), [code style conventions](docs/dev/CONVENTIONS.md), [contributing](CONTRIBUTING.md)
-
-## Build
-
-The relinker uses only the C++20 standard library and should build with any conforming compiler.
-
-On Intel hosts, pass `--to-intel` to the relinker to lower supported AMD-only instructions in the executable and bundled `sce_module`/`sce_modules` PRX files. Unsupported instructions or stub jumps outside the x86-64 relative branch range produce an error.
-
-[libc.prx](core/libs/prx/libc) implementations contain compiler-specific code. Linux builds work with GCC; on Windows, MinGW-w64 GCC 15.2.0 (`winlibs-gcc15`, `x86_64-ucrt-posix-seh`) is currently required.
-
-The project targets maximum compiler portability (but now it is not implemented).
 
 ## Compatibility
 

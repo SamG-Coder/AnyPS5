@@ -6,6 +6,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Pm4.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Recipe.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/Recorder.hpp"
 #include <memory>
 #include <vector>
 
@@ -17,7 +18,37 @@ namespace AgcDriver::Graphics {
 void Draw(const Context& context, const State& state, const Pm4::DrawParameters& draw, std::span<const CompiledShader> shaders, std::span<const GuestMemorySnapshot> snapshots = {}, std::shared_ptr<const DrawRecipe>* recipe = nullptr);
 std::optional<std::string> KnownValidationFailure(const Context& context, std::span<const CompiledShader> shaders, const State& state);
 
+struct DrawInputCopy {
+    std::shared_ptr<Buffer> buffer;
+    bool reused = false;
+    std::uint32_t derived = 0;
+    std::uint64_t generation = 0;
+    std::uint64_t registryGeneration = 0;
+};
+DrawInputCopy CopyDrawInput(const Context& context, Recorder* recorder, std::uint64_t address, std::size_t bytes, std::size_t alignment, Recorder::SnapshotUse use);
+void KeepDrawInput(Recorder* recorder, std::uint64_t address, const DrawInputCopy& copy, Recorder::SnapshotUse use, std::uint32_t derived);
+
 std::array<std::uint32_t, 4> MeshIndexBufferDescriptor(const Pm4::DrawParameters& draw, std::uint64_t unreadAddress);
+
+struct MeshArguments {
+    std::uint32_t groups;
+    std::uint32_t instances;
+    std::uint32_t layers;
+    std::uint32_t indexCount;
+    std::uint32_t firstIndex;
+};
+static_assert(sizeof(MeshArguments) == ShaderRecompiler::MeshArgumentBytes);
+struct MeshArgumentRules {
+    std::uint32_t indexCount;
+    std::uint32_t inputSize;
+    std::uint32_t step;
+    std::uint32_t primitivesPerGroup;
+    std::uint32_t maxGroups;
+    std::uint32_t maxInstances;
+    std::uint32_t maxTotal;
+};
+MeshArgumentRules MeshArgumentRulesFor(const Context& context, const ShaderRecompiler::MeshConfiguration& mesh, std::uint32_t indexCount);
+MeshArguments ResolveMeshArguments(const Pm4::DrawArguments& record, const MeshArgumentRules& rules);
 
 // Why DrawWithRecipe did not record from the recipe (the caller then runs Draw): the draw is not
 // recordable (no recorder, APS5_SYNC_DRAWS, APS5_DUMP_TARGETS), a resident target is gone from the

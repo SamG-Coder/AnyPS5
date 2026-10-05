@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/Driver/Driver.hpp"
+#include "ThreadOwned.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Diagnostics.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/SynchronizationStatistics.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver/Synchronization/DeferredLabels.hpp"
@@ -97,7 +98,8 @@ void Driver::execute(const Submission& submission) {
 
     static const bool profilePackets = std::getenv("APS5_PROFILE_DRAW") != nullptr;
 
-    thread_local PacketProfile packetProfile;
+    thread_local PacketProfile* packetProfileSlot = nullptr;
+    auto& packetProfile = ShaderRecompiler::ThreadOwned(packetProfileSlot);
     ++packetProfile.submissions;
 
     bumpEpoch(&EpochBumps::submissions);
@@ -109,11 +111,23 @@ void Driver::execute(const Submission& submission) {
         const auto count = Pm4::PacketWords(header);
         const auto packet = std::span(submission.commands).subspan(cursor, count);
         const auto opcode = (header >> 8u) & 0xffu;
+        auto nextCursor = cursor + count;
         std::shared_lock deviceUse(deviceReplacement, std::defer_lock);
         if (opcode != 0x3c && opcode != 0x93 && header != RenderingWaitPacketHeader && header != FlipPacketHeader) deviceUse.lock();
 
         GuestMemory::SetCurrentPacket(header == FlipPacketHeader ? 0xffffu : opcode, submission.queue);
         CaptureTrace::Log("packet submission=%llu queue=%x offset=%zu header=%08x words=%zu", static_cast<unsigned long long>(submission.serial), submission.queue, cursor, header, packet.size());
+        if (Pm4::Predicated(header) && queue.predication.operation != 0) {
+            recordQueuedLabelsBeforeRead(submission.queue);
+            if (!Pm4::PredicationPasses(queue)) {
+                cursor = opcode == 0x3f ? submission.conditionalEnds.at(cursor) : nextCursor;
+                continue;
+            }
+        }
+        if (opcode == 0x3f) {
+            cursor = nextCursor;
+            continue;
+        }
 
         const auto flushStart = profilePackets ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         flushBetweenPackets(submission.queue, header, opcode == 0x49 || opcode == 0x37);
@@ -152,8 +166,8 @@ void Driver::execute(const Submission& submission) {
         };
         if (profilePackets) packetProfile.flushMs += std::chrono::duration<double, std::milli>(packetTimer.start - flushStart).count();
 
-        bool wroteOnGpu = false, endOfPipeInterrupt = false, drawPacket = false, sampleDump = false;
-        const bool drains = preparePacketMemory(submission, queue, packet, header, opcode, wroteOnGpu, endOfPipeInterrupt, drawPacket, sampleDump);
+        bool wroteOnGpu = false, endOfPipeInterrupt = false, interruptDeferred = false, drawPacket = false, sampleDump = false;
+        const bool drains = preparePacketMemory(submission, queue, packet, header, opcode, wroteOnGpu, endOfPipeInterrupt, interruptDeferred, drawPacket, sampleDump);
         traceLabel(packet, submission.queue);
 
         const bool waitPacket = opcode == 0x3c || opcode == 0x93 || header == RenderingWaitPacketHeader;
@@ -270,7 +284,12 @@ void Driver::execute(const Submission& submission) {
                 }
             }); });
             finishDrawPacket(drawn);
-        } else if (sampleDump) {
+        } else if (opcode == 0x22) {
+            recordQueuedLabelsBeforeRead(submission.queue);
+            const auto condition = Pm4::ReadCondition(packet);
+            if (condition == 0) nextCursor = submission.conditionalEnds.at(cursor);
+            if (traceGpu) std::fprintf(stderr, "[gpu] %.1f queue 0x%x COND_EXEC at DWORD %zu reads 0x%x at 0x%llx: %s %zu dwords\n", TraceMs(), submission.queue, cursor, condition, static_cast<unsigned long long>(packet[1] | (static_cast<std::uint64_t>(packet[2]) << 32u)), condition == 0 ? "skips" : "executes", submission.conditionalEnds.at(cursor) - cursor - count);
+        } else if (sampleDump && !wroteOnGpu) {
             dumpSampleCounters(packet[2] | (static_cast<std::uint64_t>(packet[3]) << 32u));
         } else if (opcode != 0x42 && opcode != 0x46 && opcode != 0x58) {
             if (!wroteOnGpu) {
@@ -279,10 +298,10 @@ void Driver::execute(const Submission& submission) {
                     if (const auto label = Pm4::DecodeLabelWrite(packet)) noteLabelStore(label->address, label->Bytes(), ++eventSerial);
                 }
             }
-            if (endOfPipeInterrupt) AgcDriverDeliverEopInterrupt(submission.queue);
+            if (endOfPipeInterrupt && !interruptDeferred) AgcDriverDeliverEopInterrupt(submission.queue);
         }
-        if (drawPacket) Graphics::Recorder::CountRecordedWork();
-        cursor += count;
+        if (drawPacket || (sampleDump && wroteOnGpu)) Graphics::Recorder::CountRecordedWork();
+        cursor = nextCursor;
     }
 
     static const bool submitAtEnd = std::getenv("APS5_SUBMIT_AT_END") != nullptr;

@@ -72,7 +72,7 @@ namespace ShaderRecompiler
             if (input.kind != StageInputKind::Parameter) continue;
             const auto location = PixelInputLocation(pixel, input.location);
             if (std::any_of(result.begin(), result.end(), [&](const auto& parameter) { return parameter.location == location; })) continue;
-            result.push_back({location, location, PixelInputIsFlat(pixel, input.location), input.perVertex});
+            result.push_back({location, location, PixelInputIsFlat(pixel, input.location), input.perVertex, PixelInputIsCustom(pixel, input.location)});
         }
         return result;
     }

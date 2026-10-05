@@ -61,9 +61,9 @@ static void CommitArenaRange(void* addr, size_t len, DWORD winProt) {
     GuestArena::GuestArenaCommit_nid_postfix(addr, len, winProt, PS5_PAGE_SIZE);
 }
 
-static void* mmap_aligned(size_t len, int prot, size_t alignment) {
+static void* mmap_aligned(size_t len, int prot, size_t alignment, std::uintptr_t hint = 0) {
     auto& arena = KernelArena::Get();
-    void* result = arena.Allocate(len, alignment);
+    void* result = GuestArena::GuestArenaAllocateAtOrAbove_nid_postfix(hint, len, alignment);
     if (prot != PROT_NONE) {
         try {
             CommitArenaRange(result, len, WinProtFromPosix(prot));
@@ -226,7 +226,12 @@ public:
 #ifdef _WIN32
         const auto size = static_cast<std::uint64_t>(bytes);
         section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_EXECUTE_READWRITE, static_cast<DWORD>(size >> 32), static_cast<DWORD>(size), nullptr);
-        if (!section) throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "create direct memory backing");
+        if (!section) {
+            const auto error = static_cast<int>(GetLastError());
+            char message[96];
+            std::snprintf(message, sizeof(message), "create direct memory backing of 0x%llx bytes (%llu MiB)", static_cast<unsigned long long>(size), static_cast<unsigned long long>((size + 0xFFFFF) >> 20));
+            throw std::system_error(error, std::system_category(), message);
+        }
 #else
         file = memfd_create("direct memory", MFD_CLOEXEC);
         if (file < 0) throw std::system_error(errno, std::generic_category(), "create direct memory backing");
@@ -389,11 +394,7 @@ void* MapPlaced(void* addr, size_t len, int prot, int flags, size_t alignment) {
     constexpr int GuestMapFixed = 0x10;
     constexpr int GuestMapNoOverwrite = 0x80;
     constexpr int GuestMapNoCoalesce = 0x400000;
-#if defined(__linux__)
     constexpr int SupportedFlags = GuestMapFixed | GuestMapNoOverwrite | GuestMapNoCoalesce;
-#else
-    constexpr int SupportedFlags = GuestMapFixed | GuestMapNoCoalesce;
-#endif
     if ((flags & ~SupportedFlags) != 0) {
         char message[64];
         std::snprintf(message, sizeof(message), "Unsupported memory mapping flags 0x%x", flags);
@@ -401,6 +402,32 @@ void* MapPlaced(void* addr, size_t len, int prot, int flags, size_t alignment) {
     }
     if ((flags & GuestMapFixed) != 0) {
         ValidateRange(addr, len, alignment);
+#ifdef _WIN32
+        if ((flags & GuestMapNoOverwrite) != 0) {
+            const auto start = reinterpret_cast<std::uintptr_t>(addr);
+            auto cursor = start;
+            while (cursor - start < len) {
+                MEMORY_BASIC_INFORMATION info{};
+                if (VirtualQuery(reinterpret_cast<LPCVOID>(cursor), &info, sizeof(info)) != sizeof(info))
+                    throw std::system_error(EINVAL, std::generic_category(), "No-overwrite range query failed");
+                if (info.State == MEM_FREE) {
+                    cursor = reinterpret_cast<std::uintptr_t>(info.BaseAddress) + info.RegionSize;
+                    continue;
+                }
+                const auto regionEnd = reinterpret_cast<std::uintptr_t>(info.BaseAddress) + info.RegionSize;
+                if (regionEnd <= cursor) throw std::system_error(EINVAL, std::generic_category(), "No-overwrite range query failed");
+                const auto usedEnd = std::min(regionEnd, start + len);
+                const auto usedBegin = std::max(reinterpret_cast<std::uintptr_t>(info.BaseAddress), start);
+                if (info.State != MEM_RESERVE || !GuestArena::GuestArenaContains_nid_postfix(reinterpret_cast<void*>(usedBegin), usedEnd - usedBegin)) {
+                    char busy[160];
+                    std::snprintf(busy, sizeof(busy), "No-overwrite range %p+0x%zx is occupied (state=0x%lx prot=0x%lx)", addr, len,
+                        (unsigned long)info.State, (unsigned long)info.Protect);
+                    throw std::system_error(EEXIST, std::generic_category(), busy);
+                }
+                cursor = usedEnd;
+            }
+        }
+#endif
 #if defined(__linux__)
         const int placement = (flags & GuestMapNoOverwrite) != 0 ? MAP_FIXED_NOREPLACE : MAP_FIXED;
 #else
@@ -417,7 +444,7 @@ void* MapPlaced(void* addr, size_t len, int prot, int flags, size_t alignment) {
 #if defined(__linux__)
         return MapAtOrAbove(reinterpret_cast<std::uintptr_t>(addr), len, prot, alignment);
 #else
-        throw std::invalid_argument("Non-fixed mapping address hints are not implemented");
+        return mmap_aligned(len, prot, alignment, reinterpret_cast<std::uintptr_t>(addr));
 #endif
     }
 #ifdef _WIN32
@@ -597,6 +624,11 @@ int DoReserveVirtual(void** addr, size_t len, int flags, size_t alignment) {
     if (len == 0 || (len & (PS5_PAGE_SIZE - 1)) != 0) return SCE_KERNEL_ERROR_EINVAL;
     GuestAllocations::Mutation mutation;
     const bool fixed = *addr != nullptr && (flags & GuestMapFixedFlag) != 0;
+    if (fixed && mutation.Covers(*addr, len)) {
+        constexpr int GuestMapNoOverwrite = 0x80;
+        if ((flags & GuestMapNoOverwrite) == 0 && RemapFixedIntoRegistered(mutation, *addr, len, 0, GuestMapFixedFlag)) return 0;
+        mutation.RequireAvailable(*addr, len);
+    }
     if (fixed) mutation.RequireAvailable(*addr, len);
     constexpr int GuestMapNoCoalesce = 0x400000;
     void* mapped = MapAligned(fixed ? *addr : nullptr, len, PROT_NONE, fixed ? GuestMapFixedFlag | (flags & GuestMapNoCoalesce) : 0, alignment);

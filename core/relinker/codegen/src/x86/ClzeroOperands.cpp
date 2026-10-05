@@ -22,6 +22,10 @@ ClzeroOperands DecodeClzero(const std::uint8_t* data, const std::size_t length) 
 
     while (pos < length) {
         const std::uint8_t b = data[pos];
+        if (b >= RexMin && b <= RexMax) {
+            pos += 1;
+            continue;
+        }
         if (b == PrefixLock) {
             throw CodegenException("CLZERO with a LOCK prefix");
         }
@@ -36,10 +40,6 @@ ClzeroOperands DecodeClzero(const std::uint8_t* data, const std::size_t length) 
         } else if (b != PrefixSegCs && b != PrefixSegSs && b != PrefixSegDs && b != PrefixSegEs) {
             break;
         }
-        pos += 1;
-    }
-
-    if (pos < length && data[pos] >= RexMin && data[pos] <= RexMax) {
         pos += 1;
     }
 

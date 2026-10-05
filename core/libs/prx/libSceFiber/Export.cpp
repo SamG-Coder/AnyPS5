@@ -2,6 +2,7 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +27,7 @@ static constexpr int32_t SCE_FIBER_ERROR_STATE = static_cast<int32_t>(0x80590006
 static constexpr std::size_t FIBER_OBJECT_SIZE = 0x100;
 static constexpr std::size_t FIBER_OPT_PARAM_SIZE = 0x80;
 static constexpr std::size_t FIBER_MIN_CONTEXT_SIZE = 512;
+static constexpr std::uint64_t FIBER_CONTEXT_FILL = 0xdeadbeefdeadbeefull;
 
 using GuestFiberEntry = void (APS5_VABI*)(std::uint64_t argOnInitialize, std::uint64_t argOnRun);
 
@@ -49,10 +51,13 @@ struct Fiber {
     std::uint64_t contextSize;
     void* savedStack;
     char name[FIBER_MAX_NAME_LENGTH + 1];
+    bool contextSizeCheck;
 };
 static_assert(sizeof(Fiber) <= FIBER_OBJECT_SIZE, "guest reserves 0x100 bytes for SceFiber");
 
 static constexpr std::uint64_t FIBER_MAGIC = 0x5245424946355041ull;
+
+static std::atomic<bool> g_contextSizeCheck{false};
 
 struct StackBounds {
     void* base;
@@ -63,6 +68,7 @@ struct StackBounds {
 struct ThreadFiberState {
     Fiber* current = nullptr;
     void* threadStack = nullptr;
+    std::uint64_t threadFramePointer = 0;
     StackBounds threadBounds{};
     std::uint64_t transfer = 0;
     Fiber* pendingSuspend = nullptr;
@@ -319,6 +325,11 @@ int32_t APS5_VABI _sceFiberInitializeImpl_nid_postfix(FiberObject* object, const
     fiber->context = static_cast<std::uint8_t*>(addr_context);
     fiber->contextSize = size_context;
     std::strncpy(fiber->name, name, FIBER_MAX_NAME_LENGTH);
+    fiber->contextSizeCheck = g_contextSizeCheck.load(std::memory_order_relaxed);
+    if (fiber->contextSizeCheck) {
+        auto* words = static_cast<std::uint64_t*>(addr_context);
+        std::fill(words, words + size_context / sizeof(std::uint64_t), FIBER_CONTEXT_FILL);
+    }
     if (TraceFibers()) std::fprintf(stderr, "[fiber] init %s object=%p context=%p+0x%llx entry=%p\n", fiber->name, static_cast<void*>(object), addr_context, static_cast<unsigned long long>(size_context), reinterpret_cast<void*>(entry));
     return SCE_OK;
 }
@@ -337,6 +348,7 @@ int32_t APS5_VABI sceFiberRun_nid_postfix(FiberObject* object, uint64_t arg_on_r
     if (!fiber) return object ? SCE_FIBER_ERROR_INVALID : SCE_FIBER_ERROR_NULL;
     if (ThreadState().current) return SCE_FIBER_ERROR_PERMISSION;
     if (!AcquireForResume(fiber)) return SCE_FIBER_ERROR_STATE;
+    ThreadState().threadFramePointer = reinterpret_cast<std::uint64_t>(static_cast<void**>(__builtin_frame_address(0))[0]);
     ThreadState().threadBounds = CurrentBounds();
     Resume(fiber, &ThreadState().threadStack, arg_on_run);
     CompletePendingSuspend();
@@ -401,6 +413,11 @@ int32_t APS5_VABI sceFiberGetInfo(FiberObject* object, FiberInfo* fiber_info) {
     fiber_info->size_context = fiber->contextSize;
     std::memcpy(fiber_info->name, fiber->name, sizeof(fiber_info->name));
     fiber_info->size_context_margin = static_cast<uint64_t>(-1);
+    if (fiber->contextSizeCheck) {
+        const auto* words = reinterpret_cast<const std::uint64_t*>(fiber->context);
+        const auto* end = words + fiber->contextSize / sizeof(std::uint64_t);
+        fiber_info->size_context_margin = static_cast<uint64_t>(std::find_if(words, end, [](std::uint64_t word) { return word != FIBER_CONTEXT_FILL; }) - words) * sizeof(std::uint64_t);
+    }
     return SCE_OK;
 }
 
@@ -419,20 +436,21 @@ int32_t APS5_VABI sceFiberOptParamInitialize(FiberOptParam* opt_param) {
 }
 
 int32_t APS5_VABI sceFiberGetThreadFramePointerAddress(uint64_t* addr_frame_pointer) {
-    (void)addr_frame_pointer;
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+    if (!addr_frame_pointer) return SCE_FIBER_ERROR_NULL;
+    if (!ThreadState().current) return SCE_FIBER_ERROR_PERMISSION;
+    *addr_frame_pointer = ThreadState().threadFramePointer;
+    return SCE_OK;
 }
 
 int32_t APS5_VABI sceFiberStartContextSizeCheck(uint32_t flags) {
-    (void)flags;
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+    if (flags != 0) return SCE_FIBER_ERROR_INVALID;
+    bool expected = false;
+    return g_contextSizeCheck.compare_exchange_strong(expected, true) ? SCE_OK : SCE_FIBER_ERROR_STATE;
 }
 
 int32_t APS5_VABI sceFiberStopContextSizeCheck(void) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+    bool expected = true;
+    return g_contextSizeCheck.compare_exchange_strong(expected, false) ? SCE_OK : SCE_FIBER_ERROR_STATE;
 }
 
 }
